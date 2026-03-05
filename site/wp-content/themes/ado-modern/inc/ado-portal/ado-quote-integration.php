@@ -21,6 +21,7 @@ final class ADO_Quote_Integration
     private function __construct()
     {
         add_action('init', [$this, 'register_post_type']);
+        add_action('template_redirect', [$this, 'maybe_hydrate_checkout_quote'], 1);
         add_filter('woocommerce_get_item_data', [$this, 'cart_item_door_meta'], 10, 2);
         add_action('woocommerce_checkout_create_order_line_item', [$this, 'copy_cart_meta_to_order_item'], 10, 4);
         add_action('woocommerce_checkout_create_order', [$this, 'attach_quote_to_order'], 20, 1);
@@ -242,6 +243,73 @@ final class ADO_Quote_Integration
         WC()->session->set('ado_last_scope_url', (string) get_post_meta($quote_id, '_adq_scope_url', true));
         WC()->session->set('ado_last_scope_path', (string) get_post_meta($quote_id, '_adq_scope_path', true));
         return ['ok' => true, 'cart_url' => wc_get_cart_url(), 'checkout_url' => wc_get_checkout_url()];
+    }
+
+    public function maybe_hydrate_checkout_quote(): void
+    {
+        if (is_admin() || wp_doing_ajax()) {
+            return;
+        }
+        if (!function_exists('is_checkout') || !is_checkout()) {
+            return;
+        }
+        if (function_exists('is_order_received_page') && is_order_received_page()) {
+            return;
+        }
+        if (!function_exists('WC') || !WC()->cart || !WC()->session) {
+            return;
+        }
+
+        $quote_id = isset($_GET['ado_quote_id']) ? (int) $_GET['ado_quote_id'] : 0;
+        if ($quote_id <= 0) {
+            return;
+        }
+        if (!is_user_logged_in()) {
+            wc_add_notice('Please sign in to continue this quote checkout.', 'error');
+            return;
+        }
+
+        $user_id = (int) get_current_user_id();
+        if (!$this->quote_belongs_to_user($quote_id, $user_id) && !current_user_can('manage_woocommerce')) {
+            wc_add_notice('Quote access denied.', 'error');
+            return;
+        }
+        if ((string) get_post_meta($quote_id, '_adq_status', true) === 'ordered') {
+            return;
+        }
+
+        if ($this->cart_matches_quote($quote_id)) {
+            WC()->session->set('adq_active_quote_id', $quote_id);
+            return;
+        }
+
+        $loaded = $this->load_quote_to_cart($quote_id, $user_id);
+        if (empty($loaded['ok'])) {
+            wc_add_notice((string) ($loaded['message'] ?? 'Failed to load quote into checkout.'), 'error');
+            return;
+        }
+
+        $this->update_quote_status($quote_id, 'submitted');
+    }
+
+    private function cart_matches_quote(int $quote_id): bool
+    {
+        if (!function_exists('WC') || !WC()->cart) {
+            return false;
+        }
+        $cart = WC()->cart->get_cart();
+        if (!$cart) {
+            return false;
+        }
+        foreach ($cart as $row) {
+            if (!is_array($row)) {
+                return false;
+            }
+            if ((int) ($row['adq_quote_id'] ?? 0) !== $quote_id) {
+                return false;
+            }
+        }
+        return true;
     }
 
     public function update_quote_status(int $quote_id, string $status): void

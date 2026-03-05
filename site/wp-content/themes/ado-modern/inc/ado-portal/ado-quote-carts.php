@@ -19,6 +19,12 @@ function ado_quote_ordered_url(int $quote_id): string
     return esc_url(add_query_arg(['view' => 'projects', 'quote_id' => $quote_id], home_url('/client-dashboard/')));
 }
 
+function ado_quote_checkout_url(int $quote_id): string
+{
+    $base = function_exists('wc_get_checkout_url') ? wc_get_checkout_url() : home_url('/checkout/');
+    return esc_url(add_query_arg(['ado_quote_id' => max(0, $quote_id)], $base));
+}
+
 function ado_quote_totals_html(array $totals): string
 {
     $subtotal = isset($totals['subtotal']) ? (float) $totals['subtotal'] : 0.0;
@@ -203,7 +209,7 @@ function ado_render_quote_drafts_html(int $user_id): string
         echo '<div class="ado-row">';
         echo '<a class="button" href="' . ado_quote_url((int) $quote['id']) . '">Open</a>';
         if ($status !== 'ordered') {
-            echo '<button class="button ado-load-draft" data-id="' . esc_attr((string) $quote['id']) . '">Load to Cart</button>';
+            echo '<a class="button button-primary" href="' . ado_quote_checkout_url((int) $quote['id']) . '">Checkout</a>';
             echo '<button class="button ado-rename-draft" data-id="' . esc_attr((string) $quote['id']) . '">Rename</button>';
             echo '<button class="button ado-delete-draft" data-id="' . esc_attr((string) $quote['id']) . '">Delete</button>';
         }
@@ -258,8 +264,7 @@ function ado_render_quote_detail(int $user_id, int $quote_id): string
     echo '<div class="ado-row"><span class="ado-chip">' . esc_html(ucfirst((string) $row['status'])) . '</span><span class="ado-chip">Items: ' . esc_html((string) $row['total_items']) . '</span><span class="ado-chip">Subtotal: ' . wp_kses_post((string) $row['subtotal_html']) . '</span></div>';
     echo '<div class="ado-row">';
     if ((string) $row['status'] !== 'ordered') {
-        echo '<button class="button button-primary ado-load-draft" data-id="' . esc_attr((string) $quote_id) . '">Load Quote to Cart</button>';
-        echo '<a class="button" href="' . esc_url(wc_get_checkout_url()) . '">Go to Checkout</a>';
+        echo '<a class="button button-primary" href="' . ado_quote_checkout_url($quote_id) . '">Checkout This Quote</a>';
     } elseif ((int) $row['order_id'] > 0) {
         echo '<a class="button" href="' . esc_url(wc_get_endpoint_url('view-order', (string) ((int) $row['order_id']), wc_get_page_permalink('myaccount'))) . '">Open Project Order #' . esc_html((string) ((int) $row['order_id'])) . '</a>';
     }
@@ -358,9 +363,9 @@ add_action('wp_ajax_ado_load_quote_draft', static function (): void {
     ado_quote_integration()->update_quote_status($quote_id, 'submitted');
 
     wp_send_json_success([
-        'message' => 'Quote loaded into cart.',
+        'message' => 'Quote checkout is ready.',
         'cart_url' => (string) ($loaded['cart_url'] ?? wc_get_cart_url()),
-        'checkout_url' => (string) ($loaded['checkout_url'] ?? wc_get_checkout_url()),
+        'checkout_url' => ado_quote_checkout_url($quote_id),
     ]);
 });
 
@@ -472,12 +477,6 @@ add_shortcode('ado_quote_workspace', static function (): string {
           .fail(function(){ cb({success:false,data:{message:'Request failed'}}); });
       }
       function bindQuoteButtons(){
-        $('#ado-drafts-wrap .ado-load-draft').off('click').on('click', function(){
-          post('ado_load_quote_draft', {draft_id: $(this).data('id')}, function(res){
-            if (!res.success) { status(res.data && res.data.message ? res.data.message : 'Failed', true); return; }
-            window.location.href = (res.data && res.data.checkout_url) ? res.data.checkout_url : '<?php echo esc_js(wc_get_checkout_url()); ?>';
-          });
-        });
         $('#ado-drafts-wrap .ado-delete-draft').off('click').on('click', function(){
           if (!window.confirm('Delete this quote?')) { return; }
           post('ado_delete_quote_draft', {draft_id: $(this).data('id')}, function(res){
