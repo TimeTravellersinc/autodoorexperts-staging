@@ -1,0 +1,32 @@
+# Secrets and local artifacts
+.env
+site/wp-config.php
+meta/
+
+# Database dumps/backups
+db/*.sql
+db/*.gz
+db/*.zip
+
+# Ignore full cloned site by default
+site/*
+!site/wp-content/
+site/wp-content/*
+!site/wp-content/plugins/
+!site/wp-content/themes/
+!site/wp-content/mu-plugins/
+
+# Keep plugin/theme code tracked; ignore generated/runtime data
+site/wp-content/uploads/
+site/wp-content/cache/
+site/wp-content/upgrade/
+site/wp-content/backups/
+site/wp-content/ai1wm-backups/
+site/wp-content/debug.log
+site/error_log
+site/*.log
+
+# OS/editor
+.DS_Store
+Thumbs.db
+.vscode/.history/

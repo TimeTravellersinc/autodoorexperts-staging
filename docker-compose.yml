@@ -1,0 +1,51 @@
+version: "3.9"
+
+services:
+  db:
+    image: mariadb:10.11
+    container_name: autodoorexperts_db
+    restart: unless-stopped
+    environment:
+      MYSQL_DATABASE: ${WORDPRESS_DB_NAME}
+      MYSQL_USER: ${WORDPRESS_DB_USER}
+      MYSQL_PASSWORD: ${WORDPRESS_DB_PASSWORD}
+      MYSQL_ROOT_PASSWORD: ${WORDPRESS_DB_ROOT_PASSWORD}
+    command: --default-authentication-plugin=mysql_native_password
+    volumes:
+      - db_data:/var/lib/mysql
+      - ./db/autodoorexperts_prod.sql:/docker-entrypoint-initdb.d/01-prod.sql:ro
+
+  wordpress:
+    image: wordpress:6.7-php8.2-apache
+    container_name: autodoorexperts_wp
+    restart: unless-stopped
+    depends_on:
+      - db
+    ports:
+      - "${WORDPRESS_PORT}:80"
+    environment:
+      WORDPRESS_DB_HOST: ${WORDPRESS_DB_HOST}
+      WORDPRESS_DB_USER: ${WORDPRESS_DB_USER}
+      WORDPRESS_DB_PASSWORD: ${WORDPRESS_DB_PASSWORD}
+      WORDPRESS_DB_NAME: ${WORDPRESS_DB_NAME}
+      WORDPRESS_TABLE_PREFIX: ${WORDPRESS_TABLE_PREFIX}
+      WP_HOME: ${WP_HOME}
+      WP_SITEURL: ${WP_SITEURL}
+    volumes:
+      - ./site:/var/www/html
+
+  phpmyadmin:
+    image: phpmyadmin:5-apache
+    container_name: autodoorexperts_pma
+    restart: unless-stopped
+    depends_on:
+      - db
+    ports:
+      - "${PHPMYADMIN_PORT}:80"
+    environment:
+      PMA_HOST: db
+      PMA_USER: root
+      PMA_PASSWORD: ${WORDPRESS_DB_ROOT_PASSWORD}
+
+volumes:
+  db_data:
