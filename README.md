@@ -13,6 +13,10 @@ cd C:\Users\marcr.TIME_MACHINE\Downloads\wordpress-dev\autodoorexperts-staging
 
 - WordPress: http://localhost:8080
 - phpMyAdmin: http://localhost:8081
+- Note: first request after a restart is slower while PHP opcode cache warms up.
+- Plugins run from a Docker volume for speed. On first run, `start.ps1` seeds that volume from `site/wp-content/plugins`.
+- Theme/content files still come from your local repo (`site/wp-content`) for Git + VS Code workflow.
+- If you install/update plugins in WordPress admin, those changes stay in the Docker volume (not auto-committed to Git).
 
 ## Reset DB from production dump
 ```powershell

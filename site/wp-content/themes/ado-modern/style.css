@@ -1,0 +1,167 @@
+﻿/*
+Theme Name: ADO Modern Portal
+Theme URI: https://autodoorexperts.ca
+Description: Modern SaaS child theme for AutoDoor Experts client and technician portals.
+Author: AutoDoor Experts
+Template: twentytwentyfour
+Version: 1.0.0
+Text Domain: ado-modern
+*/
+
+:root {
+  --ado-bg: #f4f7fb;
+  --ado-surface: #ffffff;
+  --ado-surface-muted: #eef3f9;
+  --ado-border: #dbe5f1;
+  --ado-text: #142031;
+  --ado-muted: #5f6f85;
+  --ado-accent: #0f7b8f;
+  --ado-accent-2: #1f9ab0;
+  --ado-danger: #d64545;
+  --ado-shadow: 0 18px 40px rgba(13, 33, 59, 0.08);
+  --ado-radius: 18px;
+}
+
+body {
+  background:
+    radial-gradient(circle at 10% -20%, rgba(31,154,176,0.18), transparent 42%),
+    radial-gradient(circle at 100% 0%, rgba(21,45,92,0.12), transparent 38%),
+    var(--ado-bg);
+  color: var(--ado-text);
+  font-family: "Manrope", "Segoe UI", sans-serif;
+}
+
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
+  font-family: "Space Grotesk", "Segoe UI", sans-serif;
+  letter-spacing: -0.02em;
+}
+
+a {
+  color: var(--ado-accent);
+}
+
+a:hover,
+a:focus {
+  color: var(--ado-accent-2);
+}
+
+.wp-site-blocks,
+main.wp-block-group {
+  max-width: 1260px;
+  margin: 0 auto;
+  padding-left: 20px;
+  padding-right: 20px;
+}
+
+.ado-shell {
+  background: var(--ado-surface);
+  border: 1px solid var(--ado-border);
+  border-radius: var(--ado-radius);
+  box-shadow: var(--ado-shadow);
+  padding: clamp(20px, 3vw, 34px);
+  margin: 22px 0;
+}
+
+.ado-hero {
+  position: relative;
+  overflow: hidden;
+  padding: clamp(28px, 6vw, 64px);
+  border-radius: 24px;
+  background: linear-gradient(130deg, #0f253a 0%, #113d5a 45%, #1f9ab0 100%);
+  color: #f4fbff;
+  box-shadow: var(--ado-shadow);
+}
+
+.ado-hero::after {
+  content: "";
+  position: absolute;
+  width: 280px;
+  height: 280px;
+  right: -80px;
+  top: -80px;
+  background: radial-gradient(circle, rgba(255,255,255,0.22), rgba(255,255,255,0));
+}
+
+.ado-kicker {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  padding: 8px 14px;
+  border-radius: 999px;
+  background: rgba(255,255,255,0.16);
+  border: 1px solid rgba(255,255,255,0.3);
+}
+
+.ado-button-row {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-top: 24px;
+}
+
+.ado-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 44px;
+  padding: 0 18px;
+  border-radius: 12px;
+  border: 1px solid transparent;
+  text-decoration: none;
+  font-weight: 700;
+}
+
+.ado-btn-primary {
+  background: #fff;
+  color: #10314a;
+}
+
+.ado-btn-primary:hover,
+.ado-btn-primary:focus {
+  background: #e9f8ff;
+  color: #0f253a;
+}
+
+.ado-btn-outline {
+  border-color: rgba(255,255,255,0.42);
+  color: #f4fbff;
+  background: rgba(17,44,72,0.35);
+}
+
+.ado-btn-outline:hover,
+.ado-btn-outline:focus {
+  background: rgba(17,44,72,0.6);
+}
+
+.ado-grid {
+  display: grid;
+  grid-template-columns: repeat(12, minmax(0, 1fr));
+  gap: 16px;
+  margin-top: 22px;
+}
+
+.ado-panel {
+  grid-column: span 12;
+  border: 1px solid var(--ado-border);
+  border-radius: 16px;
+  background: linear-gradient(180deg, #fff, #f8fbff);
+  box-shadow: 0 10px 24px rgba(15, 36, 63, 0.06);
+  padding: 18px;
+}
+
+.ado-panel h3 {
+  margin-top: 0;
+}
+
+@media (min-width: 920px) {
+  .ado-panel.-half { grid-column: span 6; }
+  .ado-panel.-third { grid-column: span 4; }
+}

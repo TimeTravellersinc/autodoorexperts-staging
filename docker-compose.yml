@@ -1,5 +1,3 @@
-version: "3.9"
-
 services:
   db:
     image: mariadb:10.11
@@ -16,7 +14,10 @@ services:
       - ./db/autodoorexperts_prod.sql:/docker-entrypoint-initdb.d/01-prod.sql:ro
 
   wordpress:
-    image: wordpress:6.7-php8.2-apache
+    build:
+      context: .
+      dockerfile: Dockerfile.wordpress
+    image: autodoorexperts-wordpress:local
     container_name: autodoorexperts_wp
     restart: unless-stopped
     depends_on:
@@ -32,7 +33,10 @@ services:
       WP_HOME: ${WP_HOME}
       WP_SITEURL: ${WP_SITEURL}
     volumes:
-      - ./site:/var/www/html
+      - ./site/wp-config.php:/var/www/html/wp-config.php
+      - ./site/wp-content:/var/www/html/wp-content
+      - wp_plugins_data:/var/www/html/wp-content/plugins
+      - ./php/local.ini:/usr/local/etc/php/conf.d/zzz-local.ini:ro
 
   phpmyadmin:
     image: phpmyadmin:5-apache
@@ -49,3 +53,4 @@ services:
 
 volumes:
   db_data:
+  wp_plugins_data:

@@ -30,3 +30,8 @@ site/*.log
 .DS_Store
 Thumbs.db
 .vscode/.history/
+
+# Local analysis/test artifacts
+tmp_*
+scoped-*-report.csv
+scoped-*-report.json

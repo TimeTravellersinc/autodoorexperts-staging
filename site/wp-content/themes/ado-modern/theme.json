@@ -1,0 +1,45 @@
+﻿{
+  "$schema": "https://schemas.wp.org/trunk/theme.json",
+  "version": 3,
+  "settings": {
+    "appearanceTools": true,
+    "color": {
+      "palette": [
+        {"slug": "ado-bg", "name": "Portal Background", "color": "#f4f7fb"},
+        {"slug": "ado-surface", "name": "Surface", "color": "#ffffff"},
+        {"slug": "ado-ink", "name": "Ink", "color": "#142031"},
+        {"slug": "ado-accent", "name": "Accent", "color": "#0f7b8f"},
+        {"slug": "ado-accent-2", "name": "Accent Alt", "color": "#1f9ab0"},
+        {"slug": "ado-warn", "name": "Alert", "color": "#d64545"}
+      ]
+    },
+    "typography": {
+      "fontFamilies": [
+        {
+          "fontFamily": "Manrope, \"Segoe UI\", sans-serif",
+          "name": "Manrope",
+          "slug": "manrope"
+        },
+        {
+          "fontFamily": "\"Space Grotesk\", \"Segoe UI\", sans-serif",
+          "name": "Space Grotesk",
+          "slug": "space-grotesk"
+        }
+      ]
+    },
+    "layout": {
+      "contentSize": "1200px",
+      "wideSize": "1320px"
+    }
+  },
+  "styles": {
+    "typography": {
+      "fontFamily": "var:preset|font-family|manrope",
+      "lineHeight": "1.6"
+    },
+    "color": {
+      "text": "var:preset|color|ado-ink",
+      "background": "var:preset|color|ado-bg"
+    }
+  }
+}
