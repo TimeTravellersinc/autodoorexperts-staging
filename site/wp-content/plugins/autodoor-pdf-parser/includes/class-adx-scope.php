@@ -460,7 +460,39 @@ class ADX_Scope {
             return [false, "discard_signal(checked={$discChecks})", $discardHits];
         }
 
-        return [true, "fallback_keep(discard_checked={$discChecks})", []];
+        if ($this->is_safe_fallback_line($raw)) {
+            return [true, "fallback_keep_safe(discard_checked={$discChecks})", []];
+        }
+
+        return [false, "fallback_drop(discard_checked={$discChecks})", []];
+    }
+
+    /**
+     * Purpose of fallback:
+     * Keep electrified/operator-adjacent lines that may be misspelled or not in keep/discard banks,
+     * while dropping obvious drawing/meta/noise lines.
+     */
+    private function is_safe_fallback_line(string $raw): bool {
+        $u = strtoupper(trim($raw));
+        if ($u === '') return false;
+
+        // Hard noise rejects: dimensions, drafting notes, and external-div placeholders.
+        if (preg_match('/\bSIZE\s+TO\s+SUIT\b/i', $u)) return false;
+        if (preg_match('/\bBY\s+DIV\.?\s*\.?\s*28\b/i', $u)) return false;
+        if (preg_match('/\bBY\s+OTHERS\b/i', $u)) return false;
+        if (preg_match('/\bPLAM\b|\bDR\s+X\s+HM\s+FR\b/i', $u)) return false;
+        if (preg_match('/^\s*\d+\s*[Xx]\s*\d+(\s*[Xx]\s*[_\d]+)?\b/', $u)) return false;
+        if (!preg_match('/[A-Z]/', $u)) return false;
+
+        // Fallback positives: keep electrified/integration context even with typos.
+        if (preg_match('/\bINTER?GRATION\s+BOX\b/i', $u)) return true; // catches "Intergration"
+        if (preg_match('/\bELECTRONIC\s+LOCKING\s+DEVICE\b/i', $u)) return true;
+        if (preg_match('/\bPOWER\s+TRANSFER\b|\bEPT[\-\s]?10\b/i', $u)) return true;
+        if (preg_match('/\bCARD\s+READER\b|\bINTERCOM\b|\bNURSE\s+CALL\b/i', $u)) return true;
+        if (preg_match('/\bRELAY\b|\bCON[\-\s]?6W\b|\bWIRE\s+HARNESS\b/i', $u)) return true;
+        if (preg_match('/\bCYLINDER\s+20\-057\-ICX\b/i', $u)) return true;
+
+        return false;
     }
 
     // ================================================================
