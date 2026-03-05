@@ -3,29 +3,129 @@
 if (defined('ADO_PROJECT_DASHBOARDS_LOADED')) { return; }
 define('ADO_PROJECT_DASHBOARDS_LOADED', true);
 
+function ado_is_client_checkout_context(): bool {
+    if (is_admin() && !wp_doing_ajax()) { return false; }
+    if (!is_user_logged_in() || !ado_is_client()) { return false; }
+    if (wp_doing_ajax()) { return true; }
+    return function_exists('is_checkout') && is_checkout();
+}
+
+function ado_get_client_checkout_profile_defaults(): array {
+    $user = wp_get_current_user();
+    $base_location = function_exists('wc_get_base_location') ? (array) wc_get_base_location() : [];
+    $defaults = [
+        'billing_first_name' => (string) get_user_meta($user->ID, 'billing_first_name', true),
+        'billing_last_name' => (string) get_user_meta($user->ID, 'billing_last_name', true),
+        'billing_company' => (string) get_user_meta($user->ID, 'billing_company', true),
+        'billing_country' => (string) get_user_meta($user->ID, 'billing_country', true),
+        'billing_address_1' => (string) get_user_meta($user->ID, 'billing_address_1', true),
+        'billing_address_2' => (string) get_user_meta($user->ID, 'billing_address_2', true),
+        'billing_city' => (string) get_user_meta($user->ID, 'billing_city', true),
+        'billing_state' => (string) get_user_meta($user->ID, 'billing_state', true),
+        'billing_postcode' => (string) get_user_meta($user->ID, 'billing_postcode', true),
+        'billing_phone' => (string) get_user_meta($user->ID, 'billing_phone', true),
+        'billing_email' => (string) get_user_meta($user->ID, 'billing_email', true),
+    ];
+
+    if ($defaults['billing_first_name'] === '') { $defaults['billing_first_name'] = (string) $user->first_name; }
+    if ($defaults['billing_last_name'] === '') { $defaults['billing_last_name'] = (string) $user->last_name; }
+    if ($defaults['billing_country'] === '') { $defaults['billing_country'] = (string) ($base_location['country'] ?? ''); }
+    if ($defaults['billing_state'] === '') { $defaults['billing_state'] = (string) ($base_location['state'] ?? ''); }
+    if ($defaults['billing_email'] === '') { $defaults['billing_email'] = (string) $user->user_email; }
+
+    return $defaults;
+}
+
+function ado_handle_checkout_po_document_upload(): string {
+    if (empty($_FILES['ado_po_document']['tmp_name'])) { return ''; }
+
+    require_once ABSPATH . 'wp-admin/includes/file.php';
+
+    $upload = wp_handle_upload($_FILES['ado_po_document'], ['test_form' => false]);
+    if (!empty($upload['error'])) {
+        throw new Exception('PO document upload failed. Please try again or leave the document blank for now.');
+    }
+
+    return !empty($upload['url']) ? esc_url_raw((string) $upload['url']) : '';
+}
+
 add_filter('woocommerce_checkout_fields', static function (array $fields): array {
-    $fields['order']['ado_po_number'] = [
+    if (!ado_is_client_checkout_context()) { return $fields; }
+
+    foreach (ado_get_client_checkout_profile_defaults() as $key => $default) {
+        if (!isset($fields['billing'][$key])) { continue; }
+        $fields['billing'][$key]['type'] = 'hidden';
+        $fields['billing'][$key]['required'] = false;
+        $fields['billing'][$key]['class'] = ['ado-checkout-hidden-field'];
+        $fields['billing'][$key]['default'] = $default;
+    }
+
+    $fields['billing']['ado_po_number'] = [
         'type' => 'text',
         'label' => 'Purchase Order Number',
-        'required' => false,
+        'required' => true,
         'class' => ['form-row-wide'],
-        'priority' => 40,
+        'priority' => 5,
+        'autocomplete' => 'off',
     ];
-    $fields['order']['ado_preferred_visit_date'] = [
-        'type' => 'date',
-        'label' => 'Preferred Visit Date (Soft Booking)',
-        'required' => false,
-        'class' => ['form-row-wide'],
-        'priority' => 41,
-    ];
+
+    unset($fields['shipping'], $fields['account'], $fields['order']['order_comments'], $fields['order']['ado_preferred_visit_date']);
+
     return $fields;
 });
 
+add_filter('woocommerce_enable_order_notes_field', static function ($enabled): bool {
+    return ado_is_client_checkout_context() ? false : (bool) $enabled;
+});
+
+add_filter('woocommerce_cart_needs_shipping_address', static function ($needs_shipping_address): bool {
+    return ado_is_client_checkout_context() ? false : (bool) $needs_shipping_address;
+});
+
+add_action('woocommerce_before_checkout_billing_form', static function (): void {
+    if (!ado_is_client_checkout_context()) { return; }
+    echo '<p class="ado-muted">Enter the PO number for this quote. Uploading the PO document is optional for now.</p>';
+});
+
+add_action('woocommerce_after_checkout_billing_form', static function (): void {
+    if (!ado_is_client_checkout_context()) { return; }
+    ?>
+    <p class="form-row form-row-wide" id="ado_po_document_field">
+        <label for="ado_po_document">Purchase Order Document <span class="optional">(optional)</span></label>
+        <input type="file" name="ado_po_document" id="ado_po_document" accept=".pdf,.doc,.docx,.jpg,.jpeg,.png">
+        <span class="description">Attach the PO file if it is ready. You can leave this blank for now.</span>
+    </p>
+    <style>
+        .ado-checkout-hidden-field { display: none !important; }
+    </style>
+    <?php
+});
+
+add_action('woocommerce_after_checkout_validation', static function (array $data, WP_Error $errors): void {
+    if (!ado_is_client_checkout_context()) { return; }
+    if (empty($_FILES['ado_po_document'])) { return; }
+
+    $upload_error = (int) ($_FILES['ado_po_document']['error'] ?? UPLOAD_ERR_NO_FILE);
+    if ($upload_error === UPLOAD_ERR_NO_FILE) { return; }
+
+    if ($upload_error !== UPLOAD_ERR_OK || empty($_FILES['ado_po_document']['tmp_name'])) {
+        $errors->add('ado_po_document_upload', 'PO document upload failed. Please try again or leave the document blank for now.');
+    }
+}, 10, 2);
+
 add_action('woocommerce_checkout_create_order', static function (WC_Order $order): void {
     $po = sanitize_text_field((string) ($_POST['ado_po_number'] ?? ''));
-    $visit = sanitize_text_field((string) ($_POST['ado_preferred_visit_date'] ?? ''));
-    if ($po !== '') { $order->update_meta_data('_ado_po_number', $po); }
-    if ($visit !== '') { $order->update_meta_data('_ado_next_visit_date', $visit); }
+    if ($po === '') {
+        throw new Exception('Purchase Order Number is required.');
+    }
+
+    $order->update_meta_data('_ado_po_number', $po);
+
+    $po_file_url = ado_handle_checkout_po_document_upload();
+    if ($po_file_url !== '') {
+        $order->update_meta_data('_ado_po_file_url', $po_file_url);
+    }
+
     $order->update_meta_data('_ado_project_status', 'soft_booked');
     if (function_exists('WC') && WC()->session) {
         $scope_url = (string) WC()->session->get('ado_last_scope_url');
@@ -64,6 +164,9 @@ add_shortcode('ado_client_projects', static function (): string {
         echo '<div class="ado-row"><small>Total: ' . wp_kses_post($order->get_formatted_order_total()) . '</small><small>Doors: ' . esc_html((string) $door_count) . '</small></div>';
         if ($order->get_meta('_ado_po_number')) {
             echo '<div><small>PO: ' . esc_html((string) $order->get_meta('_ado_po_number')) . '</small></div>';
+        }
+        if ($order->get_meta('_ado_po_file_url')) {
+            echo '<div><small><a href="' . esc_url((string) $order->get_meta('_ado_po_file_url')) . '" target="_blank" rel="noopener">View PO document</a></small></div>';
         }
         if ($order->get_meta('_ado_next_visit_date')) {
             echo '<div><small>Upcoming visit: ' . esc_html((string) $order->get_meta('_ado_next_visit_date')) . '</small></div>';
@@ -170,6 +273,10 @@ add_action('wp_ajax_ado_add_tech_log', static function (): void {
 add_action('woocommerce_admin_order_data_after_billing_address', static function ($order): void {
     if (!($order instanceof WC_Order)) { return; }
     echo '<div style="margin-top:12px;padding-top:12px;border-top:1px solid #ddd;"><h4>ADO Project Fields</h4>';
+    woocommerce_wp_text_input(['id' => '_ado_po_number', 'label' => 'PO Number', 'value' => $order->get_meta('_ado_po_number')]);
+    if ($order->get_meta('_ado_po_file_url')) {
+        echo '<p class="form-field"><label>PO Document</label><span><a href="' . esc_url((string) $order->get_meta('_ado_po_file_url')) . '" target="_blank" rel="noopener">View uploaded PO document</a></span></p>';
+    }
     woocommerce_wp_text_input(['id' => '_ado_wave_invoice_id', 'label' => 'Wave Invoice ID', 'value' => $order->get_meta('_ado_wave_invoice_id')]);
     woocommerce_wp_text_input(['id' => '_ado_wave_invoice_url', 'label' => 'Wave Invoice URL', 'value' => $order->get_meta('_ado_wave_invoice_url')]);
     woocommerce_wp_select(['id' => '_ado_wave_status', 'label' => 'Wave Status', 'value' => $order->get_meta('_ado_wave_status'), 'options' => ['' => 'Select', 'pending' => 'Pending', 'overdue' => 'Overdue', 'paid' => 'Paid']]);
@@ -183,7 +290,7 @@ add_action('woocommerce_admin_order_data_after_billing_address', static function
 add_action('woocommerce_process_shop_order_meta', static function ($order_id): void {
     $order = wc_get_order($order_id);
     if (!$order) { return; }
-    foreach (['_ado_wave_invoice_id', '_ado_wave_invoice_url', '_ado_wave_status', '_ado_wave_amount_due', '_ado_next_visit_date', '_ado_technician_ids', '_ado_critical_notes'] as $key) {
+    foreach (['_ado_po_number', '_ado_wave_invoice_id', '_ado_wave_invoice_url', '_ado_wave_status', '_ado_wave_amount_due', '_ado_next_visit_date', '_ado_technician_ids', '_ado_critical_notes'] as $key) {
         if (!isset($_POST[$key])) { continue; }
         $value = wp_unslash((string) $_POST[$key]);
         $value = ($key === '_ado_critical_notes') ? sanitize_textarea_field($value) : sanitize_text_field($value);
