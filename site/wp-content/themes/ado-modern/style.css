@@ -165,3 +165,228 @@ main.wp-block-group {
   .ado-panel.-half { grid-column: span 6; }
   .ado-panel.-third { grid-column: span 4; }
 }
+
+.ado-home-main {
+  padding-top: 28px;
+  padding-bottom: 48px;
+}
+
+.ado-home-hero {
+  background:
+    radial-gradient(circle at 85% 15%, rgba(31,154,176,0.2), transparent 44%),
+    linear-gradient(140deg, #ffffff 0%, #f4f9ff 100%);
+  border: 1px solid var(--ado-border);
+  border-radius: 24px;
+  box-shadow: var(--ado-shadow);
+  padding: clamp(24px, 4vw, 48px);
+}
+
+.ado-home-kicker {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 10px;
+  padding: 8px 12px;
+  border-radius: 999px;
+  border: 1px solid var(--ado-border);
+  background: rgba(15,123,143,0.08);
+  color: #0d5160;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.ado-home-title {
+  margin: 0;
+  max-width: 900px;
+  font-size: clamp(2rem, 4.5vw, 3.4rem);
+  line-height: 1.05;
+}
+
+.ado-home-sub {
+  max-width: 860px;
+  margin: 14px 0 0;
+  color: var(--ado-muted);
+  font-size: clamp(1rem, 1.8vw, 1.18rem);
+}
+
+.ado-home-actions {
+  margin-top: 20px;
+  gap: 10px;
+}
+
+.ado-home-btn-primary .wp-block-button__link,
+.ado-home-btn-secondary .wp-block-button__link,
+.ado-home-btn-tertiary .wp-block-button__link {
+  min-height: 44px;
+  border-radius: 12px;
+  font-weight: 700;
+  text-decoration: none;
+  transition: all 0.18s ease;
+}
+
+.ado-home-btn-primary .wp-block-button__link {
+  background: var(--ado-accent);
+  border: 1px solid var(--ado-accent);
+  color: #f7fdff;
+}
+
+.ado-home-btn-primary .wp-block-button__link:hover,
+.ado-home-btn-primary .wp-block-button__link:focus {
+  background: var(--ado-accent-2);
+  border-color: var(--ado-accent-2);
+}
+
+.ado-home-btn-secondary .wp-block-button__link {
+  background: #ffffff;
+  border: 1px solid var(--ado-border);
+  color: var(--ado-text);
+}
+
+.ado-home-btn-secondary .wp-block-button__link:hover,
+.ado-home-btn-secondary .wp-block-button__link:focus {
+  background: #f7fbff;
+}
+
+.ado-home-btn-tertiary .wp-block-button__link {
+  background: transparent;
+  border: 1px solid var(--ado-border);
+  color: #1b5166;
+}
+
+.ado-home-btn-tertiary .wp-block-button__link:hover,
+.ado-home-btn-tertiary .wp-block-button__link:focus {
+  background: rgba(15,123,143,0.08);
+}
+
+.ado-home-metrics {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 14px;
+  margin-top: 24px;
+}
+
+.ado-home-metric {
+  border: 1px solid var(--ado-border);
+  border-radius: 16px;
+  background: #ffffff;
+  box-shadow: 0 10px 24px rgba(15, 36, 63, 0.06);
+  padding: 16px;
+}
+
+.ado-home-metric h3 {
+  margin: 0 0 8px;
+  font-size: 1.03rem;
+}
+
+.ado-home-metric p {
+  margin: 0;
+  color: var(--ado-muted);
+}
+
+.ado-home-section {
+  margin-top: 22px;
+  border: 1px solid var(--ado-border);
+  border-radius: 18px;
+  background: #ffffff;
+  padding: clamp(18px, 3vw, 28px);
+  box-shadow: 0 10px 24px rgba(15, 36, 63, 0.05);
+}
+
+.ado-home-section h2 {
+  margin-top: 0;
+}
+
+.ado-home-steps {
+  margin: 12px 0 0;
+  padding-left: 22px;
+  color: var(--ado-muted);
+}
+
+.ado-home-steps li {
+  margin-bottom: 8px;
+}
+
+.ado-home-role-columns {
+  margin-top: 16px;
+  gap: 16px;
+}
+
+.ado-home-role-card {
+  height: 100%;
+  border: 1px solid var(--ado-border);
+  border-radius: 18px;
+  background: linear-gradient(180deg, #ffffff, #f9fcff);
+  box-shadow: 0 10px 24px rgba(15, 36, 63, 0.06);
+  padding: clamp(18px, 3vw, 28px);
+}
+
+.ado-home-role-card h3 {
+  margin-top: 0;
+}
+
+.ado-home-role-card p {
+  color: var(--ado-muted);
+}
+
+.ado-home-cta-band {
+  margin-top: 18px;
+  border-radius: 20px;
+  border: 1px solid #0f7b8f;
+  background: linear-gradient(135deg, #0f7b8f, #1f9ab0);
+  color: #f5fbff;
+  box-shadow: var(--ado-shadow);
+  padding: clamp(22px, 3.5vw, 34px);
+}
+
+.ado-home-cta-band h2 {
+  margin-top: 0;
+  color: #f5fbff;
+}
+
+.ado-home-cta-band p {
+  color: rgba(245,251,255,0.92);
+}
+
+.ado-home-cta-band .wp-block-button__link {
+  border-radius: 12px;
+  background: #ffffff;
+  color: #0f3a4a;
+  border: 1px solid rgba(255,255,255,0.72);
+  font-weight: 700;
+}
+
+.ado-home-cta-band .wp-block-button__link:hover,
+.ado-home-cta-band .wp-block-button__link:focus {
+  background: #e8f8fd;
+}
+
+@media (min-width: 840px) {
+  .ado-home-metrics {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 780px) {
+  .ado-home-main {
+    padding-top: 14px;
+  }
+
+  .ado-home-hero {
+    border-radius: 16px;
+  }
+
+  .ado-home-title {
+    font-size: clamp(1.7rem, 7vw, 2.2rem);
+  }
+
+  .ado-home-actions .wp-block-button {
+    width: 100%;
+  }
+
+  .ado-home-actions .wp-block-button__link {
+    width: 100%;
+    justify-content: center;
+  }
+}
