@@ -127,6 +127,63 @@ function ado_quote_grouped_lines(int $quote_id): array
     return array_values($door_map);
 }
 
+function ado_quote_unmatched_flash_key(): string
+{
+    return '_adq_quote_unmatched_flash';
+}
+
+function ado_set_quote_unmatched_flash(int $user_id, int $quote_id, array $unmatched): void
+{
+    if ($user_id <= 0) {
+        return;
+    }
+
+    $rows = [];
+    foreach ($unmatched as $row) {
+        if (is_array($row)) {
+            $rows[] = $row;
+        }
+    }
+
+    if (!$rows || $quote_id <= 0) {
+        delete_user_meta($user_id, ado_quote_unmatched_flash_key());
+        return;
+    }
+
+    update_user_meta($user_id, ado_quote_unmatched_flash_key(), [
+        'quote_id' => $quote_id,
+        'rows' => array_values($rows),
+        'created_at' => time(),
+    ]);
+}
+
+function ado_consume_quote_unmatched_flash(int $user_id, int $quote_id): array
+{
+    if ($user_id <= 0 || $quote_id <= 0) {
+        return [];
+    }
+
+    $flash = get_user_meta($user_id, ado_quote_unmatched_flash_key(), true);
+    if (!is_array($flash)) {
+        return [];
+    }
+
+    if ((int) ($flash['quote_id'] ?? 0) !== $quote_id) {
+        return [];
+    }
+
+    delete_user_meta($user_id, ado_quote_unmatched_flash_key());
+
+    $rows = $flash['rows'] ?? [];
+    if (!is_array($rows)) {
+        return [];
+    }
+
+    return array_values(array_filter($rows, static function ($row): bool {
+        return is_array($row);
+    }));
+}
+
 function ado_render_quote_drafts_html(int $user_id): string
 {
     $quotes = ado_get_quote_drafts($user_id);
@@ -156,10 +213,9 @@ function ado_render_quote_drafts_html(int $user_id): string
     return (string) ob_get_clean();
 }
 
-function ado_render_quote_unmatched_banner(int $quote_id): string
+function ado_render_quote_unmatched_banner(int $user_id, int $quote_id): string
 {
-    $unmatched = get_post_meta($quote_id, '_adq_unmatched_items', true);
-    $unmatched = is_array($unmatched) ? $unmatched : [];
+    $unmatched = ado_consume_quote_unmatched_flash($user_id, $quote_id);
     if (!$unmatched) {
         return '';
     }
@@ -213,7 +269,7 @@ function ado_render_quote_detail(int $user_id, int $quote_id): string
     echo '</div>';
     echo '</div>';
 
-    echo ado_render_quote_unmatched_banner($quote_id);
+    echo ado_render_quote_unmatched_banner($user_id, $quote_id);
 
     if (!$groups) {
         echo '<div class="ado-card"><p class="ado-muted">No grouped items are available for this quote.</p></div>';
@@ -275,12 +331,15 @@ add_action('wp_ajax_ado_scope_to_quote_cart', static function (): void {
     }
 
     $quote_id = (int) ($created['quote_id'] ?? 0);
+    $unmatched = $quote_id > 0 ? get_post_meta($quote_id, '_adq_unmatched_items', true) : [];
+    $unmatched = is_array($unmatched) ? $unmatched : [];
+    ado_set_quote_unmatched_flash($uid, $quote_id, $unmatched);
     wp_send_json_success([
         'message' => 'Quote created from scoped JSON.',
         'quote_id' => $quote_id,
         'quote_url' => ado_quote_url($quote_id),
         'drafts_html' => ado_render_quote_drafts_html($uid),
-        'unmatched_count' => (int) ($created['unmatched_count'] ?? 0),
+        'unmatched_count' => count($unmatched),
         'debug_log' => $debug ? array_values((array) ($created['debug_log'] ?? [])) : [],
     ]);
 });
@@ -349,10 +408,14 @@ add_action('wp_ajax_ado_rerun_quote_matching', static function (): void {
     if (empty($rerun['ok'])) {
         wp_send_json_error(['message' => (string) ($rerun['message'] ?? 'Re-run failed.')], 400);
     }
+    $unmatched = get_post_meta($quote_id, '_adq_unmatched_items', true);
+    $unmatched = is_array($unmatched) ? $unmatched : [];
+    ado_set_quote_unmatched_flash($uid, $quote_id, $unmatched);
     wp_send_json_success([
         'message' => (string) ($rerun['message'] ?? 'Re-run completed.'),
         'quote_url' => ado_quote_url($quote_id),
         'drafts_html' => ado_render_quote_drafts_html($uid),
+        'unmatched_count' => count($unmatched),
         'debug_log' => $debug ? array_values((array) ($rerun['debug_log'] ?? [])) : [],
     ]);
 });
