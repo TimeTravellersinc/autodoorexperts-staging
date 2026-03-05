@@ -82,6 +82,10 @@ add_filter('woocommerce_cart_needs_shipping_address', static function ($needs_sh
     return ado_is_client_checkout_context() ? false : (bool) $needs_shipping_address;
 });
 
+add_filter('woocommerce_cart_needs_payment', static function ($needs_payment, $cart): bool {
+    return ado_is_client_checkout_context() ? false : (bool) $needs_payment;
+}, 10, 2);
+
 add_action('woocommerce_before_checkout_billing_form', static function (): void {
     if (!ado_is_client_checkout_context()) { return; }
     echo '<p class="ado-muted">Enter the PO number for this quote. Uploading the PO document is optional for now.</p>';
