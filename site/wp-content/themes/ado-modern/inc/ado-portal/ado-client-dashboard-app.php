@@ -4,6 +4,17 @@ if (defined('ADO_CLIENT_DASHBOARD_APP_LOADED')) { return; }
 define('ADO_CLIENT_DASHBOARD_APP_LOADED', true);
 
 function ado_cd_view_url(string $view): string {
+    $map = [
+        'dashboard' => home_url('/portal/'),
+        'new-quote' => home_url('/portal/new-quote/'),
+        'quotes' => home_url('/portal/quotes/'),
+        'projects' => home_url('/portal/projects/'),
+        'schedule' => home_url('/portal/schedule/'),
+        'invoices' => home_url('/portal/invoices/'),
+    ];
+    if (isset($map[$view])) {
+        return esc_url((string) $map[$view]);
+    }
     return esc_url(add_query_arg(['view' => $view], home_url('/client-dashboard/')));
 }
 
@@ -40,27 +51,10 @@ function ado_cd_counts(int $user_id): array {
 }
 
 function ado_cd_render_quotes_queue(int $user_id): string {
-    if (!function_exists('ado_get_quote_drafts')) {
-        return '<div class="ado-empty">Quote drafts are unavailable.</div>';
+    if (!function_exists('ado_render_quote_drafts_html')) {
+        return '<div class="ado-empty">Quotes module is unavailable.</div>';
     }
-    $drafts = (array) ado_get_quote_drafts($user_id);
-    if (!$drafts) {
-        return '<div class="ado-empty">No saved quote drafts.</div>';
-    }
-    ob_start();
-    echo '<table class="ado-table"><thead><tr><th>Quote</th><th>Created</th><th></th></tr></thead><tbody>';
-    foreach ($drafts as $draft) {
-        $id = (string) ($draft['id'] ?? '');
-        $name = (string) ($draft['name'] ?? 'Quote Draft');
-        $created = (string) ($draft['created_at'] ?? '');
-        echo '<tr>';
-        echo '<td><strong>' . esc_html($name) . '</strong></td>';
-        echo '<td>' . esc_html($created) . '</td>';
-        echo '<td><div class="ado-action-row"><button class="ado-btn primary ado-approve-quote" data-draft-id="' . esc_attr($id) . '">Approve</button><button class="ado-btn ado-decline-quote" data-draft-id="' . esc_attr($id) . '">Decline</button></div></td>';
-        echo '</tr>';
-    }
-    echo '</tbody></table><div id="ado-dashboard-flash" class="ado-flash"></div>';
-    return (string) ob_get_clean();
+    return '<article class="ado-card"><div class="ado-card-head"><span class="ado-card-title">Saved Quotes</span></div><div style="padding:16px 18px;">' . ado_render_quote_drafts_html($user_id) . '</div></article>';
 }
 
 function ado_cd_render_invoices(int $user_id): string {
@@ -139,9 +133,9 @@ function ado_cd_render_schedule(int $user_id): string {
 function ado_cd_render_view_content(string $view, int $user_id): string {
     switch ($view) {
         case 'new-quote':
-            return '<article class="ado-card"><div class="ado-card-head"><span class="ado-card-title">Create Quote</span></div><div style="padding:16px 18px;">' . do_shortcode('[ado_quote_workspace]') . '</div></article>';
+            return do_shortcode('[ado_quote_workspace]');
         case 'quotes':
-            return '<article class="ado-card"><div class="ado-card-head"><span class="ado-card-title">Quotes Awaiting Decision</span></div>' . ado_cd_render_quotes_queue($user_id) . '</article><article class="ado-card" style="margin-top:16px;"><div class="ado-card-head"><span class="ado-card-title">Current Quote Cart</span></div><div style="padding:16px 18px;">' . do_shortcode('[woocommerce_cart]') . '</div></article>';
+            return do_shortcode('[ado_quote_workspace]');
         case 'projects':
             return '<article class="ado-card"><div class="ado-card-head"><span class="ado-card-title">Project Tracking</span></div><div style="padding:16px 18px;">' . do_shortcode('[ado_client_projects]') . '</div></article>';
         case 'schedule':
@@ -173,8 +167,6 @@ add_shortcode('ado_client_dashboard_app', static function (): string {
     if (!isset($view_titles[$view])) {
         $view = 'dashboard';
     }
-    $nonce = wp_create_nonce('ado_quote_nonce');
-
     ob_start();
     ?>
     <style>
@@ -214,47 +206,6 @@ add_shortcode('ado_client_dashboard_app', static function (): string {
         <div class="ado-content"><?php echo ado_cd_render_view_content($view, $uid); ?></div>
       </section>
     </div>
-    <script>
-    (function($){
-      var nonce = <?php echo wp_json_encode($nonce); ?>;
-      var ajaxUrl = <?php echo wp_json_encode(admin_url('admin-ajax.php')); ?>;
-      var checkoutFallback = <?php echo wp_json_encode(wc_get_checkout_url()); ?>;
-      function flash(msg, ok){
-        var el = $('#ado-dashboard-flash');
-        if (!el.length) { return; }
-        el.removeClass('ok err').addClass(ok ? 'ok' : 'err').text(msg);
-      }
-      function post(action, data, cb){
-        var payload = $.extend({action: action, nonce: nonce}, data || {});
-        $.post(ajaxUrl, payload).done(function(res){ cb(res || {success:false,data:{message:'Request failed'}}); }).fail(function(){ cb({success:false,data:{message:'Request failed'}}); });
-      }
-      $('.ado-approve-quote').on('click', function(){
-        var draftId = $(this).data('draft-id');
-        if (!draftId) { return; }
-        post('ado_load_quote_draft', {draft_id: draftId}, function(res){
-          if (!res.success) {
-            flash((res.data && res.data.message) ? res.data.message : 'Could not load quote.', false);
-            return;
-          }
-          var target = (res.data && res.data.checkout_url) ? res.data.checkout_url : checkoutFallback;
-          window.location.href = target;
-        });
-      });
-      $('.ado-decline-quote').on('click', function(){
-        var draftId = $(this).data('draft-id');
-        if (!draftId) { return; }
-        if (!window.confirm('Decline and remove this quote draft?')) { return; }
-        post('ado_delete_quote_draft', {draft_id: draftId}, function(res){
-          if (!res.success) {
-            flash((res.data && res.data.message) ? res.data.message : 'Could not remove quote.', false);
-            return;
-          }
-          flash('Quote declined and removed.', true);
-          window.setTimeout(function(){ window.location.reload(); }, 400);
-        });
-      });
-    })(jQuery);
-    </script>
     <?php
     return ob_get_clean();
 });

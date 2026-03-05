@@ -49,6 +49,42 @@ add_filter('login_redirect', static function ($redirect_to, $requested, $user) {
 }, 20, 3);
 
 add_action('template_redirect', static function (): void {
+    $request_path = trim((string) parse_url((string) ($_SERVER['REQUEST_URI'] ?? ''), PHP_URL_PATH), '/');
+    if (preg_match('#^portal(?:/|$)#', $request_path)) {
+        if (!is_user_logged_in()) {
+            wp_safe_redirect(wp_login_url(home_url('/' . $request_path . '/')));
+            exit;
+        }
+        if (!ado_is_client()) {
+            wp_safe_redirect(home_url('/'));
+            exit;
+        }
+
+        $portal_route = trim((string) substr($request_path, strlen('portal')), '/');
+        $target_args = ['view' => 'dashboard'];
+        if ($portal_route === '' || $portal_route === 'dashboard') {
+            $target_args = ['view' => 'dashboard'];
+        } elseif ($portal_route === 'quotes') {
+            $target_args = ['view' => 'quotes'];
+        } elseif (preg_match('#^quotes/(\d+)$#', $portal_route, $m)) {
+            $target_args = ['view' => 'quotes', 'quote_id' => (int) $m[1]];
+        } elseif ($portal_route === 'projects') {
+            $target_args = ['view' => 'projects'];
+        } elseif ($portal_route === 'invoices') {
+            $target_args = ['view' => 'invoices'];
+        } elseif ($portal_route === 'schedule') {
+            $target_args = ['view' => 'schedule'];
+        } elseif ($portal_route === 'new-quote') {
+            $target_args = ['view' => 'new-quote'];
+        }
+
+        $target = add_query_arg($target_args, home_url('/client-dashboard/'));
+        if (untrailingslashit((string) $target) !== untrailingslashit(home_url('/' . $request_path))) {
+            wp_safe_redirect($target);
+            exit;
+        }
+    }
+
     $client_only_pages = [
         'client-dashboard',
         'new-quote',

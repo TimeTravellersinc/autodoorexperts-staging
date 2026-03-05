@@ -133,7 +133,10 @@ add_action('woocommerce_checkout_create_order', static function (WC_Order $order
         $draft_id = (string) WC()->session->get('ado_last_quote_draft_id');
         if ($scope_url !== '') { $order->update_meta_data('_ado_scoped_json_url', $scope_url); }
         if ($scope_path !== '') { $order->update_meta_data('_ado_scoped_json_path', $scope_path); }
-        if ($draft_id !== '') { $order->update_meta_data('_ado_quote_draft_id', $draft_id); }
+        if ($draft_id !== '') {
+            $order->update_meta_data('_ado_quote_draft_id', $draft_id);
+            $order->update_meta_data('_ado_quote_id', (int) $draft_id);
+        }
     }
 }, 10, 1);
 
