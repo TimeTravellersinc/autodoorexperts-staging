@@ -422,11 +422,9 @@ class ADX_Parser {
 
                 $sharedTail = substr($body, $lastEnd, $tailEnd - $lastEnd);
                 $sharedTail = ltrim($sharedTail, "\r\n");
-                $groupSize = count($group);
-                $tailForEachDoor = $this->normalize_group_shared_tail_for_each_door($sharedTail, $groupSize);
 
-                if ($groupSize > 1) {
-                    $this->dbg('split', "expand_heading_group: heading={$headingKey} group_size={$groupSize} grouped_with=" . implode(',', array_map(function($idx) use ($doorHits) { return $doorHits[$idx]['door_id']; }, $group)));
+                if (count($group) > 1) {
+                    $this->dbg('split', "expand_heading_group: heading={$headingKey} group_size=" . count($group) . " grouped_with=" . implode(',', array_map(function($idx) use ($doorHits) { return $doorHits[$idx]['door_id']; }, $group)));
                 }
 
                 foreach ($group as $gi) {
@@ -436,7 +434,7 @@ class ADX_Parser {
                     $hdrEnd = $lineEnd($body, $start);
                     $headerLine = substr($body, $start, max(0, $hdrEnd - $start));
                     $block = rtrim($headerLine);
-                    if ($tailForEachDoor !== '') $block .= "\n" . $tailForEachDoor;
+                    if ($sharedTail !== '') $block .= "\n" . $sharedTail;
 
                     $block = $this->strip_dimension_lines_after_header($block);
 
@@ -466,41 +464,6 @@ class ADX_Parser {
 
         $this->dbg('split', "Heading->DoorBlocks: headings={$headings}, kept_as_heading={$kept}, expanded_doors={$expanded}");
         return $out;
-    }
-
-    /**
-     * If multiple door headers share one hardware tail, quantities in the tail are often
-     * aggregate totals for the whole group. Normalize per-door by dividing leading qty
-     * when group size > 1.
-     */
-    private function normalize_group_shared_tail_for_each_door($sharedTail, $groupSize) {
-        $tail = trim((string)$sharedTail);
-        if ($tail === '' || (int)$groupSize <= 1) return $tail;
-
-        $lines = preg_split("/\R/", $this->normalize_text($tail));
-        $out = [];
-
-        foreach ($lines as $ln) {
-            $line = trim((string)$ln);
-            if ($line === '') continue;
-
-            // Normalize common item row form: "<qty> <desc...>"
-            if (preg_match('/^(\d+)\s+(.+)$/', $line, $m)) {
-                $qty = (int)$m[1];
-                $rest = $m[2];
-
-                if ($qty >= $groupSize) {
-                    $perDoor = ($qty % $groupSize === 0)
-                        ? (int)($qty / $groupSize)
-                        : (int)max(1, round($qty / $groupSize));
-                    $line = $perDoor . ' ' . $rest;
-                }
-            }
-
-            $out[] = $line;
-        }
-
-        return trim(implode("\n", $out));
     }
 
     private function find_loose_door_header_hits($text) {
@@ -597,12 +560,12 @@ private function split_by_door_blocks($text) {
 
             $itemsStart = $current['offset'] + strlen($current['line']);
             $itemsBlock = substr($text, $itemsStart, $hardwareEnd - $itemsStart);
-            $itemsBlock = ltrim($itemsBlock, "\r\n");
-            $groupSize = count($group);
-            $itemsBlockForEachDoor = $this->normalize_group_shared_tail_for_each_door($itemsBlock, $groupSize);
+            $itemsBlock = ltrim($itemsBlock, "
+");
 
             foreach ($group as $g) {
-                $doorBlock = $g['line'] . "\n" . $itemsBlockForEachDoor;
+                $doorBlock = $g['line'] . "
+" . $itemsBlock;
                 $doorBlock = $this->strip_dimension_lines_after_header($doorBlock);
 
                 $sections[] = [
@@ -617,7 +580,6 @@ private function split_by_door_blocks($text) {
                         'slice_start' => $group[0]['offset'],
                         'slice_end' => $hardwareEnd,
                         'source_from_heading' => false,
-                        'group_size' => $groupSize,
                         'grouped_with' => array_column($group, 'did'),
                     ],
                     'body' => trim($doorBlock),
@@ -1342,9 +1304,6 @@ private function split_by_door_blocks($text) {
 
         if ($qty === null || $qty < 1 || $qty > 200) return false;
         if (preg_match('/^\s*\d+\s*\/\s*\d+/', $raw)) return false;
-        // Reject dimension/header lines mis-read as item qty rows (e.g. "102 x 2134 x 44 - HM DR x HM FR ...")
-        if (preg_match('/^\s*\d{2,4}\s*[xX]\s*\d{2,4}(\s*[xX]\s*[_\d]+)?\b/', $raw)) return false;
-        if (preg_match('/\bHM\s+DR\s*[xX]\s*HM\s+FR\b/i', $raw)) return false;
         if ($desc === '') return false;
         if (!preg_match('/[A-Za-z]/', $desc)) return false;
 
