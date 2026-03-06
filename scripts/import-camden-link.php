@@ -407,6 +407,20 @@ function ado_camden_price_for_model(string $category_slug, array $model, array $
         return round($price, 2);
     }
 
+    if (preg_match('/^CM-9/i', $sku)) {
+        $price = 64.99;
+        if (str_contains($text, 'NARROW')) {
+            $price += 5.00;
+        }
+        if (str_contains($text, 'MAINTAINED')) {
+            $price += 5.00;
+        }
+        if (str_contains($text, 'PTE')) {
+            $price += 4.00;
+        }
+        return round($price, 2);
+    }
+
     if (preg_match('/^CM-[3456]/i', $sku) || str_contains($text, 'PUSHBUTTON') || str_contains($text, 'PUSH/PULL') || str_contains($text, 'FACEPLATE')) {
         $price = 34.99;
         if (preg_match('/^CM-6/i', $sku) || str_contains($text, 'KEY TO RELEASE')) {
