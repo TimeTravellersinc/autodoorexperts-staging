@@ -1,0 +1,24 @@
+{
+  "source_url": "https://www.camdencontrols.com/category/locking/Electric%20Strikes/products/CX_ED_1309",
+  "brand": "Camden",
+  "category": "Strikes",
+  "series_title": "CX-ED1309 / CX-ED1379",
+  "series_subtitle": "Electric Strike and Face Plates",
+  "models": [
+    { "sku": "CX-ED1379", "price": 129.99 },
+    { "sku": "CX-ED1309", "price": 99.99 },
+    { "sku": "CX-ESF-1", "price": 22.99 },
+    { "sku": "CX-ESF-2", "price": 22.99 },
+    { "sku": "CX-ESF-2BR", "price": 24.99 },
+    { "sku": "CX-ESF-3", "price": 24.99 },
+    { "sku": "CX-ESF-3BR", "price": 26.99 },
+    { "sku": "CX-ESF-1BZ", "price": 24.99 },
+    { "sku": "CX-ESF-4", "price": 24.99 },
+    { "sku": "CX-ESF-2BZ", "price": 24.99 },
+    { "sku": "CX-ESF-2BR-BZ", "price": 26.99 },
+    { "sku": "CX-ESF-3BZ", "price": 26.99 },
+    { "sku": "CX-ESF-3BR-BZ", "price": 28.99 },
+    { "sku": "CX-ESF-4BZ", "price": 26.99 },
+    { "sku": "CX-STR-TMPKIT", "price": 39.99 }
+  ]
+}

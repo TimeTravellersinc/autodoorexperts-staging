@@ -497,6 +497,25 @@ function ado_camden_price_for_model(string $category_slug, array $model, array $
     if (isset($series20_prices[$sku])) {
         return $series20_prices[$sku];
     }
+    $ed1309_prices = [
+        'CX-ED1379' => 129.99,
+        'CX-ED1309' => 99.99,
+        'CX-ESF-1' => 22.99,
+        'CX-ESF-2' => 22.99,
+        'CX-ESF-2BR' => 24.99,
+        'CX-ESF-3' => 24.99,
+        'CX-ESF-3BR' => 26.99,
+        'CX-ESF-4' => 24.99,
+        'CX-ESF-1BZ' => 24.99,
+        'CX-ESF-2BZ' => 24.99,
+        'CX-ESF-2BR-BZ' => 26.99,
+        'CX-ESF-3BZ' => 26.99,
+        'CX-ESF-3BR-BZ' => 28.99,
+        'CX-ESF-4BZ' => 26.99,
+    ];
+    if (isset($ed1309_prices[$sku])) {
+        return $ed1309_prices[$sku];
+    }
 
     if (preg_match('/^CX-247/i', $sku)) {
         $price = 89.99;
