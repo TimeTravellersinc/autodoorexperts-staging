@@ -1,0 +1,41 @@
+{
+  "source_url": "https://www.camdencontrols.com/category/activation/Key%20Switches/products/CM_1200_CM_2200_Series",
+  "brand": "Camden",
+  "category": "Keyswitches",
+  "series_title": "CM-1200 & CM-2200 Series",
+  "series_subtitle": "Stainless Steel, Flush mount",
+  "models": [
+    { "sku": "CM-1200", "price": 79.99 },
+    { "sku": "CM-1205", "price": 79.99 },
+    { "sku": "CM-1210", "price": 79.99 },
+    { "sku": "CM-1220", "price": 79.99 },
+    { "sku": "CM-1230", "price": 79.99 },
+    { "sku": "CM-1250", "price": 79.99 },
+    { "sku": "CM-1260", "price": 79.99 },
+    { "sku": "CM-1270", "price": 79.99 },
+    { "sku": "CM-1280", "price": 79.99 },
+    { "sku": "CM-1282", "price": 79.99 },
+    { "sku": "CM-1290", "price": 79.99 },
+    { "sku": "CM-1292", "price": 79.99 },
+    { "sku": "CM-2200", "price": 79.99 },
+    { "sku": "CM-2205", "price": 79.99 },
+    { "sku": "CM-2210", "price": 79.99 },
+    { "sku": "CM-2220", "price": 79.99 },
+    { "sku": "CM-2230", "price": 79.99 },
+    { "sku": "CM-2250", "price": 79.99 },
+    { "sku": "CM-2260", "price": 79.99 },
+    { "sku": "CM-2270", "price": 79.99 },
+    { "sku": "CM-2280", "price": 79.99 },
+    { "sku": "CM-2282", "price": 79.99 },
+    { "sku": "CM-2290", "price": 79.99 },
+    { "sku": "CM-2292", "price": 79.99 },
+    { "sku": "CM-1000/31", "price": 24.99 },
+    { "sku": "CM-CYL60-KA", "price": 24.99 },
+    { "sku": "CM-CYL60-KD", "price": 26.99 },
+    { "sku": "CM-307", "price": 29.99 },
+    { "sku": "CM-308", "price": 39.99 }
+  ],
+  "skipped_no_image": [
+    "CM-1000/37"
+  ]
+}
