@@ -1,0 +1,33 @@
+{
+  "source_url": "https://www.camdencontrols.com/category/activation/Key%20Switches/products/Parts_for_Key_Switches",
+  "brand": "Camden",
+  "category": "Keyswitches",
+  "series_title": "Parts for Key Switches",
+  "series_subtitle": "",
+  "models": [
+    { "sku": "CM-1000/21", "price": 16.99 },
+    { "sku": "CM-1000/30", "price": 24.99 },
+    { "sku": "CM-1000/31", "price": 24.99 },
+    { "sku": "CM-1000/32", "price": 24.99 },
+    { "sku": "CM-1000/35", "price": 26.99 },
+    { "sku": "CM-1000/37", "price": 24.99 },
+    { "sku": "CM-1000/40", "price": 29.99 },
+    { "sku": "CM-1000/42", "price": 34.99 },
+    { "sku": "CM-1000/45", "price": 31.99 },
+    { "sku": "CM-1000/47", "price": 36.99 },
+    { "sku": "CM-34AL", "price": 24.99 },
+    { "sku": "CM-1000/10", "price": 19.99 },
+    { "sku": "CM-1000/50", "price": 12.99 },
+    { "sku": "CM-1100/10", "price": 19.99 },
+    { "sku": "CM-CYL60-KA", "price": 24.99 },
+    { "sku": "CM-2000/10", "price": 19.99 },
+    { "sku": "CM-1200/10", "price": 24.99 },
+    { "sku": "CM-CYL60-KD", "price": 26.99 },
+    { "sku": "CM-2200/10", "price": 24.99 },
+    { "sku": "CM-307", "price": 29.99 },
+    { "sku": "CM-308", "price": 39.99 },
+    { "sku": "CM-3200/10", "price": 24.99 },
+    { "sku": "CM-3500/10", "price": 24.99 },
+    { "sku": "CM-2000/21", "price": 18.99 }
+  ]
+}

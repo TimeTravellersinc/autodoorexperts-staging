@@ -263,6 +263,34 @@ function ado_camden_price_for_model(string $category_slug, array $model, array $
         if ($sku === 'CM-1000/31' || $sku === 'CM-1000/37') {
             return 24.99;
         }
+        if (str_contains($text, 'GASKET')) {
+            return str_contains($text, 'NARROW') ? 18.99 : 16.99;
+        }
+        if (str_contains($text, 'LOCK RING')) {
+            return 12.99;
+        }
+        if (str_contains($text, 'MOUNT BOX') || str_contains($text, 'MOUNTING BOX') || str_contains($text, 'SURFACE MOUNT BOX')) {
+            return 24.99;
+        }
+        if (str_contains($text, 'FACEPLATE')) {
+            return str_contains($text, 'STAINLESS') ? 24.99 : 19.99;
+        }
+        if (str_contains($text, 'CONTACT SWITCH')) {
+            $price = 24.99;
+            if (str_contains($text, 'HEAVY DUTY')) {
+                $price = 29.99;
+            }
+            if (str_contains($text, 'SPDT')) {
+                $price += 5.00;
+            }
+            if (str_contains($text, 'DPDT')) {
+                $price += 10.00;
+            }
+            if (str_contains($text, 'MAINTAINED')) {
+                $price += 2.00;
+            }
+            return round($price, 2);
+        }
         if (str_contains($sku, 'CI-1050CP') || str_contains($text, 'COVER')) {
             return 89.99;
         }
