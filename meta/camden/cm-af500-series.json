@@ -1,0 +1,13 @@
+{
+  "source_url": "https://www.camdencontrols.com/category/control/Annunciators/products/CM_AF500_Series",
+  "brand": "Camden",
+  "category": "Miscellaneous",
+  "series_title": "CM-AF500 Series",
+  "series_subtitle": "LED Annunciators",
+  "models": [
+    { "sku": "CM-AF500", "price": 49.99 },
+    { "sku": "CM-AF501SO", "price": 59.99 },
+    { "sku": "CM-AF540SO", "price": 79.99 },
+    { "sku": "CM-AF550R", "price": 84.99 }
+  ]
+}

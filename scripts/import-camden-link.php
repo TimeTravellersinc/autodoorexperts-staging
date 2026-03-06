@@ -284,6 +284,23 @@ function ado_camden_price_for_model(string $category_slug, array $model, array $
         return $price;
     }
 
+    if (preg_match('/^CM-AF5/i', $sku)) {
+        $price = 49.99;
+        if (str_contains($text, 'SOUNDER')) {
+            $price += 10.00;
+        }
+        if (str_contains($text, 'DOUBLE GANG')) {
+            $price += 20.00;
+        }
+        if (str_contains($text, 'PUSH/PULL') || str_contains($text, 'MUSHROOM PUSH BUTTON')) {
+            $price += 10.00;
+        }
+        if (str_contains($text, 'MUSHROOM PUSH BUTTON') && !str_contains($text, 'PUSH/PULL')) {
+            $price += 5.00;
+        }
+        return $price;
+    }
+
     if ($sku === 'CX-1000/77') {
         return 99.99;
     }
