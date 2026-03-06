@@ -1,0 +1,24 @@
+{
+  "source_url": "https://www.camdencontrols.com/category/activation/All%20Active%20Switches/products/Column_Push_Plate_Switches",
+  "brand": "Camden",
+  "category": "Actuators",
+  "series_title": "CM-74/75 & CM-84/85 Series",
+  "series_subtitle": "Column Push Plate Switches",
+  "models": [
+    { "sku": "CM-7436", "price": 109.99 },
+    { "sku": "CM-7436VR", "price": 129.99 },
+    { "sku": "CM-7436K", "price": 124.99 },
+    { "sku": "CM-7536", "price": 109.99 },
+    { "sku": "CM-7536VR", "price": 129.99 },
+    { "sku": "CM-7536K", "price": 134.99 },
+    { "sku": "CM-7536SS", "price": 129.99 },
+    { "sku": "CM-7536SSVR", "price": 149.99 },
+    { "sku": "CM-7536SSK", "price": 154.99 },
+    { "sku": "CM-8436", "price": 109.99 },
+    { "sku": "CM-8436VR", "price": 129.99 },
+    { "sku": "CM-8436K", "price": 124.99 },
+    { "sku": "CM-8536", "price": 109.99 },
+    { "sku": "CM-8536VR", "price": 129.99 },
+    { "sku": "CM-8536K", "price": 134.99 }
+  ]
+}

@@ -222,6 +222,23 @@ function ado_camden_price_for_model(string $category_slug, array $model, array $
     $sku = strtoupper((string) ($model['model_number'] ?? ''));
     $text = strtoupper(trim(($model['subsection'] ?? '') . ' ' . ($model['title'] ?? '')));
 
+    if ($category_slug === 'actuators' && str_contains($text, 'COLUMN')) {
+        $price = 109.99;
+        if (str_contains($text, '6"') || str_contains($text, '6”')) {
+            $price += 10.00;
+        }
+        if (str_contains($sku, 'VR') || str_contains($text, 'HANDS-FREE SENSOR')) {
+            $price += 20.00;
+        }
+        if (str_contains($sku, 'K') || str_contains($text, 'KINETIC')) {
+            $price += 15.00;
+        }
+        if (str_contains($sku, 'SS') || str_contains($text, 'STAINLESS STEEL')) {
+            $price += 20.00;
+        }
+        return round($price, 2);
+    }
+
     if ($category_slug === 'miscellaneous' && str_contains($text, 'AURA')) {
         $price = 59.99;
         if (str_contains($sku, '/')) {
