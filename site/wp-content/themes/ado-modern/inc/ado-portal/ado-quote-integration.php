@@ -740,9 +740,10 @@ final class ADO_Quote_Integration
                                 'candidate_products' => $candidate_products,
                                 'adjustment' => $adjustment,
                             ];
+                            $unmatched_row = $this->normalize_unmatched_row($unmatched_row);
                             $bucket = $this->classify_unmatched_row($door_meta, $unmatched_row, $match, $item);
-                            if ($bucket === 'excluded_external_scope') {
-                                $unmatched_row['excluded_reason'] = 'external_scope';
+                            if ($bucket !== 'review') {
+                                $unmatched_row['excluded_reason'] = str_replace('excluded_', '', $bucket);
                                 $excluded[] = $unmatched_row;
                             } else {
                                 $unmatched[] = $unmatched_row;
@@ -779,6 +780,9 @@ final class ADO_Quote_Integration
                 }
             }
         }
+
+        $unmatched = $this->dedupe_unmatched_rows($unmatched);
+        $excluded = $this->dedupe_unmatched_rows($excluded);
 
         return ['doors' => array_values($doors), 'lines' => array_values($line_map), 'unmatched' => $unmatched, 'excluded' => $excluded, 'debug_log' => $debug_log];
     }
@@ -835,6 +839,10 @@ final class ADO_Quote_Integration
 
     private function classify_unmatched_row(array $door_meta, array $row, array $match, array $item): string
     {
+        if ($this->is_empty_unmatched_row($row)) {
+            return 'excluded_empty';
+        }
+
         $reason = strtoupper((string) ($row['reason_code'] ?? ($match['reason_code'] ?? '')));
         if ($reason === 'EXTERNAL_SCOPE') {
             return 'excluded_external_scope';
@@ -853,7 +861,137 @@ final class ADO_Quote_Integration
             }
         }
 
+        if ($this->is_attribute_only_row($row)) {
+            return 'excluded_attribute';
+        }
+
+        if ($this->is_narrative_spec_row($row)) {
+            return 'excluded_narrative';
+        }
+
+        if (!$this->is_reviewable_product_candidate($row)) {
+            return 'excluded_fragment';
+        }
+
         return 'review';
+    }
+
+    private function normalize_unmatched_row(array $row): array
+    {
+        $row['model'] = trim((string) ($row['model'] ?? ''));
+        $row['description'] = trim((string) ($row['description'] ?? ''));
+        $row['raw_line'] = trim((string) ($row['raw_line'] ?? ''));
+
+        $model = (string) ($row['model'] ?? '');
+        $description = (string) ($row['description'] ?? '');
+
+        if (strlen($description) === 1 && $model !== '' && preg_match('/^[a-z]/', $model)) {
+            $row['model'] = strtoupper($description) . $model;
+            $row['description'] = '';
+        } elseif (strlen($model) === 1 && $description !== '' && preg_match('/^[a-z]/', $description)) {
+            $row['description'] = strtoupper($model) . $description;
+            $row['model'] = '';
+        }
+
+        if ($row['model'] === '' && $row['description'] !== '' && preg_match('/^[A-Z0-9][A-Z0-9\-\/]{2,}$/', strtoupper($row['description']))) {
+            $row['model'] = $row['description'];
+        }
+
+        return $row;
+    }
+
+    private function is_empty_unmatched_row(array $row): bool
+    {
+        return ado_qm_compact((string) ($row['model'] ?? '')) === ''
+            && ado_qm_compact((string) ($row['description'] ?? '')) === ''
+            && ado_qm_compact((string) ($row['raw_line'] ?? '')) === '';
+    }
+
+    private function is_attribute_only_row(array $row): bool
+    {
+        $tokens = array_filter([
+            strtoupper(trim((string) ($row['model'] ?? ''))),
+            strtoupper(trim((string) ($row['description'] ?? ''))),
+        ], 'strlen');
+        if (!$tokens) {
+            return false;
+        }
+        foreach ($tokens as $token) {
+            if (!preg_match('/^(?:26D|28|313|626|628|630|689|695|10B|32D|C32D|US\d+|SATIN|BRONZE|ALUMINUM)$/', $token)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private function is_narrative_spec_row(array $row): bool
+    {
+        $haystack = strtoupper(trim(implode(' ', array_filter([
+            (string) ($row['model'] ?? ''),
+            (string) ($row['description'] ?? ''),
+            (string) ($row['raw_line'] ?? ''),
+        ], 'strlen'))));
+        if ($haystack === '') {
+            return false;
+        }
+
+        if (preg_match('/\b\d+\s*"?\s*X\s*\d+\s*"?(?:\s*X\s*\d+\s*"?)?\b/', $haystack) && preg_match('/\bPREP\s+FOR\b/', $haystack)) {
+            return true;
+        }
+
+        if (strlen($haystack) >= 80 && preg_match('/\b(?:INCLUDES|ALLOWS|ACTIVATION|AUTHORIZED\s+ENTRY|ELECTRIC\s+KEEPER|HEADER\s+STARTS|CYCLING|THROUGH|SYSTEM|MISCELLANEOUS)\b/', $haystack)) {
+            return true;
+        }
+
+        if (preg_match('/^(?:H|ING OF HROUGH)$/', trim($haystack))) {
+            return true;
+        }
+
+        return false;
+    }
+
+    private function is_reviewable_product_candidate(array $row): bool
+    {
+        if (!empty($row['candidate_products']) && is_array($row['candidate_products'])) {
+            return true;
+        }
+
+        $model = strtoupper(trim((string) ($row['model'] ?? '')));
+        $description = trim((string) ($row['description'] ?? ''));
+
+        if ($model !== '' && preg_match('/[A-Z]/', $model) && preg_match('/\d/', $model) && strlen($model) >= 3) {
+            return true;
+        }
+
+        if ($description !== '' && strlen($description) >= 4 && preg_match('/\b(?:OPERATOR|ACTUATOR|SWITCH|HARNESS|EXIT DEVICE|PUSH PLATE|POWER SUPPLY|LOCK|LATCH|BOX|SENSOR)\b/i', $description)) {
+            return true;
+        }
+
+        return false;
+    }
+
+    private function dedupe_unmatched_rows(array $rows): array
+    {
+        $out = [];
+        $seen = [];
+        foreach ($rows as $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+            $signature = implode('|', [
+                (string) ($row['door_id'] ?? ''),
+                ado_qm_compact((string) ($row['model'] ?? '')),
+                ado_qm_compact((string) ($row['description'] ?? '')),
+                ado_qm_compact((string) ($row['raw_line'] ?? '')),
+                strtolower((string) ($row['excluded_reason'] ?? ($row['reason_code'] ?? ''))),
+            ]);
+            if ($signature === '' || isset($seen[$signature])) {
+                continue;
+            }
+            $seen[$signature] = true;
+            $out[] = $row;
+        }
+        return $out;
     }
 
     private function is_external_scope_reference(string $text): bool
