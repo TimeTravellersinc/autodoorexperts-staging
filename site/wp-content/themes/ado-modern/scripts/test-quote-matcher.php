@@ -93,6 +93,29 @@ $print_match('opener_9542', $opener_9542_first);
 $assert((int) ($opener_9542_first['product_id'] ?? 0) === 0, '9542 does not auto-match silently');
 $assert(((string) ($opener_9542_first['reason_code'] ?? '')) === 'USER_REVIEW', '9542 becomes a family review candidate');
 
+$power_supply_contaminated_desc = ado_qm_match_item_segments([
+    'qty' => 1,
+    'catalog' => '',
+    'desc' => 'BY OTHERS 9531 628 RH HDR T.B. x CONCEALED IN HEADER ON/OFF/HO SWITCH (PULL SIDE MTG) 9530-18 628 41 1/2"',
+    'raw' => '1 POWER SUPPLY POWER SUPPLY',
+], $index);
+$power_supply_contaminated_desc_first = is_array($power_supply_contaminated_desc[0] ?? null) ? $power_supply_contaminated_desc[0] : [];
+$print_match('power_supply_contaminated_desc', $power_supply_contaminated_desc_first);
+$assert(((string) ($power_supply_contaminated_desc_first['reason_code'] ?? '')) === 'NO_CANDIDATES', 'contaminated description does not turn generic power supply into opener hardware');
+$assert(empty($power_supply_contaminated_desc_first['candidate_products']), 'generic power supply stays unresolved when raw line has no model');
+
+$opener_9542_contaminated_desc = ado_qm_match_item_segments([
+    'qty' => 1,
+    'catalog' => '',
+    'desc' => '4040XP-18PA 689 9542 REGARM 628 LH HDR 38" TB x CONCEALED IN HEADER ON/OFF/HO SWITCH (PUSH SID',
+    'raw' => '1 AUTO OPENER 9542 REGARM 628 LH HDR 38 TB X CONCEALED IN HEADER ON/OFF/HO SWITCH PUSH SIDE 628',
+], $index);
+$opener_9542_contaminated_desc_first = is_array($opener_9542_contaminated_desc[0] ?? null) ? $opener_9542_contaminated_desc[0] : [];
+$print_match('opener_9542_contaminated_desc', $opener_9542_contaminated_desc_first);
+$assert(((string) ($opener_9542_contaminated_desc_first['reason_code'] ?? '')) === 'USER_REVIEW', 'contaminated description does not hijack 9542 opener review flow');
+$assert(((string) ($opener_9542_contaminated_desc_first['candidate_products'][0]['sku'] ?? '')) === '9540IQ', '9542 opener still reviews against 9540IQ family');
+$assert(((string) ($opener_9542_contaminated_desc_first['normalized_model'] ?? '')) === '9542', '9542 opener keeps the raw-line model as the normalized model');
+
 $opener_9531_plain = ado_qm_match_item_segments([
     'qty' => 1,
     'catalog' => '',
@@ -296,6 +319,17 @@ $mounting_plate = ado_qm_match_item_segments([
 ], $index);
 $print_match('4040xp_18pa', is_array($mounting_plate[0] ?? null) ? $mounting_plate[0] : []);
 
+$mounting_plate_contaminated_desc = ado_qm_match_item_segments([
+    'qty' => 1,
+    'catalog' => '',
+    'desc' => '4040XP-18PA 689 9542 REGARM 628 LH HDR 38" TB x CONCEALED IN HEADER ON/OFF/HO SWITCH (PUSH SID',
+    'raw' => '1 MOUNTING PLATE 4040XP-18PA 689 689',
+], $index);
+$mounting_plate_contaminated_desc_first = is_array($mounting_plate_contaminated_desc[0] ?? null) ? $mounting_plate_contaminated_desc[0] : [];
+$print_match('mounting_plate_contaminated_desc', $mounting_plate_contaminated_desc_first);
+$assert(((string) ($mounting_plate_contaminated_desc_first['reason_code'] ?? '')) === 'INACTIVE_PRODUCT', 'mounting plate still resolves from raw line when description is contaminated');
+$assert(((string) ($mounting_plate_contaminated_desc_first['candidate_products'][0]['sku'] ?? '')) === '4040XP-18PA', 'mounting plate keeps the 4040XP-18PA inactive candidate');
+
 $wec_kit = ado_qm_match_item_segments([
     'qty' => 6,
     'catalog' => '',
@@ -333,6 +367,46 @@ $synthetic = ado_build_cart_lines_from_scope([
 ]);
 $assert(is_array($synthetic) && isset($synthetic['lines'], $synthetic['unmatched'], $synthetic['debug_log']), 'scope build returns mapped arrays');
 $assert(count((array) ($synthetic['debug_log'] ?? [])) >= 2, 'scope build logs each segment');
+
+$synthetic_contaminated = ado_build_cart_lines_from_scope([
+    'result' => [
+        'doors' => [
+            [
+                'door_id' => 'T-2',
+                'items' => [
+                    [
+                        'qty' => 1,
+                        'catalog' => '',
+                        'desc' => 'BY OTHERS 9531 628 RH HDR T.B. x CONCEALED IN HEADER ON/OFF/HO SWITCH (PULL SIDE MTG) 9530-18 628 41 1/2"',
+                        'raw' => '1 POWER SUPPLY POWER SUPPLY',
+                    ],
+                    [
+                        'qty' => 1,
+                        'catalog' => '',
+                        'desc' => '4040XP-18PA 689 9542 REGARM 628 LH HDR 38" TB x CONCEALED IN HEADER ON/OFF/HO SWITCH (PUSH SID',
+                        'raw' => '1 AUTO OPENER 9542 REGARM 628 LH HDR 38 TB X CONCEALED IN HEADER ON/OFF/HO SWITCH PUSH SIDE 628',
+                    ],
+                ],
+            ],
+        ],
+    ],
+]);
+$power_supply_debug = null;
+$opener_9542_debug = null;
+foreach ((array) ($synthetic_contaminated['debug_log'] ?? []) as $row) {
+    if (!is_array($row)) { continue; }
+    if (($row['raw_line'] ?? '') === '1 POWER SUPPLY POWER SUPPLY') {
+        $power_supply_debug = $row;
+    }
+    if (($row['raw_line'] ?? '') === '1 AUTO OPENER 9542 REGARM 628 LH HDR 38 TB X CONCEALED IN HEADER ON/OFF/HO SWITCH PUSH SIDE 628') {
+        $opener_9542_debug = $row;
+    }
+}
+$assert(is_array($power_supply_debug), 'contaminated power supply debug row is present');
+$assert(is_array($opener_9542_debug), 'contaminated 9542 opener debug row is present');
+$assert(empty((array) ($power_supply_debug['tokens'] ?? [])), 'debug tokens ignore contaminated description for generic power supply');
+$assert(!in_array('4040XP-18PA', (array) ($opener_9542_debug['tokens'] ?? []), true), 'debug tokens do not inherit mounting plate model from contaminated description');
+$assert(((array) ($opener_9542_debug['tokens'] ?? [])) === ['9542'], 'debug tokens for contaminated 9542 opener come only from the raw segment');
 
 $review_draft = [
     'id' => 'draft-review-test',

@@ -623,8 +623,12 @@ function ado_qm_segment_qty(string $segment, int $fallback): int {
 
 function ado_qm_extract_candidates(array $item, string $segment, array $index): array {
     $ordered = [];
-    $brand_hint_pool = ado_qm_brand_hints_from_text(implode(' ', array_filter([(string) ($item['catalog'] ?? ''), $segment, (string) ($item['desc'] ?? '')], 'strlen')), $index);
-    foreach (array_filter([(string) ($item['catalog'] ?? ''), $segment, (string) ($item['desc'] ?? '')], 'strlen') as $source) {
+    $sources = array_values(array_filter(
+        [(string) ($item['catalog'] ?? ''), $segment],
+        static fn(string $source): bool => trim($source) !== ''
+    ));
+    $brand_hint_pool = ado_qm_brand_hints_from_text(implode(' ', $sources), $index);
+    foreach ($sources as $source) {
         foreach (ado_qm_extract_fragments_from_text((string) $source) as $fragment) {
             $normalized = ado_qm_compact($fragment);
             if ($normalized === '') { continue; }

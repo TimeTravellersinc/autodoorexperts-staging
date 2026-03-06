@@ -618,7 +618,7 @@ function ado_build_cart_lines_from_scope(array $scope_payload): array {
                     'model' => (string) ($item['catalog'] ?? ''),
                     'description' => (string) ($item['desc'] ?? ''),
                     'qty' => $qty,
-                    'tokens' => ado_qm_extract_fragments_from_text($raw_line . ' ' . (string) ($item['catalog'] ?? '') . ' ' . (string) ($item['desc'] ?? '')),
+                    'tokens' => ado_qm_extract_fragments_from_text(trim($raw_line . ' ' . (string) ($item['catalog'] ?? ''))),
                     'matched_product_id' => $pid,
                     'matched_by' => (string) ($match['match_method'] ?? 'none'),
                     'confidence' => (int) ($match['confidence'] ?? 0),
