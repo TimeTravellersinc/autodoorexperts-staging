@@ -227,11 +227,20 @@ function ado_camden_price_for_model(string $category_slug, array $model, array $
             $price = str_contains($sku, 'KD') ? 26.99 : 24.99;
             return round($price, 2);
         }
+        if ($sku === 'CM-307') {
+            return 29.99;
+        }
+        if ($sku === 'CM-308') {
+            return 39.99;
+        }
+        if (str_contains($sku, 'CI-1050CP') || str_contains($text, 'COVER')) {
+            return 89.99;
+        }
         if (str_contains($text, 'VESTIBULE')) {
             return 104.99;
         }
         if (str_contains($text, 'KEY SWITCH') || str_contains($text, 'PUSH PLATE')) {
-            return 99.99;
+            return 79.99;
         }
         $base = $stats['median'] > 0 ? $stats['median'] : 59.99;
         return round($base, 2);

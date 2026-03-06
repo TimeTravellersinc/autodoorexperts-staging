@@ -1,0 +1,26 @@
+{
+  "source_url": "https://www.camdencontrols.com/category/activation/Key%20Switches/products/CM_1000_Series",
+  "brand": "Camden",
+  "category": "Keyswitches",
+  "series_title": "CM-1000 Series",
+  "series_subtitle": "Cast Aluminum with Surface Box",
+  "models": [
+    { "sku": "CM-1000", "price": 79.99 },
+    { "sku": "CI-1050CP", "price": 89.99 },
+    { "sku": "CM-1005", "price": 79.99 },
+    { "sku": "CM-1010", "price": 79.99 },
+    { "sku": "CM-1020", "price": 79.99 },
+    { "sku": "CM-1030", "price": 79.99 },
+    { "sku": "CM-1050", "price": 79.99 },
+    { "sku": "CM-1060", "price": 79.99 },
+    { "sku": "CM-1070", "price": 79.99 },
+    { "sku": "CM-1080", "price": 79.99 },
+    { "sku": "CM-1082", "price": 79.99 },
+    { "sku": "CM-1090", "price": 79.99 },
+    { "sku": "CM-1092", "price": 79.99 },
+    { "sku": "CM-CYL60-KA", "price": 24.99 },
+    { "sku": "CM-CYL60-KD", "price": 26.99 },
+    { "sku": "CM-307", "price": 29.99 },
+    { "sku": "CM-308", "price": 39.99 }
+  ]
+}
