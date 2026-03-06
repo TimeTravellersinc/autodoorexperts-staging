@@ -265,6 +265,14 @@ function ado_camden_price_for_model(string $category_slug, array $model, array $
         return str_contains($sku, 'BK') ? 94.99 : 89.99;
     }
 
+    if ($sku === 'CX-LED1') {
+        return 24.99;
+    }
+
+    if ($sku === 'CX-LED2') {
+        return 29.99;
+    }
+
     if (preg_match('/^CM-AF14/i', $sku)) {
         $price = 64.99;
         if (str_contains($text, 'MULTI-COLOR')) {
