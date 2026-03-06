@@ -1,0 +1,16 @@
+{
+  "source_url": "https://www.camdencontrols.com/category/activation/Keypads/products/CM_120i",
+  "brand": "Camden",
+  "category": "Miscellaneous",
+  "series_title": "CM-120",
+  "series_subtitle": "Flush Mount Wired and Wireless Keypads",
+  "models": [
+    { "sku": "CM-120i", "price": 159.99 },
+    { "sku": "CM-120wV2", "price": 169.99 },
+    { "sku": "CM-120TX", "price": 189.99 },
+    { "sku": "CM-RX-90", "price": 89.99 },
+    { "sku": "CM-RX-92", "price": 119.99 },
+    { "sku": "CM-TX-99", "price": 39.99 },
+    { "sku": "CM-LP1", "price": 14.99 }
+  ]
+}

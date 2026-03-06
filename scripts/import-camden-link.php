@@ -338,6 +338,41 @@ function ado_camden_price_for_model(string $category_slug, array $model, array $
         return round($price, 2);
     }
 
+    if ($category_slug === 'miscellaneous') {
+        if (str_contains($sku, 'CM-TX-')) {
+            return 39.99;
+        }
+        if (str_contains($text, 'KEYPAD')) {
+            $price = 149.99;
+            if (str_contains($text, 'WIEGAND')) {
+                $price += 10.00;
+            }
+            if (str_contains($text, 'WIRELESS')) {
+                $price += 20.00;
+            }
+            if (str_contains($text, 'VANDAL')) {
+                $price += 10.00;
+            }
+            if (str_contains($text, 'BATTERY')) {
+                $price += 10.00;
+            }
+            return round($price, 2);
+        }
+        if (str_contains($text, 'RECEIVER')) {
+            $price = 89.99;
+            if (str_contains($text, 'DUAL RELAY') || str_contains($text, 'FULL FUNCTION')) {
+                $price = 119.99;
+            }
+            return round($price, 2);
+        }
+        if (str_contains($text, 'TRANSMITTER')) {
+            return 39.99;
+        }
+        if (str_contains($text, 'BATTER')) {
+            return 14.99;
+        }
+    }
+
     if ($category_slug !== 'actuators') {
         $base = $stats['median'] > 0 ? $stats['median'] : 99.99;
         return round($base, 2);
