@@ -392,6 +392,9 @@ function ado_camden_price_for_model(string $category_slug, array $model, array $
         if (str_contains($text, 'MAINTAINED')) {
             $price += 8.00;
         }
+        if (str_contains($text, 'PNEUMATIC') || str_contains($text, 'TIME DELAY') || str_contains($text, 'TIMER')) {
+            $price += 10.00;
+        }
         if (str_contains($text, 'RED BUTTON')) {
             $price += 4.00;
         }

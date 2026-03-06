@@ -1,0 +1,24 @@
+{
+  "source_url": "https://www.camdencontrols.com/category/activation/Mushroom%20Push%20Buttons/products/CM_4000_4100",
+  "brand": "Camden",
+  "category": "Actuators",
+  "series_title": "CM-4000/4100",
+  "series_subtitle": "1-5/8\" Pushbutton, Aluminum Faceplate",
+  "models": [
+    { "sku": "CM-4000", "price": 34.99 },
+    { "sku": "CM-4010", "price": 34.99 },
+    { "sku": "CM-4020", "price": 39.99 },
+    { "sku": "CM-4085", "price": 44.99 },
+    { "sku": "CM-4085RPTE", "price": 48.99 },
+    { "sku": "CM-4030", "price": 42.99 },
+    { "sku": "CM-4040", "price": 42.99 },
+    { "sku": "CM-4050", "price": 47.99 },
+    { "sku": "CM-4100", "price": 39.99 },
+    { "sku": "CM-4110", "price": 39.99 },
+    { "sku": "CM-4120", "price": 44.99 },
+    { "sku": "CM-4185", "price": 49.99 },
+    { "sku": "CM-4130", "price": 47.99 },
+    { "sku": "CM-4140", "price": 47.99 },
+    { "sku": "CM-4150", "price": 52.99 }
+  ]
+}
