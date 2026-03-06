@@ -81,7 +81,8 @@ function ado_camden_fetch_html(string $url): string {
 
 function ado_camden_decode(string $value): string {
     $value = html_entity_decode($value, ENT_QUOTES | ENT_HTML5, 'UTF-8');
-    $value = str_replace(["\xc2\xa0", '’', '“', '”'], [' ', "'", '"', '"'], $value);
+    $value = str_replace(['\\&', '\\/'], ['&', '/'], $value);
+    $value = str_replace(["\xc2\xa0", 'ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¾Ãƒâ€šÃ‚Â¢', 'ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¦ÃƒÂ¢Ã¢â€šÂ¬Ã…â€œ', 'ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â'], [' ', "'", '"', '"'], $value);
     return trim(preg_replace('/\s+/', ' ', $value) ?? '');
 }
 
@@ -104,15 +105,19 @@ function ado_camden_extract_models(string $html): array {
     }
 
     $block = (string) $match['block'];
-    $pattern = "/'~(?<uid>\d+)'\s*:\s*\{(?:(?!\},'~|\},'option-|\}\s*;).)*'model_number':'(?<model>[^']+)'(?:(?!\},'~|\},'option-|\}\s*;).)*'subsection':'(?<subsection>[^']*)'(?:(?!\},'~|\},'option-|\}\s*;).)*'title':'(?<title>[^']*)'/is";
+    $pattern = "/'~(?<uid>\d+)'\s*:\s*\{(?:(?!\},'~|\},'option-|\}\s*;).)*'model_number':'(?<model>[^']+)'(?:(?!\},'~|\},'option-|\}\s*;).)*(?:'subsection':'(?<subsection>[^']*)'|'modelEnglish~subsection':'(?<model_subsection>[^']*)')?(?:(?!\},'~|\},'option-|\}\s*;).)*'title':'(?<title>[^']*)'/is";
     preg_match_all($pattern, $block, $matches, PREG_SET_ORDER);
 
     $models = [];
     foreach ($matches as $row) {
+        $subsection = (string) ($row['subsection'] ?? '');
+        if ($subsection === '') {
+            $subsection = (string) ($row['model_subsection'] ?? '');
+        }
         $models[] = [
             'uid' => (string) ($row['uid'] ?? ''),
             'model_number' => ado_camden_decode((string) ($row['model'] ?? '')),
-            'subsection' => ado_camden_decode((string) ($row['subsection'] ?? '')),
+            'subsection' => ado_camden_decode($subsection),
             'title' => ado_camden_decode((string) ($row['title'] ?? '')),
         ];
     }
@@ -129,42 +134,64 @@ function ado_camden_extract_model_image_urls(string $html, array $models): array
         }
         $models_by_uid[$uid] = strtoupper((string) ($model['model_number'] ?? ''));
     }
-    if (!preg_match_all('/<tbody\s+id="eModel-~(?<uid>\d+)"[^>]*>(?<body>.*?)<\/tbody>/is', $html, $matches, PREG_SET_ORDER)) {
-        return $images;
+    if (preg_match_all('/<tbody\s+id="eModel-~(?<uid>\d+)"[^>]*>(?<body>.*?)<\/tbody>/is', $html, $matches, PREG_SET_ORDER)) {
+        foreach ($matches as $match) {
+            $uid = (string) ($match['uid'] ?? '');
+            $body = (string) ($match['body'] ?? '');
+            $model_number = (string) ($models_by_uid[$uid] ?? '');
+            if ($model_number === '') {
+                continue;
+            }
+            if (!preg_match_all('/<img[^>]+src="(?<src>\/pipelines\/resource\/[^"]+\.(?:png|jpg|jpeg|webp))"[^>]*>/i', $body, $img_matches, PREG_SET_ORDER)) {
+                continue;
+            }
+            foreach ($img_matches as $img_match) {
+                $tag = (string) ($img_match[0] ?? '');
+                $src = trim((string) ($img_match['src'] ?? ''));
+                if ($src === '' || str_ends_with($src, 'blank.gif')) {
+                    continue;
+                }
+                $tag_upper = strtoupper(html_entity_decode(strip_tags($tag), ENT_QUOTES | ENT_HTML5, 'UTF-8'));
+                $alt_match = '';
+                if (preg_match('/alt="([^"]*)"/i', $tag, $alt)) {
+                    $alt_match = strtoupper(ado_camden_decode((string) ($alt[1] ?? '')));
+                }
+                $title_match = '';
+                if (preg_match('/title="([^"]*)"/i', $tag, $title)) {
+                    $title_match = strtoupper(ado_camden_decode((string) ($title[1] ?? '')));
+                }
+                $context = $alt_match . ' ' . $title_match . ' ' . strtoupper(ado_camden_decode(strip_tags($body)));
+                if (strpos($context, $model_number) === false) {
+                    continue;
+                }
+                $images[$uid] = 'https://www.camdencontrols.com' . $src;
+                break;
+            }
+        }
     }
 
-    foreach ($matches as $match) {
-        $uid = (string) ($match['uid'] ?? '');
-        $body = (string) ($match['body'] ?? '');
-        $model_number = (string) ($models_by_uid[$uid] ?? '');
-        if ($model_number === '') {
+    foreach ($models as $model) {
+        $sku = strtoupper((string) ($model['model_number'] ?? ''));
+        $uid = (string) ($model['uid'] ?? '');
+        if ($sku === '' || $uid === '' || isset($images[$uid])) {
             continue;
         }
-        if (!preg_match_all('/<img[^>]+src="(?<src>\/pipelines\/resource\/[^"]+\.(?:png|jpg|jpeg|webp))"[^>]*>/i', $body, $img_matches, PREG_SET_ORDER)) {
+        $quoted_sku = preg_quote($sku, '/');
+        if (!preg_match('/<img[^>]+alt="[^"]*' . $quoted_sku . '[^"]*"[^>]*>/i', $html, $img_tag_match)) {
             continue;
         }
-        foreach ($img_matches as $img_match) {
-            $tag = (string) ($img_match[0] ?? '');
-            $src = trim((string) ($img_match['src'] ?? ''));
-            if ($src === '' || str_ends_with($src, 'blank.gif')) {
-                continue;
-            }
-            $tag_upper = strtoupper(html_entity_decode(strip_tags($tag), ENT_QUOTES | ENT_HTML5, 'UTF-8'));
-            $alt_match = '';
-            if (preg_match('/alt="([^"]*)"/i', $tag, $alt)) {
-                $alt_match = strtoupper(ado_camden_decode((string) ($alt[1] ?? '')));
-            }
-            $title_match = '';
-            if (preg_match('/title="([^"]*)"/i', $tag, $title)) {
-                $title_match = strtoupper(ado_camden_decode((string) ($title[1] ?? '')));
-            }
-            $context = $alt_match . ' ' . $title_match . ' ' . strtoupper(ado_camden_decode(strip_tags($body)));
-            if (strpos($context, $model_number) === false) {
-                continue;
-            }
-            $images[$uid] = 'https://www.camdencontrols.com' . $src;
-            break;
+        $img_tag = (string) ($img_tag_match[0] ?? '');
+        $full_image = '';
+        if (preg_match('/onclick="zoom\(\'(?<zoom>\/pipelines\/resource\/[^\'"]+\.(?:png|jpg|jpeg|webp))\'\)/i', $img_tag, $zoom_match)) {
+            $full_image = trim((string) ($zoom_match['zoom'] ?? ''));
         }
+        if ($full_image === '' && preg_match('/src="(?<src>\/pipelines\/resource\/[^"]+\.(?:png|jpg|jpeg|webp))"/i', $img_tag, $src_match)) {
+            $full_image = trim((string) ($src_match['src'] ?? ''));
+        }
+        if ($full_image === '') {
+            continue;
+        }
+        $images[$uid] = 'https://www.camdencontrols.com' . $full_image;
     }
 
     return $images;
@@ -248,6 +275,47 @@ function ado_camden_category_price_stats(string $category_slug): array {
 function ado_camden_price_for_model(string $category_slug, array $model, array $stats): float {
     $sku = strtoupper((string) ($model['model_number'] ?? ''));
     $text = strtoupper(trim(($model['subsection'] ?? '') . ' ' . ($model['title'] ?? '')));
+
+    if (preg_match('/^CX-WC(1[0-8])/', $sku, $match)) {
+        $series = (int) ($match[1] ?? 0);
+        $base_prices = [
+            10 => 199.99,
+            11 => 239.99,
+            13 => 289.99,
+            14 => 359.99,
+            15 => 339.99,
+            16 => 279.99,
+            17 => 389.99,
+            18 => 369.99,
+        ];
+        $price = (float) ($base_prices[$series] ?? 299.99);
+
+        if (str_contains($text, 'COMBO')) {
+            $price += 50.00;
+        }
+        if (str_contains($text, 'ANNUNCIATOR') || str_contains($text, 'ANNUNCIATION')) {
+            $price += 20.00;
+        }
+        if (str_contains($text, 'ASSISTANCE SWITCH')) {
+            $price += 35.00;
+        }
+        if (str_contains($text, 'TOUCHLESS') || str_contains($text, 'HANDS-FREE SENSOR') || str_contains($sku, 'VR')) {
+            $price += 30.00;
+        }
+        if (str_contains($text, 'SURFACE MOUNT') || str_contains($sku, 'ASM') || str_contains($sku, 'XSM') || str_contains($sku, 'SL')) {
+            $price += 10.00;
+        }
+        if (str_contains($sku, '-PS') || str_contains($text, 'POWER SUPPLY')) {
+            $price += 40.00;
+        }
+        if (str_contains($text, 'FRENCH ENGLISH')) {
+            $price += 10.00;
+        } elseif (str_contains($text, 'FRENCH')) {
+            $price += 5.00;
+        }
+
+        return round($price, 2);
+    }
 
     if ($sku === 'CM-LP1') {
         return 14.99;
@@ -647,7 +715,7 @@ function ado_camden_price_for_model(string $category_slug, array $model, array $
 
     if ($category_slug === 'actuators' && str_contains($text, 'COLUMN')) {
         $price = 109.99;
-        if (str_contains($text, '6"') || str_contains($text, '6”')) {
+        if (str_contains($text, '6"') || str_contains($text, '6ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â')) {
             $price += 10.00;
         }
         if (str_contains($sku, 'VR') || str_contains($text, 'HANDS-FREE SENSOR')) {
@@ -1060,6 +1128,13 @@ $series_subtitle = $titles[1] ?? '';
 $models = ado_camden_extract_models($html);
 $image_urls = ado_camden_extract_model_image_urls($html, $models);
 
+if ($category_name === 'Washroom Kits' && str_contains(strtolower($url), '/kits')) {
+    $models = array_values(array_filter($models, static function (array $model): bool {
+        $sku = strtoupper(trim((string) ($model['model_number'] ?? '')));
+        return str_starts_with($sku, 'CX-WC');
+    }));
+}
+
 if (!$models) {
     fwrite(STDERR, "No models found on page.\n");
     exit(1);
@@ -1090,7 +1165,10 @@ foreach ($models as $model) {
         continue;
     }
     $image_url = (string) ($image_urls[(string) ($model['uid'] ?? '')] ?? '');
-    if ($image_url === '') {
+    $allow_missing_image = $category_slug === 'washroom-kits'
+        && str_contains(strtolower($url), '/kits')
+        && in_array($sku, ['CX-WC14XFM', 'CX-WC14XSM', 'CX-WC14AXSM-PS', 'CX-WC14AXFM-PS'], true);
+    if ($image_url === '' && !$allow_missing_image) {
         echo 'SKIPPED|NO_IMAGE|' . $sku . PHP_EOL;
         continue;
     }
@@ -1140,7 +1218,7 @@ foreach ($models as $model) {
         throw new RuntimeException('Failed to save product for ' . $sku);
     }
 
-    if (!ado_camden_attach_image($saved_id, $image_url)) {
+    if ($image_url !== '' && !ado_camden_attach_image($saved_id, $image_url)) {
         if ($is_new) {
             wp_delete_post($saved_id, true);
         }
@@ -1210,7 +1288,7 @@ foreach ($models as $model) {
             $category_term_ids[] = $keyswitch_term_id;
         }
     }
-    if ($category_slug === 'washroom-kits') {
+    if ($category_slug === 'washroom-kits' && !str_starts_with($sku, 'CX-WC')) {
         $relay_term_id = ado_camden_find_term_id('product_cat', 'Relays');
         $psu_term_id = ado_camden_find_term_id('product_cat', 'PSUs');
         $sensor_term_id = ado_camden_find_term_id('product_cat', 'Sensors');
@@ -1228,7 +1306,7 @@ foreach ($models as $model) {
             $category_term_ids[] = $actuator_term_id;
         }
     }
-    if ($category_slug === 'washroom-kits') {
+    if ($category_slug === 'washroom-kits' && !str_starts_with($sku, 'CX-WC')) {
         $relay_term_id = ado_camden_find_term_id('product_cat', 'Relays');
         $keyswitch_term_id = ado_camden_find_term_id('product_cat', 'Keyswitches');
         $misc_term_id = ado_camden_find_term_id('product_cat', 'Miscellaneous');
@@ -1270,3 +1348,8 @@ foreach ($models as $model) {
 }
 
 echo 'DONE|created=' . $created . '|updated=' . $updated . '|category=' . $category_slug . '|skus=' . implode(',', $imported_skus) . PHP_EOL;
+
+
+
+
+
