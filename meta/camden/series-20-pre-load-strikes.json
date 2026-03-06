@@ -1,0 +1,17 @@
+{
+  "source_url": "https://www.camdencontrols.com/category/locking/Electric%20Strikes/products/Series_20_Pre_Load_Strikes",
+  "brand": "Camden",
+  "category": "Strikes",
+  "series_title": "Series 20 Pre-Load Strikes",
+  "series_subtitle": "Pre-Load Electric Strikes",
+  "models": [
+    { "sku": "CX-EPD-2000L", "price": 159.99 },
+    { "sku": "CX-EPD-2010L", "price": 179.99 },
+    { "sku": "CX-EPD-2020L", "price": 179.99 },
+    { "sku": "CX-EPD-2030L", "price": 184.99 },
+    { "sku": "CX-EPD-2040L", "price": 189.99 },
+    { "sku": "CX-ESP1", "price": 22.99 },
+    { "sku": "CX-ESP2", "price": 22.99 },
+    { "sku": "CX-ESP3", "price": 24.99 }
+  ]
+}

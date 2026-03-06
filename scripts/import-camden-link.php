@@ -484,6 +484,19 @@ function ado_camden_price_for_model(string $category_slug, array $model, array $
     if (isset($ed1579_prices[$sku])) {
         return $ed1579_prices[$sku];
     }
+    $series20_prices = [
+        'CX-EPD-2000L' => 159.99,
+        'CX-EPD-2010L' => 179.99,
+        'CX-EPD-2020L' => 179.99,
+        'CX-EPD-2030L' => 184.99,
+        'CX-EPD-2040L' => 189.99,
+        'CX-ESP1' => 22.99,
+        'CX-ESP2' => 22.99,
+        'CX-ESP3' => 24.99,
+    ];
+    if (isset($series20_prices[$sku])) {
+        return $series20_prices[$sku];
+    }
 
     if (preg_match('/^CX-247/i', $sku)) {
         $price = 89.99;
