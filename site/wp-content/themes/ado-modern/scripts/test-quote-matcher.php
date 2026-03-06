@@ -40,6 +40,18 @@ $restore_option = static function (string $key, $value): void {
     update_option($key, $value, false);
 };
 
+$original_override_option = get_option(ado_qm_override_option_key(), false);
+$original_rejection_option = get_option(ado_qm_rejection_option_key(), false);
+$original_correction_option = get_option(ado_qm_correction_option_key(), false);
+update_option(ado_qm_override_option_key(), [], false);
+update_option(ado_qm_rejection_option_key(), [], false);
+update_option(ado_qm_correction_option_key(), [], false);
+register_shutdown_function(static function () use ($restore_option, $original_override_option, $original_rejection_option, $original_correction_option): void {
+    $restore_option(ado_qm_override_option_key(), $original_override_option);
+    $restore_option(ado_qm_rejection_option_key(), $original_rejection_option);
+    $restore_option(ado_qm_correction_option_key(), $original_correction_option);
+});
+
 $index = ado_qm_get_index(true);
 $assert(!empty($index['products']), 'matcher index builds product bank');
 $sku_9531_id = $find_product_id_by_sku('9531');
@@ -48,6 +60,9 @@ $assert(ado_qm_is_external_scope_line('1 Card Reader CARD READER BY OTHERS PROX'
 $assert(ado_qm_is_external_scope_line('4 Card Reader BY DIV.28 KINGSTON JOB NO. 19011/2001-01 2024-12-19'), 'division scope detection');
 $assert(ado_qm_strip_revision_tail('1 Electric Strike 6300-FSE-24V-630 630 ADDED: PC-047') === '1 ELECTRIC STRIKE 6300-FSE-24V-630 630', 'revision tail trimming');
 $assert(in_array('CM7536', ado_qm_model_variants('CM-7536/4'), true), 'slash variant base normalization');
+$assert(in_array('9500', ado_qm_lcn_zero_family_variants('9542'), true), 'LCN zero family variants include 9500 for 9542');
+$assert(ado_qm_lcn_zero_compatible('9542', '9500'), 'LCN zero-compatibility matches 9542 to 9500');
+$assert(!ado_qm_lcn_zero_compatible('9542', '9550IQ'), 'LCN zero-compatibility does not bridge non-zero mismatches');
 $assert(ado_qm_is_finish_token('US32D'), 'US32D finish token detection');
 $assert(!in_array('19011/2001-01', ado_qm_extract_fragments_from_text('JOB NO. 19011/2001-01 2024-12-19'), true), 'job number token ignored');
 $assert(!in_array('2024-12-19', ado_qm_extract_fragments_from_text('JOB NO. 19011/2001-01 2024-12-19'), true), 'date token ignored');
@@ -99,7 +114,9 @@ $opener_9542 = ado_qm_match_item_segments([
 $opener_9542_first = is_array($opener_9542[0] ?? null) ? $opener_9542[0] : [];
 $print_match('opener_9542', $opener_9542_first);
 $assert((int) ($opener_9542_first['product_id'] ?? 0) === 0, '9542 does not auto-match silently');
-$assert(((string) ($opener_9542_first['reason_code'] ?? '')) === 'USER_REVIEW', '9542 becomes a family review candidate');
+$assert(((string) ($opener_9542_first['reason_code'] ?? '')) === 'MULTIPLE_CANDIDATES', '9542 becomes multiple LCN family candidates');
+$assert(((string) ($opener_9542_first['candidate_products'][0]['sku'] ?? '')) === '9540IQ', '9542 still prefers the specific 9540IQ family first');
+$assert(in_array('9500', array_map(static fn(array $row): string => (string) ($row['sku'] ?? ''), (array) ($opener_9542_first['candidate_products'] ?? [])), true), '9542 review candidates include the 9500 operator via LCN zero rule');
 
 $power_supply_contaminated_desc = ado_qm_match_item_segments([
     'qty' => 1,
@@ -132,8 +149,9 @@ $opener_9542_contaminated_desc = ado_qm_match_item_segments([
 ], $index);
 $opener_9542_contaminated_desc_first = is_array($opener_9542_contaminated_desc[0] ?? null) ? $opener_9542_contaminated_desc[0] : [];
 $print_match('opener_9542_contaminated_desc', $opener_9542_contaminated_desc_first);
-$assert(((string) ($opener_9542_contaminated_desc_first['reason_code'] ?? '')) === 'USER_REVIEW', 'contaminated description does not hijack 9542 opener review flow');
+$assert(((string) ($opener_9542_contaminated_desc_first['reason_code'] ?? '')) === 'MULTIPLE_CANDIDATES', 'contaminated description still returns multiple LCN family candidates for 9542');
 $assert(((string) ($opener_9542_contaminated_desc_first['candidate_products'][0]['sku'] ?? '')) === '9540IQ', '9542 opener still reviews against 9540IQ family');
+$assert(in_array('9500', array_map(static fn(array $row): string => (string) ($row['sku'] ?? ''), (array) ($opener_9542_contaminated_desc_first['candidate_products'] ?? [])), true), '9542 opener review also includes the 9500 operator via LCN zero rule');
 $assert(((string) ($opener_9542_contaminated_desc_first['normalized_model'] ?? '')) === '9542', '9542 opener keeps the raw-line model as the normalized model');
 
 $opener_9531_plain = ado_qm_match_item_segments([
@@ -254,8 +272,9 @@ $opener_9542_plain = ado_qm_match_item_segments([
 ], $index);
 $opener_9542_plain_first = is_array($opener_9542_plain[0] ?? null) ? $opener_9542_plain[0] : [];
 $print_match('opener_9542_plain', $opener_9542_plain_first);
-$assert(((string) ($opener_9542_plain_first['reason_code'] ?? '')) === 'USER_REVIEW', '9542 plain becomes review candidate');
+$assert(((string) ($opener_9542_plain_first['reason_code'] ?? '')) === 'MULTIPLE_CANDIDATES', '9542 plain becomes multiple LCN family candidates');
 $assert(((string) ($opener_9542_plain_first['candidate_products'][0]['sku'] ?? '')) === '9540IQ', '9542 plain review candidate is exposed');
+$assert(in_array('9500', array_map(static fn(array $row): string => (string) ($row['sku'] ?? ''), (array) ($opener_9542_plain_first['candidate_products'] ?? [])), true), '9542 plain includes the 9500 operator');
 
 $opener_9563_plain = ado_qm_match_item_segments([
     'qty' => 1,
@@ -265,8 +284,9 @@ $opener_9563_plain = ado_qm_match_item_segments([
 ], $index);
 $opener_9563_plain_first = is_array($opener_9563_plain[0] ?? null) ? $opener_9563_plain[0] : [];
 $print_match('opener_9563_plain', $opener_9563_plain_first);
-$assert(((string) ($opener_9563_plain_first['reason_code'] ?? '')) === 'USER_REVIEW', '9563 plain becomes review candidate');
+$assert(((string) ($opener_9563_plain_first['reason_code'] ?? '')) === 'MULTIPLE_CANDIDATES', '9563 plain becomes multiple LCN family candidates');
 $assert(((string) ($opener_9563_plain_first['candidate_products'][0]['sku'] ?? '')) === '9560IQ', '9563 plain review candidate is exposed');
+$assert(in_array('9500', array_map(static fn(array $row): string => (string) ($row['sku'] ?? ''), (array) ($opener_9563_plain_first['candidate_products'] ?? [])), true), '9563 plain includes the 9500 operator via LCN zero rule');
 
 $opener_9553_plain = ado_qm_match_item_segments([
     'qty' => 1,
@@ -276,8 +296,11 @@ $opener_9553_plain = ado_qm_match_item_segments([
 ], $index);
 $opener_9553_plain_first = is_array($opener_9553_plain[0] ?? null) ? $opener_9553_plain[0] : [];
 $print_match('opener_9553_plain', $opener_9553_plain_first);
-$assert(((string) ($opener_9553_plain_first['reason_code'] ?? '')) === 'USER_REVIEW', '9553 plain becomes review candidate');
+$assert(((string) ($opener_9553_plain_first['reason_code'] ?? '')) === 'MULTIPLE_CANDIDATES', '9553 plain becomes multiple LCN family candidates');
 $assert(((string) ($opener_9553_plain_first['candidate_products'][0]['sku'] ?? '')) === '9550IQ', '9553 plain review candidate is exposed');
+
+$search_9542_results = ado_qm_search_active_products('9542', 20);
+$assert(in_array('9500', array_map(static fn(array $row): string => (string) ($row['sku'] ?? ''), $search_9542_results), true), 'manual search for 9542 finds the 9500 operator via LCN zero rule');
 
 $opener_9131_plain = ado_qm_match_item_segments([
     'qty' => 1,
@@ -467,9 +490,6 @@ $assert(((string) ($catalog_power_supply_unmatched['model'] ?? '')) === '', 'unm
 
 $manual_fixture_product_id = $find_product_id_by_sku('HES-1006-SERIES');
 $assert($manual_fixture_product_id > 0, 'manual correction fixture product exists');
-$original_override_option = get_option(ado_qm_override_option_key(), false);
-$original_rejection_option = get_option(ado_qm_rejection_option_key(), false);
-$original_correction_option = get_option(ado_qm_correction_option_key(), false);
 update_option(ado_qm_override_option_key(), [], false);
 update_option(ado_qm_rejection_option_key(), [], false);
 update_option(ado_qm_correction_option_key(), [], false);

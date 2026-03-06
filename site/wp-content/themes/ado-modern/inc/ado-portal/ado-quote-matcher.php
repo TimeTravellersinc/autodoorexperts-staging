@@ -189,6 +189,68 @@ function ado_qm_model_variants(string $value): array {
     return $out;
 }
 
+function ado_qm_lcn_zero_family_variants(string $value): array {
+    $compact = ado_qm_compact($value);
+    if ($compact === '') { return []; }
+    if (!preg_match('/^(9\d{3})(IQ)?$/', $compact, $m)) { return []; }
+    $digits = (string) $m[1];
+    $suffix = (string) ($m[2] ?? '');
+    if ($suffix !== '') { return []; }
+    $positions = [];
+    for ($i = 1; $i < strlen($digits); $i++) {
+        if ($digits[$i] !== '0') {
+            $positions[] = $i;
+        }
+    }
+    if (!$positions) { return []; }
+    $ordered = [];
+    $count = count($positions);
+    for ($mask = 1; $mask < (1 << $count); $mask++) {
+        $chars = str_split($digits);
+        for ($bit = 0; $bit < $count; $bit++) {
+            if (($mask & (1 << $bit)) !== 0) {
+                $chars[$positions[$bit]] = '0';
+            }
+        }
+        $variant_digits = implode('', $chars);
+        if ($variant_digits === $digits) { continue; }
+        $ordered[] = $variant_digits;
+        $ordered[] = $variant_digits . 'IQ';
+    }
+    $seen = [$compact => true];
+    $out = [];
+    foreach ($ordered as $variant) {
+        $variant = ado_qm_compact((string) $variant);
+        if ($variant === '' || isset($seen[$variant])) { continue; }
+        $seen[$variant] = true;
+        $out[] = $variant;
+    }
+    return $out;
+}
+
+function ado_qm_lcn_zero_compatible(string $left, string $right): bool {
+    $left = ado_qm_compact($left);
+    $right = ado_qm_compact($right);
+    if ($left === '' || $right === '') { return false; }
+    if (!preg_match('/^(9\d{3})(IQ)?$/', $left, $left_match)) { return false; }
+    if (!preg_match('/^(9\d{3})(IQ)?$/', $right, $right_match)) { return false; }
+    if (((string) ($left_match[2] ?? '')) !== ((string) ($right_match[2] ?? ''))) {
+        return false;
+    }
+    $left_digits = (string) $left_match[1];
+    $right_digits = (string) $right_match[1];
+    for ($i = 0; $i < strlen($left_digits); $i++) {
+        if ($left_digits[$i] === $right_digits[$i]) {
+            continue;
+        }
+        if ($left_digits[$i] === '0' || $right_digits[$i] === '0') {
+            continue;
+        }
+        return false;
+    }
+    return true;
+}
+
 function ado_qm_review_model_variants(string $value): array {
     $compact = ado_qm_compact($value);
     if ($compact === '') { return []; }
@@ -343,6 +405,12 @@ function ado_qm_product_model_candidates(string $title, string $sku, array $meta
     return $out;
 }
 
+function ado_qm_is_operator_family_text(string $value): bool {
+    $norm = ado_qm_normalize_text($value);
+    if ($norm === '') { return false; }
+    return (bool) preg_match('/\b(?:AUTOMATIC DOOR OPERATORS?|AUTO DOOR OPERATORS?|DOOR OPERATORS?|OPERATORS?|OPENERS?)\b/', $norm);
+}
+
 function ado_qm_collect_raw_products(array $post_statuses): array {
     $posts = get_posts([
         'post_type' => 'product',
@@ -360,6 +428,11 @@ function ado_qm_collect_raw_products(array $post_statuses): array {
         if (!$product) { continue; }
         $title = ado_qm_decode_text((string) get_the_title($post_id));
         $sku = ado_qm_decode_text((string) $product->get_sku());
+        $categories = array_values(array_filter(array_map(
+            static fn($term): string => ado_qm_decode_text((string) $term),
+            (array) wp_get_post_terms($post_id, 'product_cat', ['fields' => 'names'])
+        ), static fn(string $term): bool => $term !== ''));
+        $category_text = implode(' ', $categories);
         $meta_values = [];
         foreach (ado_qm_meta_model_fields() as $meta_key) {
             $meta_value = get_post_meta($post_id, $meta_key, true);
@@ -377,7 +450,9 @@ function ado_qm_collect_raw_products(array $post_statuses): array {
             'meta' => $meta_values,
             'models' => $models,
             'brand' => $brand !== '' ? $brand : 'UNKNOWN',
-            'context_words' => ado_qm_context_words($title . ' ' . implode(' ', $meta_values)),
+            'categories' => $categories,
+            'is_operator_family' => ado_qm_is_operator_family_text($title . ' ' . $category_text),
+            'context_words' => ado_qm_context_words($title . ' ' . $category_text . ' ' . implode(' ', $meta_values)),
         ];
         if ($brand !== '') {
             foreach ($models as $model) {
@@ -764,11 +839,43 @@ function ado_qm_context_overlap_score(array $context_words, array $product): int
     return min(18, count($overlap) * 6);
 }
 
+function ado_qm_lcn_zero_operator_rows(string $query, array $index, bool $inactive = false, int $score = 90, string $method = 'lcn_zero_review'): array {
+    $query_compact = ado_qm_compact($query);
+    if ($query_compact === '') { return []; }
+    $products = $inactive ? (array) (($index['inactive']['products'] ?? [])) : (array) ($index['products'] ?? []);
+    $rows = [];
+    foreach ($products as $product_id => $product) {
+        if (!is_array($product) || empty($product['is_operator_family'])) { continue; }
+        $matched = false;
+        foreach ((array) ($product['model_map'] ?? []) as $model => $meta) {
+            $display_compact = ado_qm_compact((string) ($meta['display'] ?? $model));
+            if (ado_qm_lcn_zero_compatible($query_compact, (string) $model)
+                || ($display_compact !== '' && ado_qm_lcn_zero_compatible($query_compact, $display_compact))) {
+                $matched = true;
+                break;
+            }
+        }
+        if (!$matched) { continue; }
+        $rows[] = [
+            'product_id' => (int) $product_id,
+            'score' => $score,
+            'method' => $method,
+            'sku' => (string) ($product['sku'] ?? ''),
+            'title' => (string) ($product['title'] ?? ''),
+            'brand' => (string) ($product['brand'] ?? 'UNKNOWN'),
+            'status' => (string) ($product['status'] ?? ''),
+            'availability' => $inactive ? 'inactive' : 'active',
+        ];
+    }
+    return ado_qm_unique_candidate_rows($rows);
+}
+
 function ado_qm_search_active_products(string $query, int $limit = 10): array {
     $query = ado_qm_normalize_text($query);
     $query_compact = ado_qm_compact($query);
     if ($query === '' && $query_compact === '') { return []; }
     $index = ado_qm_get_index();
+    $review_variants = array_fill_keys(ado_qm_review_model_variants($query_compact !== '' ? $query_compact : $query), true);
     $rows = [];
     foreach ((array) ($index['products'] ?? []) as $product_id => $product) {
         if (!is_array($product)) { continue; }
@@ -801,6 +908,15 @@ function ado_qm_search_active_products(string $query, int $limit = 10): array {
             }
             if ($query !== '' && $display !== '' && strpos($display, $query) !== false) {
                 $score = max($score, 92);
+            }
+            $display_compact = ado_qm_compact($display);
+            if (!empty($review_variants[(string) $model]) || ($display_compact !== '' && !empty($review_variants[$display_compact]))) {
+                $score = max($score, 94);
+            }
+            if (!empty($product['is_operator_family'])
+                && (ado_qm_lcn_zero_compatible($query_compact, (string) $model)
+                    || ($display_compact !== '' && ado_qm_lcn_zero_compatible($query_compact, $display_compact)))) {
+                $score = max($score, 90);
             }
         }
         if ($score <= 0) { continue; }
@@ -1097,6 +1213,7 @@ function ado_qm_match_segment(array $item, string $segment, array $index): array
         if (!$candidate_rows) {
             $candidate_rows = ado_qm_fuzzy_product_rows($candidate, $context_words, $index);
         }
+        $candidate_rows = array_merge($candidate_rows, ado_qm_lcn_zero_operator_rows($normalized, $index));
         $candidate_rows = ado_qm_unique_candidate_rows($candidate_rows);
         $candidate_rows = ado_qm_filter_rejected_rows($candidate_rows, (array) ($candidate['decision_keys'] ?? []));
         if (!$candidate_rows) { continue; }
