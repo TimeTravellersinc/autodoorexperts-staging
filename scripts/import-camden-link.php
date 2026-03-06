@@ -345,6 +345,10 @@ function ado_camden_price_for_model(string $category_slug, array $model, array $
         return $cx_33_prices[$sku];
     }
 
+    if ($sku === 'CX-12PLUS') {
+        return 84.99;
+    }
+
     $cx_irb_prices = [
         'CX-IRB' => 19.99,
         'CX-IRB-6' => 99.99,
