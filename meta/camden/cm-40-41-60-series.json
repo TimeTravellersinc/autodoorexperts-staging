@@ -1,0 +1,45 @@
+{
+  "source_url": "https://www.camdencontrols.com/category/activation/All%20Active%20Switches/products/CM_40_41_60_Series",
+  "brand": "Camden",
+  "category": "Actuators",
+  "series_title": "CM-40, CM-41 & CM-60 Series",
+  "series_subtitle": "Round Push Plate Switches",
+  "models": [
+    {
+      "sku": "CM-40",
+      "section": "Round Push Plates",
+      "description": "4-1/2\" Round Push Plate Switch",
+      "price": 34.99
+    },
+    {
+      "sku": "CM-41",
+      "section": "Round Push Plates",
+      "description": "4-1/2\" Round Push Plate Switch with Square Back Plate",
+      "price": 31.99
+    },
+    {
+      "sku": "CM-60",
+      "section": "Round Push Plates",
+      "description": "6\" Round Push Plate Switch",
+      "price": 34.99
+    },
+    {
+      "sku": "CM-40K",
+      "section": "Round Push Plates, Kinetic(tm) No Battery Wireless",
+      "description": "4-1/2\" Stainless Steel Round Push Plate Switch",
+      "price": 49.99
+    },
+    {
+      "sku": "CM-41K",
+      "section": "Round Push Plates, Kinetic(tm) No Battery Wireless",
+      "description": "4-1/2\" Stainless Steel Round Push Plate Switch with Square Back Plate",
+      "price": 47.99
+    },
+    {
+      "sku": "CM-60K",
+      "section": "Round Push Plates, Kinetic(tm) No Battery Wireless",
+      "description": "6\" Stainless Steel Round Push Plate Switch",
+      "price": 49.99
+    }
+  ]
+}
