@@ -418,6 +418,62 @@ function ado_camden_price_for_model(string $category_slug, array $model, array $
         return round($price, 2);
     }
 
+    if ($category_slug === 'actuators') {
+        if (str_contains($text, 'SCREW') || str_contains($text, 'PLUG')) {
+            if (str_contains($text, 'BOX OF 100')) {
+                return 19.99;
+            }
+            return 4.99;
+        }
+        if (str_contains($text, 'LED')) {
+            $price = 12.99;
+            if (str_contains($text, 'BI-COLORED')) {
+                $price = 16.99;
+            } elseif (str_contains($text, '12/24')) {
+                $price = 14.99;
+            }
+            return round($price, 2);
+        }
+        if (str_contains($text, 'GASKET')) {
+            return str_contains($text, 'NARROW') ? 18.99 : 16.99;
+        }
+        if (str_contains($text, 'FACEPLATE')) {
+            return str_contains($text, 'JAMB') ? 22.99 : 19.99;
+        }
+        if (str_contains($text, 'CONTACT BLOCK') || str_contains($text, 'SWITCH BLOCK') || str_contains($text, 'CONTACT FOR')) {
+            $price = 24.99;
+            if (str_contains($text, 'N/O AND N/C') || str_contains($text, 'N/O \\& N/C') || str_contains($text, 'DPDT')) {
+                $price = 34.99;
+            }
+            return round($price, 2);
+        }
+        if (str_contains($text, 'BUTTON')) {
+            $price = 22.99;
+            if (str_contains($text, 'ILLUMINATED')) {
+                $price += 5.00;
+            }
+            if (str_contains($text, 'PUSH/PULL')) {
+                $price += 5.00;
+            }
+            if (str_contains($text, 'LOCKING') || str_contains($text, 'WITH KEYS')) {
+                $price += 25.00;
+            }
+            if (str_contains($text, '2-3/8')) {
+                $price += 5.00;
+            }
+            if (str_contains($text, 'ROUND EXTENDED') || str_contains($text, 'EXTENDED')) {
+                $price += 7.00;
+            }
+            if (str_contains($text, 'STEEL')) {
+                $price += 8.00;
+            }
+            if (str_contains($text, 'MAINTAINED')) {
+                $price += 5.00;
+            }
+            return round($price, 2);
+        }
+    }
+
     if (preg_match('/^CM-7/i', $sku)) {
         $price = 54.99;
         if (str_contains($text, 'NARROW')) {
@@ -577,6 +633,11 @@ foreach ($models as $model) {
     if ($sku === '') {
         continue;
     }
+    $variant_title = trim((string) ($model['title'] ?? ''));
+    if (str_contains(strtoupper($variant_title), 'DISCONTINUED')) {
+        echo 'SKIPPED|DISCONTINUED|' . $sku . PHP_EOL;
+        continue;
+    }
     $image_url = (string) ($image_urls[(string) ($model['uid'] ?? '')] ?? '');
     if ($image_url === '') {
         echo 'SKIPPED|NO_IMAGE|' . $sku . PHP_EOL;
@@ -592,7 +653,6 @@ foreach ($models as $model) {
     }
 
     $subsection = trim((string) ($model['subsection'] ?? ''));
-    $variant_title = trim((string) ($model['title'] ?? ''));
     $display_name = trim('Camden ' . $sku . ' - ' . ($variant_title !== '' ? $variant_title : $series_subtitle));
     $short_description = trim($variant_title);
 
@@ -655,6 +715,12 @@ foreach ($models as $model) {
 
     if ($category_slug === 'keyswitches' && !str_contains($sku, 'CYL') && str_contains(strtoupper($variant_title), 'PUSH PLATE')) {
         $category_term_ids[] = $actuator_term_id;
+    }
+    if ($category_slug === 'actuators' && in_array($sku, ['CM-1000/21', 'CM-2000/21'], true)) {
+        $keyswitch_term_id = ado_camden_find_term_id('product_cat', 'Keyswitches');
+        if ($keyswitch_term_id > 0) {
+            $category_term_ids[] = $keyswitch_term_id;
+        }
     }
     wp_set_object_terms($saved_id, array_values(array_unique($category_term_ids)), 'product_cat', false);
     wp_set_object_terms($saved_id, [$brand_term_id], 'product_brand', false);
