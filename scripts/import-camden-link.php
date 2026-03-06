@@ -888,6 +888,12 @@ foreach ($models as $model) {
             $category_term_ids = [$misc_term_id];
         }
     }
+    if ($category_slug === 'actuators' && $sku === 'CM-30U') {
+        $misc_term_id = ado_camden_find_term_id('product_cat', 'Miscellaneous');
+        if ($misc_term_id > 0) {
+            $category_term_ids = [$misc_term_id];
+        }
+    }
     if ($category_slug === 'actuators' && $sku === 'CM-RX-90') {
         $misc_term_id = ado_camden_find_term_id('product_cat', 'Miscellaneous');
         if ($misc_term_id > 0) {

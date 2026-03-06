@@ -1,0 +1,11 @@
+{
+  "source_url": "https://www.camdencontrols.com/category/activation/push%20_-47-_%20exit%20buttons/products/CM_30_Series",
+  "brand": "Camden",
+  "series_title": "CM-30 Series",
+  "series_subtitle": "Square LED Illuminated Push/Exit Switch",
+  "models": [
+    { "sku": "CM-30U", "category": "Miscellaneous", "price": 12.99 },
+    { "sku": "CM-30E", "category": "Actuators", "price": 42.99 }
+  ],
+  "skipped_discontinued": ["CM-30C"]
+}
