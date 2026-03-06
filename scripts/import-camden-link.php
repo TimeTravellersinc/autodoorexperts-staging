@@ -265,6 +265,10 @@ function ado_camden_price_for_model(string $category_slug, array $model, array $
         return str_contains($sku, 'BK') ? 94.99 : 89.99;
     }
 
+    if ($sku === 'CX-1000/77') {
+        return 99.99;
+    }
+
     $kinetic_prices = [
         'CM-40K' => 49.99,
         'CM-41K' => 47.99,
