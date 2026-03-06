@@ -1,0 +1,50 @@
+﻿{
+  "source_url": "https://commercial.schlage.com/en/products/power-supplies.html",
+  "category": "PSUs",
+  "products": [
+    {
+      "sku": "PS902",
+      "brand": "Schlage",
+      "title": "PS902 2-Amp Power Supply",
+      "description": "Get consistent output to your access control system with the highly configurable PS902 2-amp power supply.",
+      "source_url": "https://commercial.schlage.com/en/products/power-supplies/ps902.html",
+      "image_url": "https://commercial.schlage.com/content/dam/schlage-commercial/product-images/power-supplies/SCH_PS902_900-2RS_LGR__1000x1000_HO.png",
+      "price": 229.99
+    },
+    {
+      "sku": "PS904",
+      "brand": "Schlage",
+      "title": "PS904 4-Amp Power Supply",
+      "description": "View the PS904 4-amp power supply. It delivers a clean and consistent output to your access control system, protecting downstream devices.",
+      "source_url": "https://commercial.schlage.com/en/products/power-supplies/ps904.html",
+      "image_url": "https://commercial.schlage.com/content/dam/schlage-commercial/product-images/power-supplies/SCH_PS904__1000x1000_HO.png",
+      "price": 279.99
+    },
+    {
+      "sku": "PS906",
+      "brand": "Schlage",
+      "title": "PS906 6-Amp Power Supply",
+      "description": "Meet your access control system needs with the factory and field configurable PS906 6-amp power supply. Designed to deliver a clean output.",
+      "source_url": "https://commercial.schlage.com/en/products/power-supplies/ps906.html",
+      "image_url": "https://commercial.schlage.com/content/dam/schlage-commercial/product-images/power-supplies/SCH_PS906__1000x1000_HO.png",
+      "price": 339.99
+    },
+    {
+      "sku": "PS914",
+      "brand": "Von Duprin",
+      "title": "PS914 Power Supply for Panic Exits",
+      "description": "The Von Duprin PS914 4-amp power supply is designed for use with panic exits requiring high in-rush current.",
+      "source_url": "https://www.vonduprin.com/en/products/power-supplies/ps914-power-supply.html",
+      "image_url": "https://www.vonduprin.com/content/dam/allegion-us-2/product-page-images/VonDuprin/WP_10164_SC_PS914_Power_Supply.jpg",
+      "price": 369.99
+    }
+  ],
+  "skipped": [
+    {
+      "brand": "Locknetics",
+      "title": "LP Series",
+      "source_url": "https://us.allegion.com/en/products/brands/locknetics/lp-series.html",
+      "reason": "cloudflare-blocked"
+    }
+  ]
+}
