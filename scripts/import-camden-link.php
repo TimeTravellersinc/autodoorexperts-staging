@@ -82,7 +82,7 @@ function ado_camden_fetch_html(string $url): string {
 function ado_camden_decode(string $value): string {
     $value = html_entity_decode($value, ENT_QUOTES | ENT_HTML5, 'UTF-8');
     $value = str_replace(['\\&', '\\/'], ['&', '/'], $value);
-    $value = str_replace(["\xc2\xa0", 'ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¾Ãƒâ€šÃ‚Â¢', 'ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¦ÃƒÂ¢Ã¢â€šÂ¬Ã…â€œ', 'ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â'], [' ', "'", '"', '"'], $value);
+    $value = str_replace(["\xc2\xa0", 'ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¾ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢', 'ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã¢â‚¬Å“', 'ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â'], [' ', "'", '"', '"'], $value);
     return trim(preg_replace('/\s+/', ' ', $value) ?? '');
 }
 
@@ -715,7 +715,7 @@ function ado_camden_price_for_model(string $category_slug, array $model, array $
 
     if ($category_slug === 'actuators' && str_contains($text, 'COLUMN')) {
         $price = 109.99;
-        if (str_contains($text, '6"') || str_contains($text, '6ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â')) {
+        if (str_contains($text, '6"') || str_contains($text, '6ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â')) {
             $price += 10.00;
         }
         if (str_contains($sku, 'VR') || str_contains($text, 'HANDS-FREE SENSOR')) {
@@ -1165,9 +1165,16 @@ foreach ($models as $model) {
         continue;
     }
     $image_url = (string) ($image_urls[(string) ($model['uid'] ?? '')] ?? '');
-    $allow_missing_image = $category_slug === 'washroom-kits'
-        && str_contains(strtolower($url), '/kits')
-        && in_array($sku, ['CX-WC14XFM', 'CX-WC14XSM', 'CX-WC14AXSM-PS', 'CX-WC14AXFM-PS'], true);
+    $allow_missing_image = false;
+    if ($category_slug === 'washroom-kits') {
+        $washroom_missing_image_skus = [];
+        if (str_contains(strtolower($url), '/kits')) {
+            $washroom_missing_image_skus = ['CX-WC14XFM', 'CX-WC14XSM', 'CX-WC14AXSM-PS', 'CX-WC14AXFM-PS'];
+        } elseif (str_contains(strtolower($url), 'cx_wec_series')) {
+            $washroom_missing_image_skus = ['CX-WEC10FE', 'CX-WEC10BK2-FE', 'CX-WEC11'];
+        }
+        $allow_missing_image = in_array($sku, $washroom_missing_image_skus, true);
+    }
     if ($image_url === '' && !$allow_missing_image) {
         echo 'SKIPPED|NO_IMAGE|' . $sku . PHP_EOL;
         continue;
