@@ -1,0 +1,24 @@
+{
+  "source_url": "https://www.camdencontrols.com/category/locking/Electric%20Strikes/products/CX_ED1579L",
+  "brand": "Camden",
+  "category": "Strikes",
+  "series_title": "CX-ED1579L",
+  "series_subtitle": "Grade 1 All In One Electric Strike",
+  "models": [
+    { "sku": "CX-ED1579L", "price": 229.99 },
+    { "sku": "CX-ED1579L-BK", "price": 239.99 },
+    { "sku": "CX-EMP-1", "price": 24.99 },
+    { "sku": "CX-EMP-2", "price": 24.99 },
+    { "sku": "CX-EMP-3", "price": 24.99 },
+    { "sku": "CX-EMP-4", "price": 24.99 },
+    { "sku": "CX-EMP-5", "price": 24.99 },
+    { "sku": "CX-EMP-6", "price": 24.99 },
+    { "sku": "CX-EMP-1-BK", "price": 26.99 },
+    { "sku": "CX-EMP-2-BK", "price": 26.99 },
+    { "sku": "CX-EMP-3-BK", "price": 26.99 },
+    { "sku": "CX-EMP-4-BK", "price": 26.99 },
+    { "sku": "CX-EMP-5-BK", "price": 26.99 },
+    { "sku": "CX-EMP-6-BK", "price": 26.99 },
+    { "sku": "CX-STR-TMPKIT", "price": 39.99 }
+  ]
+}

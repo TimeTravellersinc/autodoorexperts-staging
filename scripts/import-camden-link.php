@@ -465,6 +465,25 @@ function ado_camden_price_for_model(string $category_slug, array $model, array $
     if (isset($ed1079_prices[$sku])) {
         return $ed1079_prices[$sku];
     }
+    $ed1579_prices = [
+        'CX-ED1579L' => 229.99,
+        'CX-ED1579L-BK' => 239.99,
+        'CX-EMP-1' => 24.99,
+        'CX-EMP-2' => 24.99,
+        'CX-EMP-3' => 24.99,
+        'CX-EMP-4' => 26.99,
+        'CX-EMP-5' => 26.99,
+        'CX-EMP-6' => 26.99,
+        'CX-EMP-1-BK' => 26.99,
+        'CX-EMP-2-BK' => 26.99,
+        'CX-EMP-3-BK' => 26.99,
+        'CX-EMP-4-BK' => 28.99,
+        'CX-EMP-5-BK' => 28.99,
+        'CX-EMP-6-BK' => 28.99,
+    ];
+    if (isset($ed1579_prices[$sku])) {
+        return $ed1579_prices[$sku];
+    }
 
     if (preg_match('/^CX-247/i', $sku)) {
         $price = 89.99;
