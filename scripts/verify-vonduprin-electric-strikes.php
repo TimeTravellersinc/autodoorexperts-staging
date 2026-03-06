@@ -1,4 +1,4 @@
-﻿<?php
+<?php
 declare(strict_types=1);
 
 if (PHP_SAPI !== 'cli') {
@@ -24,7 +24,7 @@ $checks = is_array($manifest['products'] ?? null) ? $manifest['products'] : [];
 $fail = 0;
 foreach ($checks as $row) {
     $sku = (string) ($row['sku'] ?? '');
-    $brand = strtolower((string) ($row['brand'] ?? ''));
+    $brand = sanitize_title((string) ($row['brand'] ?? ''));
     $cat = sanitize_title((string) ($row['category'] ?? ''));
     $source_url = (string) ($row['source_url'] ?? '');
     $price_expected = number_format((float) ($row['price'] ?? 0), 2, '.', '');
