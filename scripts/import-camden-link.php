@@ -553,6 +553,17 @@ function ado_camden_price_for_model(string $category_slug, array $model, array $
     if (isset($epd1289_prices[$sku])) {
         return $epd1289_prices[$sku];
     }
+    $epd1299_prices = [
+        'CX-EPD1299L' => 259.99,
+        'CX-EPD1299L-BK' => 269.99,
+        '60-35E013' => 19.99,
+        '60-35E015' => 24.99,
+        '60-35E013-BK' => 21.99,
+        '60-35E015-BK' => 26.99,
+    ];
+    if (isset($epd1299_prices[$sku])) {
+        return $epd1299_prices[$sku];
+    }
 
     if (preg_match('/^CX-247/i', $sku)) {
         $price = 89.99;
