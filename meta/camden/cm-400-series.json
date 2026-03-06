@@ -1,0 +1,21 @@
+{
+  "source_url": "https://www.camdencontrols.com/category/activation/Mushroom%20Push%20Buttons/products/CM_400_Series",
+  "brand": "Camden",
+  "category": "Actuators",
+  "series_title": "CM-400 Series",
+  "series_subtitle": "1-5/8\" Pushbutton, Stainless Steel Faceplate",
+  "models": [
+    { "sku": "CM-400", "price": 34.99 },
+    { "sku": "CM-410", "price": 34.99 },
+    { "sku": "CM-420", "price": 39.99 },
+    { "sku": "CM-450R", "price": 47.99 },
+    { "sku": "CM-420RPTE", "price": 43.99 },
+    { "sku": "CM-450RL-7724-CPC", "price": 67.99 },
+    { "sku": "CM-400N", "price": 39.99 },
+    { "sku": "CM-400W", "price": 44.99 },
+    { "sku": "CM-410N", "price": 39.99 },
+    { "sku": "CM-410W", "price": 44.99 },
+    { "sku": "CM-420N", "price": 44.99 },
+    { "sku": "CM-420W", "price": 49.99 }
+  ]
+}
