@@ -61,6 +61,7 @@ function ado_quote_post_row(WP_Post $post): array
         'subtotal_html' => ado_quote_totals_html($totals),
         'total_items' => $items_total,
         'unmatched_count' => count($unmatched),
+        'door_count' => count((array) get_post_meta($id, '_adq_doors', true)),
         'scope_url' => (string) get_post_meta($id, '_adq_scope_url', true),
         'order_id' => (int) get_post_meta($id, '_adq_order_id', true),
     ];
@@ -123,14 +124,34 @@ function ado_quote_grouped_lines(int $quote_id): array
         }
         $product_id = (int) ($line['product_id'] ?? 0);
         $qty = (int) ($line['qty'] ?? 0);
+        $line_type = (string) ($line['line_type'] ?? 'catalog');
         $product = $product_id > 0 ? wc_get_product($product_id) : null;
-        $line['product_name'] = $product ? (string) $product->get_name() : ('Product #' . $product_id);
-        $line['sku'] = $product ? (string) $product->get_sku() : '';
-        $line['line_total'] = $product ? ((float) $product->get_price('edit') * max(1, $qty)) : 0;
+        if ($line_type === 'manual') {
+            $unit = max(0.0, (float) ($line['manual_unit_price'] ?? 0.0));
+            $line['product_name'] = (string) ($line['manual_description'] ?? 'Manual line item');
+            $line['sku'] = (string) ($line['manual_sku'] ?? ($line['source_model'] ?? ''));
+            $line['line_total'] = $unit * max(1, $qty);
+            $line['unit_price'] = $unit;
+        } else {
+            $line['product_name'] = $product ? (string) $product->get_name() : ('Product #' . $product_id);
+            $line['sku'] = $product ? (string) $product->get_sku() : '';
+            $line['line_total'] = $product ? ((float) $product->get_price('edit') * max(1, $qty)) : 0;
+            $line['unit_price'] = $product ? (float) $product->get_price('edit') : 0.0;
+        }
         $door_map[$door_id]['lines'][] = $line;
     }
 
     return array_values($door_map);
+}
+
+function ado_quote_door_notes(int $quote_id): array
+{
+    return ado_quote_integration()->get_quote_door_notes($quote_id);
+}
+
+function ado_quote_line_adjustments(int $quote_id): array
+{
+    return ado_quote_integration()->get_quote_line_adjustments($quote_id);
 }
 
 function ado_quote_unmatched_flash_key(): string
@@ -386,6 +407,9 @@ function ado_quote_unmatched_by_door(int $quote_id): array
 function ado_quote_group_match_state(array $group, array $unmatched_by_door): string
 {
     $door = (array) ($group['door'] ?? []);
+    if (empty($door['has_operator'])) {
+        return 'out-of-scope';
+    }
     $door_id = (string) ($door['door_id'] ?? '');
     $door_number = (string) ($door['door_number'] ?? '');
     $unmatched = $unmatched_by_door[$door_id] ?? $unmatched_by_door['door-number:' . $door_number] ?? [];
@@ -401,6 +425,9 @@ function ado_quote_group_match_state(array $group, array $unmatched_by_door): st
     foreach ($lines as $line) {
         if (!is_array($line)) {
             continue;
+        }
+        if ((string) ($line['line_type'] ?? '') === 'manual') {
+            return 'manual';
         }
         $method = strtolower((string) ($line['match_method'] ?? ''));
         $confidence = (float) ($line['match_confidence'] ?? 0);
@@ -418,6 +445,12 @@ function ado_quote_group_match_state(array $group, array $unmatched_by_door): st
 
 function ado_quote_group_match_label(string $state, int $unmatched_count): string
 {
+    if ($state === 'out-of-scope') {
+        return 'Out of scope';
+    }
+    if ($state === 'manual') {
+        return 'Manual pricing';
+    }
     if ($state === 'none') {
         return 'Needs review';
     }
@@ -428,6 +461,49 @@ function ado_quote_group_match_label(string $state, int $unmatched_count): strin
         return 'No items';
     }
     return 'Matched';
+}
+
+function ado_quote_review_summary(int $quote_id): array
+{
+    $groups = ado_quote_grouped_lines($quote_id);
+    $unmatched_by_door = ado_quote_unmatched_by_door($quote_id);
+    $summary = [
+        'doors_total' => count($groups),
+        'doors_in_scope' => 0,
+        'matched_doors' => 0,
+        'fuzzy_doors' => 0,
+        'unknown_doors' => 0,
+        'manual_doors' => 0,
+        'out_of_scope_doors' => 0,
+        'review_items' => 0,
+        'manual_lines' => 0,
+    ];
+
+    foreach ($groups as $group) {
+        $state = ado_quote_group_match_state($group, $unmatched_by_door);
+        if ($state !== 'out-of-scope') {
+            $summary['doors_in_scope']++;
+        }
+        if ($state === 'full') {
+            $summary['matched_doors']++;
+        } elseif ($state === 'fuzzy') {
+            $summary['fuzzy_doors']++;
+        } elseif ($state === 'none') {
+            $summary['unknown_doors']++;
+        } elseif ($state === 'manual') {
+            $summary['manual_doors']++;
+        } elseif ($state === 'out-of-scope') {
+            $summary['out_of_scope_doors']++;
+        }
+        foreach ((array) ($group['lines'] ?? []) as $line) {
+            if (is_array($line) && (string) ($line['line_type'] ?? '') === 'manual') {
+                $summary['manual_lines']++;
+            }
+        }
+    }
+
+    $summary['review_items'] = $summary['fuzzy_doors'] + $summary['unknown_doors'] + $summary['manual_doors'];
+    return $summary;
 }
 
 function ado_render_quote_detail(int $user_id, int $quote_id): string
@@ -950,6 +1026,64 @@ add_action('wp_ajax_ado_resolve_quote_match_review', static function (): void {
     wp_send_json_success([
         'message' => $message,
         'quote_url' => ado_quote_url($quote_id),
+        'unmatched_count' => count($new_unmatched),
+    ]);
+});
+
+add_action('wp_ajax_ado_save_quote_door_note', static function (): void {
+    $uid = ado_assert_client_ajax();
+    $quote_id = (int) ($_POST['quote_id'] ?? 0);
+    $door_id = sanitize_text_field((string) ($_POST['door_id'] ?? ''));
+    $note = (string) ($_POST['note'] ?? '');
+    if ($quote_id <= 0 || $door_id === '') {
+        wp_send_json_error(['message' => 'Quote and door are required.'], 400);
+    }
+    if (!ado_quote_integration()->quote_belongs_to_user($quote_id, $uid) && !current_user_can('manage_woocommerce')) {
+        wp_send_json_error(['message' => 'Quote access denied.'], 403);
+    }
+    ado_quote_integration()->save_quote_door_note($quote_id, $door_id, $note);
+    wp_send_json_success([
+        'message' => 'Door note saved.',
+        'summary' => ado_quote_review_summary($quote_id),
+    ]);
+});
+
+add_action('wp_ajax_ado_save_quote_line_adjustment', static function (): void {
+    $uid = ado_assert_client_ajax();
+    $quote_id = (int) ($_POST['quote_id'] ?? 0);
+    $line_key = sanitize_text_field((string) ($_POST['line_key'] ?? ''));
+    if ($quote_id <= 0 || $line_key === '') {
+        wp_send_json_error(['message' => 'Quote and line are required.'], 400);
+    }
+    if (!ado_quote_integration()->quote_belongs_to_user($quote_id, $uid) && !current_user_can('manage_woocommerce')) {
+        wp_send_json_error(['message' => 'Quote access denied.'], 403);
+    }
+
+    $payload = [];
+    foreach (['corrected_model', 'manual_description', 'manual_sku', 'manual_unit_price'] as $key) {
+        if (array_key_exists($key, $_POST)) {
+            $payload[$key] = wp_unslash($_POST[$key]);
+        }
+    }
+    if (!$payload) {
+        wp_send_json_error(['message' => 'No adjustment values were provided.'], 400);
+    }
+
+    ado_quote_integration()->save_quote_line_adjustment($quote_id, $line_key, $payload);
+    $debug = current_user_can('manage_woocommerce');
+    $rerun = ado_quote_integration()->rerun_matching($quote_id, $debug);
+    if (empty($rerun['ok'])) {
+        wp_send_json_error(['message' => (string) ($rerun['message'] ?? 'Failed to rebuild quote.')], 400);
+    }
+
+    $new_unmatched = get_post_meta($quote_id, '_adq_unmatched_items', true);
+    $new_unmatched = is_array($new_unmatched) ? $new_unmatched : [];
+    ado_set_quote_unmatched_flash($uid, $quote_id, $new_unmatched);
+
+    wp_send_json_success([
+        'message' => 'Quote line updated.',
+        'quote_url' => ado_quote_url($quote_id),
+        'summary' => ado_quote_review_summary($quote_id),
         'unmatched_count' => count($new_unmatched),
     ]);
 });

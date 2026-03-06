@@ -128,6 +128,8 @@ final class ADO_Quote_Integration
         update_post_meta($quote_id, '_adq_cart_snapshot', array_values($lines));
         update_post_meta($quote_id, '_adq_unmatched_items', array_values((array) ($mapped['unmatched'] ?? [])));
         update_post_meta($quote_id, '_adq_match_log', array_values((array) ($mapped['debug_log'] ?? [])));
+        update_post_meta($quote_id, '_adq_door_notes', []);
+        update_post_meta($quote_id, '_adq_line_adjustments', []);
         update_post_meta($quote_id, '_adq_totals', $this->calculate_snapshot_totals($lines));
 
         return [
@@ -149,7 +151,7 @@ final class ADO_Quote_Integration
         if (!is_array($payload)) {
             return ['ok' => false, 'message' => 'Quote scoped snapshot is invalid.'];
         }
-        $mapped = $this->map_payload($payload, $debug);
+        $mapped = $this->map_payload($payload, $debug, $quote_id);
         $lines = (array) ($mapped['lines'] ?? []);
         $unmatched = array_values((array) ($mapped['unmatched'] ?? []));
         if (!$lines && !$unmatched) {
@@ -328,6 +330,122 @@ final class ADO_Quote_Integration
         update_post_meta($quote_id, '_adq_updated_at', current_time('mysql'));
     }
 
+    public function get_quote_door_notes(int $quote_id): array
+    {
+        $notes = get_post_meta($quote_id, '_adq_door_notes', true);
+        if (!is_array($notes)) {
+            return [];
+        }
+        $clean = [];
+        foreach ($notes as $door_id => $note) {
+            if (!is_string($door_id)) {
+                continue;
+            }
+            $door_id = trim($door_id);
+            if ($door_id === '') {
+                continue;
+            }
+            $clean[$door_id] = trim((string) $note);
+        }
+        return $clean;
+    }
+
+    public function save_quote_door_note(int $quote_id, string $door_id, string $note): bool
+    {
+        $door_id = trim($door_id);
+        if ($quote_id <= 0 || $door_id === '') {
+            return false;
+        }
+        $notes = $this->get_quote_door_notes($quote_id);
+        $note = trim(wp_unslash($note));
+        if ($note === '') {
+            unset($notes[$door_id]);
+        } else {
+            $notes[$door_id] = $note;
+        }
+        update_post_meta($quote_id, '_adq_door_notes', $notes);
+        update_post_meta($quote_id, '_adq_updated_at', current_time('mysql'));
+        return true;
+    }
+
+    public function get_quote_line_adjustments(int $quote_id): array
+    {
+        $rows = get_post_meta($quote_id, '_adq_line_adjustments', true);
+        if (!is_array($rows)) {
+            return [];
+        }
+        $clean = [];
+        foreach ($rows as $line_key => $row) {
+            if (!is_string($line_key) || !is_array($row)) {
+                continue;
+            }
+            $line_key = trim($line_key);
+            if ($line_key === '') {
+                continue;
+            }
+            $unit = isset($row['manual_unit_price']) && $row['manual_unit_price'] !== '' ? (float) $row['manual_unit_price'] : null;
+            $clean[$line_key] = [
+                'corrected_model' => trim((string) ($row['corrected_model'] ?? '')),
+                'manual_description' => trim((string) ($row['manual_description'] ?? '')),
+                'manual_unit_price' => $unit !== null && $unit >= 0 ? round($unit, 2) : null,
+                'manual_sku' => trim((string) ($row['manual_sku'] ?? '')),
+                'updated_at' => (string) ($row['updated_at'] ?? ''),
+            ];
+        }
+        return $clean;
+    }
+
+    public function save_quote_line_adjustment(int $quote_id, string $line_key, array $payload): bool
+    {
+        $line_key = trim($line_key);
+        if ($quote_id <= 0 || $line_key === '') {
+            return false;
+        }
+        $rows = $this->get_quote_line_adjustments($quote_id);
+        $current = $rows[$line_key] ?? [
+            'corrected_model' => '',
+            'manual_description' => '',
+            'manual_unit_price' => null,
+            'manual_sku' => '',
+            'updated_at' => '',
+        ];
+
+        if (array_key_exists('corrected_model', $payload)) {
+            $current['corrected_model'] = trim((string) $payload['corrected_model']);
+        }
+        if (array_key_exists('manual_description', $payload)) {
+            $current['manual_description'] = trim((string) $payload['manual_description']);
+        }
+        if (array_key_exists('manual_sku', $payload)) {
+            $current['manual_sku'] = trim((string) $payload['manual_sku']);
+        }
+        if (array_key_exists('manual_unit_price', $payload)) {
+            $price = $payload['manual_unit_price'];
+            if ($price === '' || $price === null) {
+                $current['manual_unit_price'] = null;
+            } else {
+                $price_f = (float) $price;
+                $current['manual_unit_price'] = $price_f >= 0 ? round($price_f, 2) : null;
+            }
+        }
+
+        $is_empty = $current['corrected_model'] === ''
+            && $current['manual_description'] === ''
+            && $current['manual_sku'] === ''
+            && $current['manual_unit_price'] === null;
+
+        if ($is_empty) {
+            unset($rows[$line_key]);
+        } else {
+            $current['updated_at'] = current_time('mysql');
+            $rows[$line_key] = $current;
+        }
+
+        update_post_meta($quote_id, '_adq_line_adjustments', $rows);
+        update_post_meta($quote_id, '_adq_updated_at', current_time('mysql'));
+        return true;
+    }
+
     public function cart_item_door_meta(array $item_data, array $cart_item): array
     {
         if (!empty($cart_item['adq_door_label'])) {
@@ -346,6 +464,7 @@ final class ADO_Quote_Integration
             'adq_door_number' => '_adq_door_number',
             'adq_door_label' => '_adq_door_label',
             'adq_model' => '_adq_model',
+            'adq_line_key' => '_adq_line_key',
             'adq_source_model' => '_adq_source_model',
             'adq_source_desc' => '_adq_source_desc',
             'adq_source_raw' => '_adq_source_raw',
@@ -374,6 +493,8 @@ final class ADO_Quote_Integration
 
         $doors = get_post_meta($quote_id, '_adq_doors', true);
         $unmatched = get_post_meta($quote_id, '_adq_unmatched_items', true);
+        $door_notes = $this->get_quote_door_notes($quote_id);
+        $line_adjustments = $this->get_quote_line_adjustments($quote_id);
         $scope_snapshot = (string) get_post_meta($quote_id, '_adq_scoped_json_snapshot', true);
         $scope_path = (string) get_post_meta($quote_id, '_adq_scope_path', true);
         $scope_url = (string) get_post_meta($quote_id, '_adq_scope_url', true);
@@ -381,6 +502,8 @@ final class ADO_Quote_Integration
         $order->update_meta_data('_ado_quote_id', $quote_id);
         $order->update_meta_data('_ado_project_doors', is_array($doors) ? $doors : []);
         $order->update_meta_data('_ado_unmatched_items', is_array($unmatched) ? $unmatched : []);
+        $order->update_meta_data('_ado_quote_door_notes', $door_notes);
+        $order->update_meta_data('_ado_quote_line_adjustments', $line_adjustments);
         if ($scope_snapshot !== '') {
             $order->update_meta_data('_ado_scoped_json_snapshot', $scope_snapshot);
         }
@@ -436,9 +559,17 @@ final class ADO_Quote_Integration
         }
         $subtotal = 0.0;
         foreach ($snapshot as $line) {
+            $line_type = (string) ($line['line_type'] ?? 'catalog');
             $pid = (int) ($line['product_id'] ?? 0);
             $qty = (int) ($line['qty'] ?? 0);
-            if ($pid <= 0 || $qty <= 0) {
+            if ($qty <= 0) {
+                continue;
+            }
+            if ($line_type === 'manual') {
+                $subtotal += (max(0.0, (float) ($line['manual_unit_price'] ?? 0.0)) * $qty);
+                continue;
+            }
+            if ($pid <= 0) {
                 continue;
             }
             $product = wc_get_product($pid);
@@ -499,7 +630,7 @@ final class ADO_Quote_Integration
         return max(0.0, $base_price);
     }
 
-    private function map_payload(array $payload, bool $debug): array
+    private function map_payload(array $payload, bool $debug, int $quote_id = 0): array
     {
         $doors_raw = (array) ($payload['result']['doors'] ?? []);
         $doors = [];
@@ -507,6 +638,8 @@ final class ADO_Quote_Integration
         $unmatched = [];
         $debug_log = [];
         $index = ado_qm_get_index();
+        $line_adjustments = $quote_id > 0 ? $this->get_quote_line_adjustments($quote_id) : [];
+        $door_notes = $quote_id > 0 ? $this->get_quote_door_notes($quote_id) : [];
 
         foreach ($doors_raw as $idx => $door_raw) {
             if (!is_array($door_raw)) {
@@ -514,6 +647,7 @@ final class ADO_Quote_Integration
             }
             foreach ($this->expand_door_record($door_raw, (int) $idx, $debug_log, $debug) as $door) {
                 $door_meta = $this->door_meta_from_scope($door);
+                $door_meta['notes'] = (string) ($door_notes[(string) ($door_meta['door_id'] ?? '')] ?? '');
                 $doors[] = $door_meta;
                 foreach ((array) ($door['items'] ?? []) as $item_index => $item) {
                     if (!is_array($item)) {
@@ -543,6 +677,22 @@ final class ADO_Quote_Integration
                             'item_index' => (int) $item_index,
                             'segment_index' => (int) $segment_index,
                         ]);
+                        $adjustment = is_array($line_adjustments[$line_key] ?? null) ? $line_adjustments[$line_key] : [];
+                        $adjusted = $this->apply_line_adjustment_to_match($match, $item, $adjustment);
+                        $pid = (int) ($adjusted['product_id'] ?? $pid);
+                        $raw_line = (string) ($adjusted['raw_line'] ?? $raw_line);
+                        $source_model = (string) ($adjusted['source_model'] ?? $source_model);
+                        $source_desc = (string) ($adjusted['source_desc'] ?? $source_desc);
+                        $normalized_model = (string) ($adjusted['normalized_model'] ?? $normalized_model);
+                        $candidate_products = array_values((array) ($adjusted['candidate_products'] ?? $candidate_products));
+                        $decision_key = (string) ($adjusted['decision_key'] ?? $decision_key);
+                        $reason_code = (string) ($adjusted['reason_code'] ?? $reason_code);
+                        $match_method = (string) ($adjusted['match_method'] ?? ($match['match_method'] ?? ''));
+                        $match_confidence = (int) ($adjusted['confidence'] ?? ($match['confidence'] ?? 0));
+                        $line_type = (string) ($adjusted['line_type'] ?? 'catalog');
+                        $manual_unit_price = isset($adjusted['manual_unit_price']) ? (float) $adjusted['manual_unit_price'] : null;
+                        $manual_description = (string) ($adjusted['manual_description'] ?? '');
+                        $manual_sku = (string) ($adjusted['manual_sku'] ?? '');
 
                         $debug_entry = [
                             'line_key' => $line_key,
@@ -553,19 +703,22 @@ final class ADO_Quote_Integration
                             'description' => $source_desc,
                             'qty' => $qty,
                             'matched_product_id' => $pid,
-                            'matched_by' => (string) ($match['match_method'] ?? 'none'),
-                            'confidence' => (int) ($match['confidence'] ?? 0),
+                            'matched_by' => $match_method !== '' ? $match_method : 'none',
+                            'confidence' => $match_confidence,
                             'reason_code' => $reason_code,
                             'decision_key' => $decision_key,
                             'normalized_model' => $normalized_model,
-                            'attempts' => array_values((array) ($match['trace'] ?? [])),
+                            'line_type' => $line_type,
+                            'manual_unit_price' => $manual_unit_price,
+                            'manual_description' => $manual_description,
+                            'attempts' => array_values((array) ($adjusted['trace'] ?? ($match['trace'] ?? []))),
                             'candidate_scores' => $candidate_products,
                         ];
                         if ($debug) {
                             $debug_log[] = $debug_entry;
                         }
 
-                        if ($pid <= 0) {
+                        if ($pid <= 0 && $line_type !== 'manual') {
                             $unmatched[] = [
                                 'line_key' => $line_key,
                                 'door_id' => (string) ($door_meta['door_id'] ?? ''),
@@ -578,6 +731,7 @@ final class ADO_Quote_Integration
                                 'decision_key' => $decision_key,
                                 'normalized_model' => $normalized_model,
                                 'candidate_products' => $candidate_products,
+                                'adjustment' => $adjustment,
                             ];
                             continue;
                         }
@@ -586,6 +740,7 @@ final class ADO_Quote_Integration
                             'line_key' => $line_key,
                             'product_id' => $pid,
                             'qty' => $qty,
+                            'line_type' => $line_type,
                             'door_id' => (string) ($door_meta['door_id'] ?? ''),
                             'door_number' => (string) ($door_meta['door_number'] ?? ''),
                             'door_label' => (string) ($door_meta['door_label'] ?? ''),
@@ -594,8 +749,11 @@ final class ADO_Quote_Integration
                             'source_model' => $source_model,
                             'source_desc' => $source_desc,
                             'raw_line' => $raw_line,
-                            'match_method' => (string) ($match['match_method'] ?? ''),
-                            'match_confidence' => (int) ($match['confidence'] ?? 0),
+                            'match_method' => $match_method,
+                            'match_confidence' => $match_confidence,
+                            'manual_unit_price' => $manual_unit_price,
+                            'manual_description' => $manual_description,
+                            'manual_sku' => $manual_sku,
                         ];
                         $key = $this->build_group_key($line);
                         if (!isset($line_map[$key])) {
@@ -616,8 +774,10 @@ final class ADO_Quote_Integration
         return implode('|', [
             (string) ($line['door_id'] ?? ''),
             (string) ((int) ($line['product_id'] ?? 0)),
+            (string) ($line['line_type'] ?? 'catalog'),
             ado_qm_compact((string) ($line['raw_line'] ?? '')),
             ado_qm_compact((string) ($line['source_model'] ?? ($line['model'] ?? ''))),
+            ado_qm_compact((string) ($line['manual_sku'] ?? '')),
         ]);
     }
 
@@ -729,6 +889,76 @@ final class ADO_Quote_Integration
     private function stable_door_id(string $door_number, int $idx, int $part): string
     {
         return 'door_' . substr(md5(strtoupper(trim($door_number)) . '|' . $idx . '|' . $part), 0, 12);
+    }
+
+    private function apply_line_adjustment_to_match(array $match, array $item, array $adjustment): array
+    {
+        if (!$adjustment) {
+            return $match;
+        }
+
+        $corrected_model = trim((string) ($adjustment['corrected_model'] ?? ''));
+        $manual_description = trim((string) ($adjustment['manual_description'] ?? ''));
+        $manual_unit_price = $adjustment['manual_unit_price'] ?? null;
+        $manual_sku = trim((string) ($adjustment['manual_sku'] ?? ''));
+
+        if ($corrected_model !== '' && (int) ($match['product_id'] ?? 0) <= 0) {
+            $synthetic_item = $item;
+            $synthetic_item['catalog'] = $corrected_model;
+            $synthetic_item['model'] = $corrected_model;
+            if ($manual_description !== '') {
+                $synthetic_item['desc'] = $manual_description;
+                $synthetic_item['description'] = $manual_description;
+            }
+            $segments = ado_qm_match_item_segments($synthetic_item, ado_qm_get_index());
+            foreach ($segments as $segment) {
+                if (!is_array($segment)) {
+                    continue;
+                }
+                if ((int) ($segment['product_id'] ?? 0) > 0) {
+                    $segment['source_model'] = $corrected_model;
+                    if ($manual_description !== '') {
+                        $segment['source_desc'] = $manual_description;
+                    }
+                    $trace = array_values((array) ($segment['trace'] ?? []));
+                    $trace[] = 'quote_adjustment: corrected_model_rematch';
+                    $segment['trace'] = $trace;
+                    return $segment;
+                }
+            }
+        }
+
+        if ($manual_unit_price !== null && (float) $manual_unit_price >= 0) {
+            $match['product_id'] = 0;
+            $match['line_type'] = 'manual';
+            $match['manual_unit_price'] = round((float) $manual_unit_price, 2);
+            $match['manual_description'] = $manual_description !== '' ? $manual_description : (string) ($match['source_desc'] ?? ($item['desc'] ?? 'Manual line item'));
+            $match['manual_sku'] = $manual_sku !== '' ? $manual_sku : $corrected_model;
+            if ($corrected_model !== '') {
+                $match['source_model'] = $corrected_model;
+                $match['normalized_model'] = ado_qm_normalize_model($corrected_model);
+            }
+            if ($manual_description !== '') {
+                $match['source_desc'] = $manual_description;
+            }
+            $match['match_method'] = 'manual';
+            $match['confidence'] = 100;
+            $match['reason_code'] = 'MANUAL_PRICE';
+            $trace = array_values((array) ($match['trace'] ?? []));
+            $trace[] = 'quote_adjustment: manual_price';
+            $match['trace'] = $trace;
+            return $match;
+        }
+
+        if ($corrected_model !== '') {
+            $match['source_model'] = $corrected_model;
+            $match['normalized_model'] = ado_qm_normalize_model($corrected_model);
+        }
+        if ($manual_description !== '') {
+            $match['source_desc'] = $manual_description;
+        }
+
+        return $match;
     }
 
     private function match_item_to_product(array $item, array &$attempt_log): array
