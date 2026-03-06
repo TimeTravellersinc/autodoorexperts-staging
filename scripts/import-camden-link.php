@@ -227,41 +227,42 @@ function ado_camden_price_for_model(string $category_slug, array $model, array $
         return round($base, 2);
     }
 
-    $price = 74.99;
+    $price = 34.99;
 
     if (str_contains($sku, '26CB')) {
-        $price = 79.99;
+        $price = 39.99;
     }
     if (str_contains($sku, '35') && !str_contains($sku, '35N')) {
-        $price = 84.99;
+        $price = 44.99;
     }
     if (str_contains($sku, '35N')) {
-        $price = 69.99;
+        $price = 32.99;
     }
     if (str_ends_with($sku, 'H')) {
         $price += 5.00;
     }
     if (str_contains($text, 'OBC COMPLIANT')) {
-        $price += 5.00;
+        $price += 3.00;
     }
     if (str_contains($text, 'BLUE')) {
-        $price += 5.00;
+        $price += 2.00;
     }
     if (str_contains($text, 'BACK PLATE')) {
-        $price -= 10.00;
+        $price -= 3.00;
     }
     if (str_contains($sku, 'K')) {
-        $price += 60.00;
+        $price += 12.00;
     }
     if (str_contains($text, 'WIRELESS')) {
-        $price += 10.00;
+        $price += 3.00;
     }
 
-    if ($stats['max'] > 0) {
-        $price = min($price, $stats['max'] + 15.00);
-    }
-    if ($stats['min'] > 0) {
-        $price = max($price, $stats['min'] + 10.00);
+    if (str_contains($sku, 'K')) {
+        $price = min($price, 54.99);
+        $price = max($price, 47.99);
+    } else {
+        $price = min($price, 49.99);
+        $price = max($price, 29.99);
     }
 
     return round($price, 2);
