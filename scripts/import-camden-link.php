@@ -418,6 +418,29 @@ function ado_camden_price_for_model(string $category_slug, array $model, array $
         return round($price, 2);
     }
 
+    if (preg_match('/^CM-22[12]/i', $sku) || str_contains($text, 'VALUEWAVE') || str_contains($text, 'TOUCHLESS SWITCH')) {
+        $price = 79.99;
+        if (str_contains($text, 'NARROW')) {
+            $price += 5.00;
+        }
+        if (str_contains($text, 'DOUBLE GANG')) {
+            $price += 10.00;
+        }
+        if (str_contains($sku, 'M/')) {
+            $price += 15.00;
+        }
+        if (str_contains($text, 'OVERRIDE')) {
+            $price += 5.00;
+        }
+        if (str_contains($text, 'WAVE TO OPEN')) {
+            $price += 0.00;
+        }
+        if (str_contains($text, 'WAVE TO EXIT')) {
+            $price += 2.00;
+        }
+        return round($price, 2);
+    }
+
     if ($category_slug === 'actuators') {
         if (str_contains($text, 'SCREW') || str_contains($text, 'PLUG')) {
             if (str_contains($text, 'BOX OF 100')) {

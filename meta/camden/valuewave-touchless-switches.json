@@ -1,0 +1,23 @@
+{
+  "source_url": "https://www.camdencontrols.com/category/activation/Touchless/products/ValueWave_Touchless_Switches",
+  "brand": "Camden",
+  "category": "Actuators",
+  "series_title": "CM-221 & CM-222 Series",
+  "series_subtitle": "ValueWave Touchless Switches",
+  "models": [
+    { "sku": "CM-221/A42", "price": 79.99 },
+    { "sku": "CM-221/A42N", "price": 84.99 },
+    { "sku": "CM-221/A42W", "price": 89.99 },
+    { "sku": "CM-221/46", "price": 81.99 },
+    { "sku": "CM-221M/46", "price": 101.99 },
+    { "sku": "CM-221/46N", "price": 86.99 },
+    { "sku": "CM-221M/46N", "price": 106.99 },
+    { "sku": "CM-222/A42", "price": 79.99 },
+    { "sku": "CM-221/46W", "price": 91.99 },
+    { "sku": "CM-222/A42N", "price": 84.99 },
+    { "sku": "CM-222/A42W", "price": 89.99 },
+    { "sku": "CM-222/46", "price": 81.99 },
+    { "sku": "CM-222/46N", "price": 86.99 },
+    { "sku": "CM-222/46W", "price": 91.99 }
+  ]
+}
