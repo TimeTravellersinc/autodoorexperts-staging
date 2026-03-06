@@ -337,6 +337,14 @@ function ado_camden_price_for_model(string $category_slug, array $model, array $
         return $cx_emf_prices[$sku];
     }
 
+    $cx_33_prices = [
+        'CX-33' => 94.99,
+        'CX-33PS' => 149.99,
+    ];
+    if (isset($cx_33_prices[$sku])) {
+        return $cx_33_prices[$sku];
+    }
+
     if ($sku === 'CX-SA1') {
         return 84.99;
     }
@@ -943,6 +951,12 @@ foreach ($models as $model) {
         }
     }
     if ($category_slug === 'relays' && $sku === 'CX-EMF-2PS') {
+        $psu_term_id = ado_camden_find_term_id('product_cat', 'PSUs');
+        if ($psu_term_id > 0) {
+            $category_term_ids = [$psu_term_id];
+        }
+    }
+    if ($category_slug === 'relays' && $sku === 'CX-33PS') {
         $psu_term_id = ado_camden_find_term_id('product_cat', 'PSUs');
         if ($psu_term_id > 0) {
             $category_term_ids = [$psu_term_id];

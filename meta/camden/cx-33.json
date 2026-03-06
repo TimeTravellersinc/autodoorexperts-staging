@@ -1,0 +1,10 @@
+{
+  "source_url": "https://www.camdencontrols.com/category/control/Door%20Control%20Relays/products/CX_33",
+  "brand": "Camden",
+  "series_title": "CX-33",
+  "series_subtitle": "Advanced Logic Relay",
+  "models": [
+    { "sku": "CX-33", "category": "Relays", "price": 94.99 },
+    { "sku": "CX-33PS", "category": "PSUs", "price": 149.99 }
+  ]
+}
