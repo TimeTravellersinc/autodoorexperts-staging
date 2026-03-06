@@ -327,6 +327,10 @@ function ado_camden_price_for_model(string $category_slug, array $model, array $
         return 99.99;
     }
 
+    if ($sku === 'CX-SA1') {
+        return 84.99;
+    }
+
     if ($sku === 'CX-1000/74') {
         return 89.99;
     }
