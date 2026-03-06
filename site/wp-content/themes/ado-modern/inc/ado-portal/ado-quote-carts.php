@@ -387,6 +387,73 @@ function ado_quote_load_scope_payload_from_path(string $scope_path): array {
     return is_array($payload) ? $payload : [];
 }
 
+function ado_quote_filter_unmatched_debug_entries(array $unmatched, array $debug_log): array {
+    if (!$unmatched || !$debug_log) { return []; }
+    $line_keys = [];
+    foreach ($unmatched as $row) {
+        if (!is_array($row)) { continue; }
+        $line_key = (string) ($row['line_key'] ?? '');
+        if ($line_key !== '') {
+            $line_keys[$line_key] = true;
+        }
+    }
+    if (!$line_keys) { return []; }
+    $filtered = [];
+    foreach ($debug_log as $entry) {
+        if (!is_array($entry)) { continue; }
+        $line_key = (string) ($entry['line_key'] ?? '');
+        if ($line_key !== '' && isset($line_keys[$line_key])) {
+            $filtered[] = $entry;
+        }
+    }
+    return array_values($filtered);
+}
+
+function ado_quote_debug_export_dir(): array {
+    $uploads = wp_upload_dir();
+    $base_dir = trailingslashit((string) ($uploads['basedir'] ?? '')) . 'ado-debug';
+    $base_url = trailingslashit((string) ($uploads['baseurl'] ?? '')) . 'ado-debug';
+    return ['dir' => $base_dir, 'url' => $base_url];
+}
+
+function ado_quote_write_debug_log_file(array $draft): array {
+    $draft_id = sanitize_file_name((string) ($draft['id'] ?? 'quote-debug'));
+    $unmatched = array_values((array) ($draft['unmatched'] ?? []));
+    $debug_log = array_values((array) ($draft['debug_log'] ?? []));
+    $filtered = ado_quote_filter_unmatched_debug_entries($unmatched, $debug_log);
+    $paths = ado_quote_debug_export_dir();
+    $dir = (string) ($paths['dir'] ?? '');
+    $url = (string) ($paths['url'] ?? '');
+    if ($dir === '' || $url === '') {
+        return ['debug_log_file_path' => '', 'debug_log_file_url' => ''];
+    }
+    if (!wp_mkdir_p($dir)) {
+        return ['debug_log_file_path' => '', 'debug_log_file_url' => ''];
+    }
+    $filename = ($draft_id !== '' ? $draft_id : 'quote-debug') . '-unmatched-debug.json';
+    $path = trailingslashit($dir) . $filename;
+    $payload = [
+        'draft_id' => (string) ($draft['id'] ?? ''),
+        'name' => (string) ($draft['name'] ?? ''),
+        'created_at' => (string) ($draft['created_at'] ?? ''),
+        'updated_at' => (string) ($draft['updated_at'] ?? ''),
+        'scope_url' => (string) ($draft['scope_url'] ?? ''),
+        'scope_path' => (string) ($draft['scope_path'] ?? ''),
+        'unmatched_count' => count($unmatched),
+        'unmatched' => $unmatched,
+        'unmatched_debug' => $filtered,
+    ];
+    $encoded = wp_json_encode($payload, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
+    if (!is_string($encoded) || $encoded === '') {
+        return ['debug_log_file_path' => '', 'debug_log_file_url' => ''];
+    }
+    file_put_contents($path, $encoded);
+    return [
+        'debug_log_file_path' => $path,
+        'debug_log_file_url' => trailingslashit($url) . $filename,
+    ];
+}
+
 function ado_quote_set_last_scope_session(array $draft): void {
     if (!function_exists('WC') || !WC()->session) { return; }
     WC()->session->set('ado_last_scope_url', (string) ($draft['scope_url'] ?? ''));
@@ -418,7 +485,7 @@ function ado_quote_rebuild_scope_draft(array $draft): array {
     }
     $mapped = ado_build_cart_lines_from_scope($payload);
     $synced = ado_quote_sync_cart_from_items((array) ($mapped['lines'] ?? []));
-    return array_merge($draft, [
+    $updated = array_merge($draft, [
         'items' => array_values((array) ($synced['items'] ?? [])),
         'total_items' => (int) ($synced['total_items'] ?? 0),
         'unmatched' => array_values((array) ($mapped['unmatched'] ?? [])),
@@ -426,6 +493,7 @@ function ado_quote_rebuild_scope_draft(array $draft): array {
         'debug_log' => array_values((array) ($mapped['debug_log'] ?? [])),
         'updated_at' => wp_date('Y-m-d H:i'),
     ]);
+    return array_merge($updated, ado_quote_write_debug_log_file($updated));
 }
 
 function ado_quote_unmatched_next_action(array $row): string {
@@ -559,23 +627,7 @@ function ado_render_quote_review_actions_html(array $row, string $draft_id): str
 }
 
 function ado_render_unmatched_debug_html(array $unmatched, array $debug_log): string {
-    if (!$unmatched || !$debug_log) { return ''; }
-    $line_keys = [];
-    foreach ($unmatched as $row) {
-        if (!is_array($row)) { continue; }
-        $line_key = (string) ($row['line_key'] ?? '');
-        if ($line_key !== '') {
-            $line_keys[$line_key] = true;
-        }
-    }
-    $filtered = [];
-    foreach ($debug_log as $entry) {
-        if (!is_array($entry)) { continue; }
-        $line_key = (string) ($entry['line_key'] ?? '');
-        if ($line_key !== '' && isset($line_keys[$line_key])) {
-            $filtered[] = $entry;
-        }
-    }
+    $filtered = ado_quote_filter_unmatched_debug_entries($unmatched, $debug_log);
     if (!$filtered) { return ''; }
     ob_start();
     echo '<details class="ado-unmatched-debug" style="margin:0 0 12px;"><summary><strong>Unmatched Debug Data</strong> (' . esc_html((string) count($filtered)) . ' lines)</summary>';
@@ -708,6 +760,7 @@ add_action('wp_ajax_ado_scope_to_quote_cart', static function (): void {
         'unmatched_count' => count((array) ($mapped['unmatched'] ?? [])),
         'debug_log' => array_values((array) ($mapped['debug_log'] ?? [])),
     ];
+    $draft = array_merge($draft, ado_quote_write_debug_log_file($draft));
     ado_quote_save_or_replace_draft($uid, $draft);
     ado_quote_set_last_scope_session($draft);
     wp_send_json_success([

@@ -127,8 +127,10 @@ $synthetic = ado_build_cart_lines_from_scope([
 $assert(is_array($synthetic) && isset($synthetic['lines'], $synthetic['unmatched'], $synthetic['debug_log']), 'scope build returns mapped arrays');
 $assert(count((array) ($synthetic['debug_log'] ?? [])) >= 2, 'scope build logs each segment');
 
-$review_html = ado_render_quote_result_html([
+$review_draft = [
     'id' => 'draft-review-test',
+    'name' => 'Draft Review Test',
+    'created_at' => wp_date('Y-m-d H:i'),
     'items' => [],
     'unmatched' => [[
         'line_key' => 'line-review-test',
@@ -155,7 +157,15 @@ $review_html = ado_render_quote_result_html([
         'confidence' => 88,
         'reason_code' => 'MULTIPLE_CANDIDATES',
     ]],
-]);
+];
+$review_draft = array_merge($review_draft, ado_quote_write_debug_log_file($review_draft));
+$debug_file_path = (string) ($review_draft['debug_log_file_path'] ?? '');
+$assert($debug_file_path !== '' && file_exists($debug_file_path), 'debug log file is written');
+$export_payload = $debug_file_path !== '' ? json_decode((string) file_get_contents($debug_file_path), true) : null;
+$assert(is_array($export_payload), 'debug log file contains valid json');
+$assert((int) ($export_payload['unmatched_count'] ?? 0) === 1, 'debug log file contains unmatched count');
+$assert(count((array) ($export_payload['unmatched_debug'] ?? [])) === 1, 'debug log file contains filtered unmatched debug rows');
+$review_html = ado_render_quote_result_html($review_draft);
 $assert(strpos($review_html, 'ado-match-review-choice') !== false, 'review choice button renders');
 $assert(strpos($review_html, 'ado-match-review-reject') !== false, 'review reject button renders');
 $assert(strpos($review_html, 'Unmatched Debug Data') !== false, 'combined unmatched debug block renders');
@@ -166,4 +176,5 @@ if ($failures) {
     exit(1);
 }
 
+echo 'debug_export_path=' . $debug_file_path . PHP_EOL;
 echo "All matcher assertions passed.\n";
