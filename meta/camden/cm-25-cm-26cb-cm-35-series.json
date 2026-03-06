@@ -1,0 +1,69 @@
+{
+  "source_url": "https://www.camdencontrols.com/category/activation/All%20Active%20Switches/products/CM_25_CM_26CB_CM_35_Series",
+  "brand": "Camden",
+  "category": "Actuators",
+  "series_title": "CM-25, CM-26CB & CM-35 Series",
+  "series_subtitle": "Narrow Push Plate Switches",
+  "models": [
+    {
+      "sku": "CM-25",
+      "section": "Narrow Jamb",
+      "description": "Narrow push plate switch, vertical mounting",
+      "price": 74.99
+    },
+    {
+      "sku": "CM-26CB",
+      "section": "Narrow Blue Jamb",
+      "description": "Narrow Blue Push Plate Switch, White Graphics, Exposed Screws.",
+      "price": 84.99
+    },
+    {
+      "sku": "CM-35",
+      "section": "Narrow, OBC Compliant",
+      "description": "4-1/2\" x 2\" (114mm x 50.8mm) Single gang push plate switch, vertical mounting",
+      "price": 89.99
+    },
+    {
+      "sku": "CM-35N",
+      "section": "Narrow, OBC Compliant",
+      "description": "4-1/2\" x 2\" (114mm x 50.8mm) single gang faceplate with jamb mount back plate",
+      "price": 64.99
+    },
+    {
+      "sku": "CM-25H",
+      "section": "Narrow Jamb",
+      "description": "1-3/4\" x 4-1/2\" (44mm x 114mm) Narrow push plate switch, horizontal mounting. /2 Wheelchair graphic, blue. All other graphic options black only.",
+      "price": 84.99
+    },
+    {
+      "sku": "CM-25HK",
+      "section": "Narrow (jamb), Kinetic(tm) No Battery Wireless",
+      "description": "1-3/4\" Width, Narrow push plate switch, horizontal mounting, brush stainless steel finish",
+      "price": 144.99
+    },
+    {
+      "sku": "CM-25K",
+      "section": "Narrow (jamb), Kinetic(tm) No Battery Wireless",
+      "description": "1-3/4\" Width, Narrow push plate switch, vertical mounting, brush stainless steel finish. Graphic Options: '/2' and '/4' only.",
+      "price": 144.99
+    },
+    {
+      "sku": "CM-26CBK",
+      "section": "Narrow (jamb), Kinetic(tm) No Battery Wireless",
+      "description": "1-3/4\" Width, Narrow push plate switch, blue with white graphics, exposed screws. Graphic Options: '/2', '/4', '/A4' only. No optional finishes.",
+      "price": 154.99
+    },
+    {
+      "sku": "CM-35K",
+      "section": "Narrow (jamb), Kinetic(tm) No Battery Wireless",
+      "description": "2\" Width Narrow push plate switch, single gang back plate brushed stainless steel finish",
+      "price": 144.99
+    },
+    {
+      "sku": "CM-35NK",
+      "section": "Narrow (jamb), Kinetic(tm) No Battery Wireless",
+      "description": "2\" Width Narrow push plate switch, vertical mounting, brushed stainless steel finish",
+      "price": 139.99
+    }
+  ]
+}

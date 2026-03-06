@@ -1,0 +1,373 @@
+<?php
+declare(strict_types=1);
+
+if (PHP_SAPI !== 'cli') {
+    fwrite(STDERR, "Run from CLI only.\n");
+    exit(1);
+}
+
+$bootstrap = [
+    dirname(__DIR__) . '/site/wp-load.php',
+    '/var/www/html/wp-load.php',
+];
+
+$loaded = false;
+foreach ($bootstrap as $candidate) {
+    if (is_file($candidate)) {
+        require_once $candidate;
+        $loaded = true;
+        break;
+    }
+}
+
+if (!$loaded) {
+    fwrite(STDERR, "Unable to locate wp-load.php\n");
+    exit(1);
+}
+
+require_once ABSPATH . 'wp-admin/includes/media.php';
+require_once ABSPATH . 'wp-admin/includes/file.php';
+require_once ABSPATH . 'wp-admin/includes/image.php';
+
+if (!function_exists('wc_get_product_id_by_sku')) {
+    fwrite(STDERR, "WooCommerce not available.\n");
+    exit(1);
+}
+
+$url = isset($argv[1]) ? trim((string) $argv[1]) : '';
+$category_name = isset($argv[2]) ? trim((string) $argv[2]) : '';
+
+if ($url === '' || $category_name === '') {
+    fwrite(STDERR, "Usage: php import-camden-link.php <camden-url> <approved-category-name>\n");
+    exit(1);
+}
+
+$allowed_categories = [
+    'Actuators',
+    'Automatic Door Operators',
+    'Emergency Kits',
+    'escutcheons',
+    'Keyswitches',
+    'Miscellaneous',
+    'PSUs',
+    'QELs',
+    'Relays',
+    'Sensors',
+    'Strikes',
+    'Washroom Kits',
+    'Wires',
+];
+
+if (!in_array($category_name, $allowed_categories, true)) {
+    fwrite(STDERR, "Unsupported category: {$category_name}\n");
+    exit(1);
+}
+
+function ado_camden_fetch_html(string $url): string {
+    $response = wp_remote_get($url, [
+        'timeout' => 45,
+        'redirection' => 5,
+        'user-agent' => 'AutoDoorExperts Camden Importer/1.0',
+    ]);
+    if (is_wp_error($response)) {
+        throw new RuntimeException($response->get_error_message());
+    }
+    $code = (int) wp_remote_retrieve_response_code($response);
+    if ($code < 200 || $code >= 300) {
+        throw new RuntimeException('HTTP ' . $code . ' for ' . $url);
+    }
+    return (string) wp_remote_retrieve_body($response);
+}
+
+function ado_camden_decode(string $value): string {
+    $value = html_entity_decode($value, ENT_QUOTES | ENT_HTML5, 'UTF-8');
+    $value = str_replace(["\xc2\xa0", '’', '“', '”'], [' ', "'", '"', '"'], $value);
+    return trim(preg_replace('/\s+/', ' ', $value) ?? '');
+}
+
+function ado_camden_title_parts(string $html): array {
+    $titles = [];
+    if (preg_match_all('/<h1[^>]*>(.*?)<\/h1>/is', $html, $matches)) {
+        foreach ((array) $matches[1] as $raw) {
+            $text = ado_camden_decode(strip_tags((string) $raw));
+            if ($text !== '' && !in_array($text, $titles, true)) {
+                $titles[] = $text;
+            }
+        }
+    }
+    return $titles;
+}
+
+function ado_camden_extract_models(string $html): array {
+    if (!preg_match('/var\s+hModelPrices\s*=\s*\{(?<block>.*?)\};/is', $html, $match)) {
+        return [];
+    }
+
+    $block = (string) $match['block'];
+    $pattern = "/'~(?<uid>\d+)'\s*:\s*\{(?:(?!\},'~|\},'option-|\}\s*;).)*'model_number':'(?<model>[^']+)'(?:(?!\},'~|\},'option-|\}\s*;).)*'subsection':'(?<subsection>[^']*)'(?:(?!\},'~|\},'option-|\}\s*;).)*'title':'(?<title>[^']*)'/is";
+    preg_match_all($pattern, $block, $matches, PREG_SET_ORDER);
+
+    $models = [];
+    foreach ($matches as $row) {
+        $models[] = [
+            'uid' => (string) ($row['uid'] ?? ''),
+            'model_number' => ado_camden_decode((string) ($row['model'] ?? '')),
+            'subsection' => ado_camden_decode((string) ($row['subsection'] ?? '')),
+            'title' => ado_camden_decode((string) ($row['title'] ?? '')),
+        ];
+    }
+    return $models;
+}
+
+function ado_camden_extract_model_image_urls(string $html): array {
+    $images = [];
+    if (!preg_match_all('/<tbody\s+id="eModel-~(?<uid>\d+)"[^>]*>(?<body>.*?)<\/tbody>/is', $html, $matches, PREG_SET_ORDER)) {
+        return $images;
+    }
+
+    foreach ($matches as $match) {
+        $uid = (string) ($match['uid'] ?? '');
+        $body = (string) ($match['body'] ?? '');
+        if (!preg_match_all('/src="(?<src>\/pipelines\/resource\/[^"]+\.(?:png|jpg|jpeg|webp))"/i', $body, $img_matches)) {
+            continue;
+        }
+        foreach ((array) ($img_matches['src'] ?? []) as $src) {
+            $src = trim((string) $src);
+            if ($src === '' || str_ends_with($src, 'blank.gif')) {
+                continue;
+            }
+            $images[$uid] = 'https://www.camdencontrols.com' . $src;
+            break;
+        }
+    }
+
+    return $images;
+}
+
+function ado_camden_attach_image(int $product_id, string $image_url): void {
+    if ($image_url === '') {
+        return;
+    }
+
+    $existing_id = attachment_url_to_postid($image_url);
+    if ($existing_id > 0) {
+        set_post_thumbnail($product_id, $existing_id);
+        return;
+    }
+
+    $tmp_file = download_url($image_url, 60);
+    if (is_wp_error($tmp_file)) {
+        return;
+    }
+
+    $file = [
+        'name' => wp_basename((string) parse_url($image_url, PHP_URL_PATH)),
+        'tmp_name' => $tmp_file,
+    ];
+
+    $attachment_id = media_handle_sideload($file, $product_id);
+    if (is_wp_error($attachment_id)) {
+        @unlink($tmp_file);
+        return;
+    }
+
+    set_post_thumbnail($product_id, $attachment_id);
+}
+
+function ado_camden_find_term_id(string $taxonomy, string $name): int {
+    $term = term_exists($name, $taxonomy);
+    if (!$term) {
+        $term = wp_insert_term($name, $taxonomy);
+    }
+    if (is_wp_error($term)) {
+        throw new RuntimeException($term->get_error_message());
+    }
+    return (int) (is_array($term) ? ($term['term_id'] ?? 0) : $term);
+}
+
+function ado_camden_category_price_stats(string $category_slug): array {
+    $products = wc_get_products([
+        'limit' => -1,
+        'status' => ['publish', 'draft', 'private'],
+        'category' => [$category_slug],
+    ]);
+
+    $prices = [];
+    foreach ($products as $product) {
+        if (!$product instanceof WC_Product) {
+            continue;
+        }
+        $price = (float) $product->get_regular_price();
+        if ($price > 0) {
+            $prices[] = $price;
+        }
+    }
+
+    sort($prices, SORT_NUMERIC);
+    if (!$prices) {
+        return ['min' => 0.0, 'median' => 0.0, 'max' => 0.0];
+    }
+
+    $middle = (int) floor(count($prices) / 2);
+    $median = $prices[$middle];
+
+    return [
+        'min' => (float) min($prices),
+        'median' => (float) $median,
+        'max' => (float) max($prices),
+    ];
+}
+
+function ado_camden_price_for_model(string $category_slug, array $model, array $stats): float {
+    $sku = strtoupper((string) ($model['model_number'] ?? ''));
+    $text = strtoupper(trim(($model['subsection'] ?? '') . ' ' . ($model['title'] ?? '')));
+
+    if ($category_slug !== 'actuators') {
+        $base = $stats['median'] > 0 ? $stats['median'] : 99.99;
+        return round($base, 2);
+    }
+
+    $price = 74.99;
+
+    if (str_contains($sku, '26CB')) {
+        $price = 79.99;
+    }
+    if (str_contains($sku, '35') && !str_contains($sku, '35N')) {
+        $price = 84.99;
+    }
+    if (str_contains($sku, '35N')) {
+        $price = 69.99;
+    }
+    if (str_ends_with($sku, 'H')) {
+        $price += 5.00;
+    }
+    if (str_contains($text, 'OBC COMPLIANT')) {
+        $price += 5.00;
+    }
+    if (str_contains($text, 'BLUE')) {
+        $price += 5.00;
+    }
+    if (str_contains($text, 'BACK PLATE')) {
+        $price -= 10.00;
+    }
+    if (str_contains($sku, 'K')) {
+        $price += 60.00;
+    }
+    if (str_contains($text, 'WIRELESS')) {
+        $price += 10.00;
+    }
+
+    if ($stats['max'] > 0) {
+        $price = min($price, $stats['max'] + 15.00);
+    }
+    if ($stats['min'] > 0) {
+        $price = max($price, $stats['min'] + 10.00);
+    }
+
+    return round($price, 2);
+}
+
+$html = ado_camden_fetch_html($url);
+$titles = ado_camden_title_parts($html);
+$series_title = $titles[0] ?? '';
+$series_subtitle = $titles[1] ?? '';
+$models = ado_camden_extract_models($html);
+$image_urls = ado_camden_extract_model_image_urls($html);
+
+if (!$models) {
+    fwrite(STDERR, "No models found on page.\n");
+    exit(1);
+}
+
+$category_slug = sanitize_title($category_name);
+$category_term_id = ado_camden_find_term_id('product_cat', $category_name);
+$brand_term_id = ado_camden_find_term_id('product_brand', 'Camden');
+$brand_attr_term_id = ado_camden_find_term_id('pa_brand', 'Camden');
+$price_stats = ado_camden_category_price_stats($category_slug);
+
+$created = 0;
+$updated = 0;
+$imported_skus = [];
+
+foreach ($models as $model) {
+    $sku = trim((string) ($model['model_number'] ?? ''));
+    if ($sku === '') {
+        continue;
+    }
+
+    $product_id = (int) wc_get_product_id_by_sku($sku);
+    $is_new = $product_id <= 0;
+    $product = $is_new ? new WC_Product_Simple() : wc_get_product($product_id);
+    if (!$product instanceof WC_Product_Simple && !$product instanceof WC_Product) {
+        $product = new WC_Product_Simple();
+        $is_new = true;
+    }
+
+    $subsection = trim((string) ($model['subsection'] ?? ''));
+    $variant_title = trim((string) ($model['title'] ?? ''));
+    $display_name = trim('Camden ' . $sku . ' - ' . ($variant_title !== '' ? $variant_title : $series_subtitle));
+    $short_description = trim($variant_title);
+
+    $description_parts = [];
+    if ($series_title !== '') {
+        $description_parts[] = '<p><strong>Series:</strong> ' . esc_html($series_title) . '</p>';
+    }
+    if ($series_subtitle !== '') {
+        $description_parts[] = '<p><strong>Type:</strong> ' . esc_html($series_subtitle) . '</p>';
+    }
+    if ($subsection !== '') {
+        $description_parts[] = '<p><strong>Configuration:</strong> ' . esc_html($subsection) . '</p>';
+    }
+    if ($variant_title !== '') {
+        $description_parts[] = '<p>' . esc_html($variant_title) . '</p>';
+    }
+    $description_parts[] = '<p><strong>Brand:</strong> Camden</p>';
+    $description_parts[] = '<p><strong>Manufacturer Part Number:</strong> ' . esc_html($sku) . '</p>';
+    $description_parts[] = '<p><strong>Source:</strong> <a href="' . esc_url($url) . '">Camden Controls product page</a></p>';
+
+    $regular_price = number_format(ado_camden_price_for_model($category_slug, $model, $price_stats), 2, '.', '');
+
+    $product->set_name($display_name);
+    $product->set_sku($sku);
+    $product->set_status('publish');
+    $product->set_catalog_visibility('visible');
+    $product->set_regular_price($regular_price);
+    $product->set_short_description($short_description);
+    $product->set_description(implode("\n", $description_parts));
+
+    $saved_id = $product->save();
+    if ($saved_id <= 0) {
+        throw new RuntimeException('Failed to save product for ' . $sku);
+    }
+
+    wp_set_object_terms($saved_id, [$category_term_id], 'product_cat', false);
+    wp_set_object_terms($saved_id, [$brand_term_id], 'product_brand', false);
+    wp_set_object_terms($saved_id, [$brand_attr_term_id], 'pa_brand', false);
+
+    update_post_meta($saved_id, '_manufacturer_part_number', $sku);
+    update_post_meta($saved_id, 'manufacturer_part_number', $sku);
+    update_post_meta($saved_id, 'manufacturer_sku', $sku);
+    update_post_meta($saved_id, 'mpn', $sku);
+    update_post_meta($saved_id, '_ado_model', $sku);
+    update_post_meta($saved_id, '_ado_import_source', 'camdencontrols.com');
+    update_post_meta($saved_id, '_ado_import_url', $url);
+    update_post_meta($saved_id, '_ado_camden_series_title', $series_title);
+    update_post_meta($saved_id, '_ado_camden_series_subtitle', $series_subtitle);
+    update_post_meta($saved_id, '_ado_camden_subsection', $subsection);
+
+    $image_url = (string) ($image_urls[(string) ($model['uid'] ?? '')] ?? '');
+    if ($image_url !== '') {
+        update_post_meta($saved_id, '_ado_camden_image_url', $image_url);
+        ado_camden_attach_image($saved_id, $image_url);
+    }
+
+    echo ($is_new ? 'CREATED' : 'UPDATED') . '|' . $saved_id . '|' . $sku . '|' . $regular_price . PHP_EOL;
+    $imported_skus[] = $sku;
+    if ($is_new) {
+        $created++;
+    } else {
+        $updated++;
+    }
+}
+
+echo 'DONE|created=' . $created . '|updated=' . $updated . '|category=' . $category_slug . '|skus=' . implode(',', $imported_skus) . PHP_EOL;
