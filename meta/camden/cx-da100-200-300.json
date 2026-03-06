@@ -1,0 +1,12 @@
+{
+  "source_url": "https://www.camdencontrols.com/category/control/Door%20Alarms/products/DoorAlarms",
+  "brand": "Camden",
+  "category": "Miscellaneous",
+  "series_title": "CX-DA100/200/300 Series",
+  "series_subtitle": "Line Powered Door Monitors",
+  "models": [
+    { "sku": "CX-DA100", "price": 59.99 },
+    { "sku": "CX-DA200", "price": 74.99 },
+    { "sku": "CX-DA300", "price": 89.99 }
+  ]
+}

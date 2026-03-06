@@ -273,6 +273,20 @@ function ado_camden_price_for_model(string $category_slug, array $model, array $
         return 29.99;
     }
 
+    if (preg_match('/^CX-DA[123]00$/i', $sku)) {
+        $price = 59.99;
+        if (str_contains($text, 'WITH RELAY')) {
+            $price += 15.00;
+        }
+        if (str_contains($text, 'RESET KEY')) {
+            $price += 10.00;
+        }
+        if (str_contains($text, 'DOUBLE GANG')) {
+            $price += 5.00;
+        }
+        return $price;
+    }
+
     if (preg_match('/^CM-AF14/i', $sku)) {
         $price = 64.99;
         if (str_contains($text, 'MULTI-COLOR')) {
