@@ -86,6 +86,8 @@ function ado_qm_is_model_like_fragment(string $value): bool {
     $compact = ado_qm_compact($norm);
     if ($norm === '' || $compact === '' || !preg_match('/\d/', $norm)) { return false; }
     if (ado_qm_is_finish_token($norm) || ado_qm_is_dimension_fragment($norm)) { return false; }
+    if (preg_match('/^(?:19|20)\d{2}-\d{2}-\d{2}$/', $norm)) { return false; }
+    if (preg_match('/^\d{4,6}\/\d{4,6}-\d{1,3}$/', $norm)) { return false; }
     if (preg_match('/^\d{1,3}$/', $compact)) { return false; }
     if (in_array($compact, array_map('ado_qm_compact', ado_qm_text_stop_words()), true)) { return false; }
     return (bool) preg_match('/(?:[A-Z]|-|\d)/', $norm);
@@ -477,7 +479,7 @@ function ado_qm_save_rejection(string $decision_key, array $product_ids): void {
 }
 
 function ado_qm_is_external_scope_line(string $raw_line): bool {
-    return (bool) preg_match('/\b(?:BY OTHERS|BY OWNER|N\.I\.C\.)\b/', ado_qm_normalize_text($raw_line));
+    return (bool) preg_match('/\b(?:BY OTHERS|BY OWNER|N\.I\.C\.|BY\s+DIV(?:ISION)?\.?\s*\d+)\b/', ado_qm_normalize_text($raw_line));
 }
 
 function ado_qm_strip_revision_tail(string $raw_line): string {

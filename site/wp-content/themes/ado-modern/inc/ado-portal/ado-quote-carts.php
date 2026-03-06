@@ -416,6 +416,73 @@ function ado_quote_debug_export_dir(): array {
     return ['dir' => $base_dir, 'url' => $base_url];
 }
 
+function ado_quote_debug_increment_count(array &$counts, string $key): void {
+    $key = trim($key);
+    if ($key === '') { return; }
+    $counts[$key] = (int) (($counts[$key] ?? 0) + 1);
+}
+
+function ado_quote_debug_sort_counts(array $counts, int $limit = 20): array {
+    if (!$counts) { return []; }
+    arsort($counts);
+    return array_slice($counts, 0, $limit, true);
+}
+
+function ado_quote_debug_summary(array $draft, array $unmatched, array $filtered): array {
+    $reason_counts = [];
+    $normalized_model_counts = [];
+    $source_model_counts = [];
+    $token_counts = [];
+    $decision_key_counts = [];
+    $candidate_sku_counts = [];
+    $matched_by_counts = [];
+
+    foreach ($unmatched as $row) {
+        if (!is_array($row)) { continue; }
+        ado_quote_debug_increment_count($reason_counts, (string) ($row['reason_code'] ?? ''));
+        ado_quote_debug_increment_count($normalized_model_counts, (string) ($row['normalized_model'] ?? ''));
+        ado_quote_debug_increment_count($source_model_counts, (string) ($row['model'] ?? ''));
+        ado_quote_debug_increment_count($decision_key_counts, (string) ($row['decision_key'] ?? ''));
+        foreach ((array) ($row['tokens'] ?? []) as $token) {
+            ado_quote_debug_increment_count($token_counts, (string) $token);
+        }
+        foreach ((array) ($row['candidate_products'] ?? []) as $candidate) {
+            if (!is_array($candidate)) { continue; }
+            $label = trim((string) ($candidate['sku'] ?? ''));
+            if ($label === '') {
+                $pid = (int) ($candidate['product_id'] ?? 0);
+                $label = $pid > 0 ? ('#' . $pid) : '';
+            }
+            ado_quote_debug_increment_count($candidate_sku_counts, $label);
+        }
+    }
+
+    foreach ($filtered as $entry) {
+        if (!is_array($entry)) { continue; }
+        ado_quote_debug_increment_count($matched_by_counts, (string) ($entry['matched_by'] ?? ''));
+    }
+
+    $matched_lines = array_values((array) ($draft['items'] ?? []));
+    $matched_item_qty = 0;
+    foreach ($matched_lines as $line) {
+        if (!is_array($line)) { continue; }
+        $matched_item_qty += max(0, (int) ($line['qty'] ?? 0));
+    }
+
+    return [
+        'matched_line_count' => count($matched_lines),
+        'matched_item_qty' => $matched_item_qty,
+        'unmatched_line_count' => count($unmatched),
+        'reason_counts' => ado_quote_debug_sort_counts($reason_counts),
+        'normalized_model_counts' => ado_quote_debug_sort_counts($normalized_model_counts),
+        'source_model_counts' => ado_quote_debug_sort_counts($source_model_counts),
+        'token_counts' => ado_quote_debug_sort_counts($token_counts, 40),
+        'decision_key_counts' => ado_quote_debug_sort_counts($decision_key_counts),
+        'candidate_sku_counts' => ado_quote_debug_sort_counts($candidate_sku_counts),
+        'matched_by_counts' => ado_quote_debug_sort_counts($matched_by_counts),
+    ];
+}
+
 function ado_quote_write_debug_log_file(array $draft): array {
     $draft_id = sanitize_file_name((string) ($draft['id'] ?? 'quote-debug'));
     $unmatched = array_values((array) ($draft['unmatched'] ?? []));
@@ -440,6 +507,7 @@ function ado_quote_write_debug_log_file(array $draft): array {
         'scope_url' => (string) ($draft['scope_url'] ?? ''),
         'scope_path' => (string) ($draft['scope_path'] ?? ''),
         'unmatched_count' => count($unmatched),
+        'summary' => ado_quote_debug_summary($draft, $unmatched, $filtered),
         'unmatched' => $unmatched,
         'unmatched_debug' => $filtered,
     ];

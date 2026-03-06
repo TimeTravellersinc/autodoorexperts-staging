@@ -27,9 +27,12 @@ $print_match = static function (string $label, array $match): void {
 $index = ado_qm_get_index(true);
 $assert(!empty($index['products']), 'matcher index builds product bank');
 $assert(ado_qm_is_external_scope_line('1 Card Reader CARD READER BY OTHERS PROX'), 'external scope detection');
+$assert(ado_qm_is_external_scope_line('4 Card Reader BY DIV.28 KINGSTON JOB NO. 19011/2001-01 2024-12-19'), 'division scope detection');
 $assert(ado_qm_strip_revision_tail('1 Electric Strike 6300-FSE-24V-630 630 ADDED: PC-047') === '1 ELECTRIC STRIKE 6300-FSE-24V-630 630', 'revision tail trimming');
 $assert(in_array('CM7536', ado_qm_model_variants('CM-7536/4'), true), 'slash variant base normalization');
 $assert(ado_qm_is_finish_token('US32D'), 'US32D finish token detection');
+$assert(!in_array('19011/2001-01', ado_qm_extract_fragments_from_text('JOB NO. 19011/2001-01 2024-12-19'), true), 'job number token ignored');
+$assert(!in_array('2024-12-19', ado_qm_extract_fragments_from_text('JOB NO. 19011/2001-01 2024-12-19'), true), 'date token ignored');
 $assert(count(ado_qm_split_raw_segments('1 Power Supply POWER SUPPLY 1 Auto Opener 9531 628 LH HDR T.B. x CONCEALED IN HEADER ON/OFF/HO SWITCH (PULL SIDE MTG) 628 1 Auto Opener Mounting Plate 9530-18 628 41 1/2" 628')) >= 3, 'merged raw line splitting');
 $assert(count(ado_qm_split_raw_segments('6 AUTO DOOR OPERATOR 9531IQ X 41 HEADER LCN ANODIZED RESTROOM CONTROL 630 / US32D / SATIN')) === 1, 'header dimension does not create fake segment');
 
@@ -164,6 +167,8 @@ $assert($debug_file_path !== '' && file_exists($debug_file_path), 'debug log fil
 $export_payload = $debug_file_path !== '' ? json_decode((string) file_get_contents($debug_file_path), true) : null;
 $assert(is_array($export_payload), 'debug log file contains valid json');
 $assert((int) ($export_payload['unmatched_count'] ?? 0) === 1, 'debug log file contains unmatched count');
+$assert((int) (($export_payload['summary']['unmatched_line_count'] ?? 0)) === 1, 'debug log file summary contains unmatched line count');
+$assert((int) (($export_payload['summary']['reason_counts']['MULTIPLE_CANDIDATES'] ?? 0)) === 1, 'debug log file summary contains reason counts');
 $assert(count((array) ($export_payload['unmatched_debug'] ?? [])) === 1, 'debug log file contains filtered unmatched debug rows');
 $review_html = ado_render_quote_result_html($review_draft);
 $assert(strpos($review_html, 'ado-match-review-choice') !== false, 'review choice button renders');
