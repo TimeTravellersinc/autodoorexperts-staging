@@ -1,0 +1,20 @@
+﻿{
+  "source_url": "https://commercial.schlage.com/en/products/system-accessories.html",
+  "products": [
+    {"sku":"SCH-700-SERIES-PUSHBUTTONS","brand":"Schlage","category":"Actuators","url":"https://commercial.schlage.com/en/products/system-accessories/700-series-pushbuttons.html","price":69.99},
+    {"sku":"SCH-620-631-SERIES-PUSHBUTTONS","brand":"Schlage","category":"Actuators","url":"https://commercial.schlage.com/en/products/system-accessories/620-631-series-heavy-duty-pushbuttons.html","price":89.99},
+    {"sku":"SCH-672-SERIES-TOUCHBAR","brand":"Schlage","category":"Actuators","url":"https://commercial.schlage.com/en/products/system-accessories/672-series-request-to-exit-touchbars.html","price":219.99},
+    {"sku":"SCH-692-SERIES-SMARTBAR","brand":"Schlage","category":"Actuators","url":"https://commercial.schlage.com/en/products/system-accessories/692-series-request-to-exit-smartbars.html","price":259.99},
+    {"sku":"SCH-650-SERIES-KEYSWITCHES","brand":"Schlage","category":"Keyswitches","url":"https://commercial.schlage.com/en/products/system-accessories/650-series-keyswitches.html","price":89.99},
+    {"sku":"SCH-FSS1-SERIES-DOOR-SENSORS","brand":"Schlage","category":"Sensors","url":"https://commercial.schlage.com/en/products/system-accessories/fss1-series-high-security-door-position-sensors.html","price":49.99},
+    {"sku":"SCH-674-679-7764-7766-DPS","brand":"Schlage","category":"Sensors","url":"https://commercial.schlage.com/en/products/system-accessories/674-679-7764-7766-series-door-position-switches.html","price":44.99},
+    {"sku":"SCH-SCAN-II-MOTION-SENSORS","brand":"Schlage","category":"Sensors","url":"https://commercial.schlage.com/en/products/system-accessories/scan-ii-motion-sensors.html","price":79.99},
+    {"sku":"SCH-1910-SERIES-ELECTRIC-HORNS","brand":"Schlage","category":"Miscellaneous","url":"https://commercial.schlage.com/en/products/system-accessories/1910-series-electric-horns.html","price":94.99},
+    {"sku":"SCH-740-SERIES-BREAK-GLASS","brand":"Schlage","category":"Miscellaneous","url":"https://commercial.schlage.com/en/products/system-accessories/740-series-emergency-break-glass-release.html","price":89.99},
+    {"sku":"SCH-660-SERIES-REMOTE-RELEASE","brand":"Schlage","category":"Miscellaneous","url":"https://commercial.schlage.com/en/products/system-accessories/660-series-concealed-remote-release-buttons-or-switches.html","price":49.99},
+    {"sku":"SCH-800-801-MONITORING-STATIONS","brand":"Schlage","category":"Miscellaneous","url":"https://commercial.schlage.com/en/products/system-accessories/800-801-series-remote-and-local-wall-mount-monitoring-stations.html","price":129.99},
+    {"sku":"SCH-8200-REMOTE-DESK-CONSOLE","brand":"Schlage","category":"Miscellaneous","url":"https://commercial.schlage.com/en/products/system-accessories/8200-series-remote-monitor-and-control-desk-consoles.html","price":189.99},
+    {"sku":"SCH-442S-CABINET-LOCK","brand":"Schlage","category":"Miscellaneous","url":"https://commercial.schlage.com/en/products/system-accessories/442s-series-cabinet-lock.html","price":119.99},
+    {"sku":"SCH-PB405-SERIES-POWER-BOLT","brand":"Schlage","category":"Miscellaneous","url":"https://commercial.schlage.com/en/products/system-accessories/pb405-series-power-bolts.html","price":179.99}
+  ]
+}
