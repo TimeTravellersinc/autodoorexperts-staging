@@ -402,6 +402,11 @@ function ado_camden_price_for_model(string $category_slug, array $model, array $
         return round($base, 2);
     }
 
+    if (preg_match('/^CM-9800/i', $sku)) {
+        $price = str_contains($sku, '/7') ? 129.99 : 119.99;
+        return round($price, 2);
+    }
+
     if (preg_match('/^CM-[3456]/i', $sku) || str_contains($text, 'PUSHBUTTON') || str_contains($text, 'PUSH/PULL') || str_contains($text, 'FACEPLATE')) {
         $price = 34.99;
         if (preg_match('/^CM-6/i', $sku) || str_contains($text, 'KEY TO RELEASE')) {
