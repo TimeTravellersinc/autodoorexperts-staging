@@ -397,6 +397,17 @@ function ado_camden_price_for_model(string $category_slug, array $model, array $
         return round($price, 2);
     }
 
+    if (preg_match('/^CM-9600/i', $sku) || preg_match('/^CM-9610/i', $sku)) {
+        if (str_contains($sku, '/C')) {
+            return 24.99;
+        }
+        $price = 94.99;
+        if (preg_match('/^CM-9610/i', $sku) || str_contains($text, 'NARROW')) {
+            $price += 5.00;
+        }
+        return round($price, 2);
+    }
+
     if ($category_slug !== 'actuators') {
         $base = $stats['median'] > 0 ? $stats['median'] : 99.99;
         return round($base, 2);
@@ -598,6 +609,12 @@ foreach ($models as $model) {
     }
 
     $category_term_ids = [$category_term_id];
+    if ($category_slug === 'actuators' && str_contains($sku, '/C')) {
+        $wire_term_id = ado_camden_find_term_id('product_cat', 'Wires');
+        if ($wire_term_id > 0) {
+            $category_term_ids = [$wire_term_id];
+        }
+    }
     if (
         ($category_slug === 'keyswitches' && !str_contains($sku, 'CYL') && str_contains(strtoupper($variant_title), 'PUSH PLATE'))
         || ($category_slug === 'actuators' && str_contains(strtoupper($variant_title), 'KEY TO RELEASE'))
