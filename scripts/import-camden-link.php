@@ -253,6 +253,27 @@ function ado_camden_price_for_model(string $category_slug, array $model, array $
         return 14.99;
     }
 
+    if ($sku === 'CM-RX-90') {
+        return 89.99;
+    }
+
+    $kinetic_prices = [
+        'CM-40K' => 49.99,
+        'CM-41K' => 47.99,
+        'CM-45K' => 49.99,
+        'CM-46K' => 49.99,
+        'CM-46CBK' => 51.99,
+        'CM-60K' => 49.99,
+        'CM-7436K' => 124.99,
+        'CM-7536K' => 134.99,
+        'CM-7536SSK' => 154.99,
+        'CM-8436K' => 124.99,
+        'CM-8536K' => 134.99,
+    ];
+    if (isset($kinetic_prices[$sku])) {
+        return $kinetic_prices[$sku];
+    }
+
     if ($category_slug === 'keyswitches') {
         if (str_contains($sku, 'CYL')) {
             $price = str_contains($sku, 'KD') ? 26.99 : 24.99;
@@ -798,6 +819,12 @@ foreach ($models as $model) {
 
     $category_term_ids = [$category_term_id];
     if ($category_slug === 'actuators' && $sku === 'CM-LP1') {
+        $misc_term_id = ado_camden_find_term_id('product_cat', 'Miscellaneous');
+        if ($misc_term_id > 0) {
+            $category_term_ids = [$misc_term_id];
+        }
+    }
+    if ($category_slug === 'actuators' && $sku === 'CM-RX-90') {
         $misc_term_id = ado_camden_find_term_id('product_cat', 'Miscellaneous');
         if ($misc_term_id > 0) {
             $category_term_ids = [$misc_term_id];

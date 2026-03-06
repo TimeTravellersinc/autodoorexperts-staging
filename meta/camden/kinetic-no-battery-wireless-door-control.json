@@ -1,0 +1,17 @@
+{
+  "source_url": "https://www.camdencontrols.com/category/activation/RF%20Wireless/products/No_Battery_Wireless_Door_Control",
+  "brand": "Camden",
+  "series_title": "Kinetic by Camden",
+  "series_subtitle": "900Mhz. No-Battery Wireless Door Control System",
+  "models": [
+    { "sku": "CM-40K", "category": "Actuators", "price": 49.99 },
+    { "sku": "CM-41K", "category": "Actuators", "price": 47.99 },
+    { "sku": "CM-60K", "category": "Actuators", "price": 49.99 },
+    { "sku": "CM-45K", "category": "Actuators", "price": 49.99 },
+    { "sku": "CM-46K", "category": "Actuators", "price": 49.99 },
+    { "sku": "CM-46CBK", "category": "Actuators", "price": 51.99 },
+    { "sku": "CM-7536K", "category": "Actuators", "price": 134.99 },
+    { "sku": "CM-7536SSK", "category": "Actuators", "price": 154.99 },
+    { "sku": "CM-RX-90", "category": "Miscellaneous", "price": 89.99 }
+  ]
+}
