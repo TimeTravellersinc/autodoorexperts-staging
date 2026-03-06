@@ -287,6 +287,14 @@ function ado_camden_price_for_model(string $category_slug, array $model, array $
         return $price;
     }
 
+    if (preg_match('/^CX-DA40[01]$/i', $sku)) {
+        $price = 99.99;
+        if (str_contains($text, 'TAMPER')) {
+            $price += 10.00;
+        }
+        return $price;
+    }
+
     if (preg_match('/^CM-AF14/i', $sku)) {
         $price = 64.99;
         if (str_contains($text, 'MULTI-COLOR')) {
