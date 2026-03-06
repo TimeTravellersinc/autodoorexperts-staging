@@ -442,6 +442,29 @@ function ado_camden_price_for_model(string $category_slug, array $model, array $
         }
         return round($price, 2);
     }
+    $ed1079_prices = [
+        'CX-ED1079' => 179.99,
+        'CX-ED1079L' => 194.99,
+        'CX-ED1079D' => 189.99,
+        'CX-ED1079DL' => 204.99,
+        'CX-ED1079-BK' => 189.99,
+        'CX-ED1079L-BK' => 204.99,
+        'CX-ED1079D-BK' => 199.99,
+        'CX-ED1079DL-BK' => 214.99,
+        'CX-ESP1B' => 24.99,
+        'CX-ESP2B' => 24.99,
+        'CX-ESP3B' => 26.99,
+        'CX-ESP4B' => 27.99,
+        'CX-ESP1B-BK' => 26.99,
+        'CX-ESP2B-BK' => 26.99,
+        'CX-ESP3B-BK' => 28.99,
+        'CX-ESP4B-BK' => 29.99,
+        'CX-ED-LIP1' => 19.99,
+        'CX-ED-LIP2' => 24.99,
+    ];
+    if (isset($ed1079_prices[$sku])) {
+        return $ed1079_prices[$sku];
+    }
 
     if (preg_match('/^CX-247/i', $sku)) {
         $price = 89.99;

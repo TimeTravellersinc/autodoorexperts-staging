@@ -1,0 +1,28 @@
+{
+  "source_url": "https://www.camdencontrols.com/category/locking/Electric%20Strikes/products/CX_ED1079L",
+  "brand": "Camden",
+  "category": "Strikes",
+  "series_title": "CX-ED1079 Series",
+  "series_subtitle": "Grade 1 Universal Electric Strikes",
+  "models": [
+    { "sku": "CX-ED1079", "price": 179.99 },
+    { "sku": "CX-ED1079L", "price": 194.99 },
+    { "sku": "CX-ED1079D", "price": 189.99 },
+    { "sku": "CX-ED1079DL", "price": 204.99 },
+    { "sku": "CX-ED1079-BK", "price": 189.99 },
+    { "sku": "CX-ED1079L-BK", "price": 204.99 },
+    { "sku": "CX-ED1079D-BK", "price": 199.99 },
+    { "sku": "CX-ED1079DL-BK", "price": 214.99 },
+    { "sku": "CX-ESP1B", "price": 24.99 },
+    { "sku": "CX-ESP2B", "price": 24.99 },
+    { "sku": "CX-ESP3B", "price": 26.99 },
+    { "sku": "CX-ESP4B", "price": 27.99 },
+    { "sku": "CX-ESP1B-BK", "price": 26.99 },
+    { "sku": "CX-ESP2B-BK", "price": 26.99 },
+    { "sku": "CX-ESP3B-BK", "price": 28.99 },
+    { "sku": "CX-ESP4B-BK", "price": 29.99 },
+    { "sku": "CX-ED-LIP1", "price": 19.99 },
+    { "sku": "CX-ED-LIP2", "price": 24.99 },
+    { "sku": "CX-STR-TMPKIT", "price": 39.99 }
+  ]
+}
