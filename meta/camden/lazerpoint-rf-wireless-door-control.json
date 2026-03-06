@@ -1,0 +1,21 @@
+{
+  "source_url": "https://www.camdencontrols.com/category/activation/RF%20Wireless/products/Lazerpoint_RF_Wireless_Door_Control",
+  "brand": "Camden",
+  "category": "Miscellaneous",
+  "series_title": "Lazerpoint",
+  "series_subtitle": "915Mhz. Wireless Door Control System",
+  "models": [
+    { "sku": "CM-TX-9", "price": 34.99 },
+    { "sku": "CM-TX-99", "price": 39.99 },
+    { "sku": "CM-xxx-L2", "price": 39.99 },
+    { "sku": "CM-TXLF-1", "price": 22.99 },
+    { "sku": "CM-TXLF-2", "price": 27.99 },
+    { "sku": "CM-TXLF-4", "price": 34.99 },
+    { "sku": "CM-RX-90", "price": 89.99 },
+    { "sku": "CM-TXLF-1LP", "price": 24.99 },
+    { "sku": "CM-RX-91", "price": 79.99 },
+    { "sku": "CM-TXLF-2LP", "price": 29.99 },
+    { "sku": "CM-RX-92", "price": 119.99 },
+    { "sku": "CM-TXLF-B", "price": 14.99 }
+  ]
+}

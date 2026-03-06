@@ -343,6 +343,37 @@ function ado_camden_price_for_model(string $category_slug, array $model, array $
     }
 
     if ($category_slug === 'miscellaneous') {
+        if (str_contains($sku, 'RX-9') || str_contains($text, 'RECEIVER')) {
+            $price = 89.99;
+            if (str_contains($sku, 'RX-91')) {
+                $price = 79.99;
+            }
+            if (str_contains($sku, 'RX-92') || str_contains($text, 'DUAL RELAY') || str_contains($text, 'FULL FUNCTION')) {
+                $price = 119.99;
+            }
+            return round($price, 2);
+        }
+        if (str_contains($sku, 'TXLF-B')) {
+            return 14.99;
+        }
+        if (str_contains($sku, 'TXLF-4')) {
+            return 34.99;
+        }
+        if (str_contains($sku, 'TXLF-2')) {
+            return str_contains($sku, 'LP') ? 29.99 : 27.99;
+        }
+        if (str_contains($sku, 'TXLF-1')) {
+            return str_contains($sku, 'LP') ? 24.99 : 22.99;
+        }
+        if (str_contains($sku, 'TX-99')) {
+            return 39.99;
+        }
+        if (str_contains($sku, 'TX-9')) {
+            return 34.99;
+        }
+        if (str_contains($text, 'TRANSMITTER')) {
+            return 39.99;
+        }
         if (str_contains($sku, 'CM-TX-')) {
             return 39.99;
         }
