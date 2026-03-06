@@ -35,7 +35,7 @@ function ado_qm_context_stop_words(): array {
 }
 
 function ado_qm_finish_tokens(): array {
-    return ['AL', 'BLK', 'BR', 'BZ', 'CLR', 'DURO', 'US10', 'US10B', 'US26', 'US26D', '630', '626', '628', '689'];
+    return ['AL', 'BLK', 'BR', 'BZ', 'CLR', 'DURO', 'US10', 'US10B', 'US26', 'US26D', 'US32', 'US32D', '630', '626', '628', '689'];
 }
 
 function ado_qm_decode_text(string $value): string {
@@ -134,6 +134,20 @@ function ado_qm_extract_fragments_from_text(string $value): array {
     return $out;
 }
 
+function ado_qm_extract_series_fragments_from_text(string $value): array {
+    $norm = ado_qm_normalize_text($value);
+    if ($norm === '') { return []; }
+    $matches = [];
+    if (preg_match_all('/\b[A-Z0-9]+(?:-[A-Z0-9]+)*-SERIES\b/u', $norm, $m)) {
+        foreach ((array) $m[0] as $fragment) {
+            $fragment = ado_qm_normalize_text((string) $fragment);
+            if ($fragment === '') { continue; }
+            $matches[] = $fragment;
+        }
+    }
+    return array_values(array_unique($matches));
+}
+
 function ado_qm_primary_model_from_field(string $value): string {
     $value = trim($value);
     if ($value === '') { return ''; }
@@ -161,6 +175,43 @@ function ado_qm_model_variants(string $value): array {
         $out[] = $compact;
     }
     return $out;
+}
+
+function ado_qm_review_model_variants(string $value): array {
+    $compact = ado_qm_compact($value);
+    if ($compact === '') { return []; }
+    $ordered = [];
+    if (preg_match('/^((?:953|954))\d([A-Z0-9]*)$/', $compact, $m)) {
+        $ordered[] = $m[1] . '0' . $m[2];
+    }
+    if (preg_match('/^(CXWEC)[A-Z0-9]+$/', $compact, $m)) {
+        $ordered[] = $m[1] . 'SERIES';
+    }
+    $seen = [$compact => true];
+    $out = [];
+    foreach ($ordered as $variant) {
+        $variant = ado_qm_compact((string) $variant);
+        if ($variant === '' || isset($seen[$variant])) { continue; }
+        $seen[$variant] = true;
+        $out[] = $variant;
+    }
+    return $out;
+}
+
+function ado_qm_brand_hints_from_text(string $value, array $index): array {
+    $norm = ' ' . ado_qm_normalize_text($value) . ' ';
+    if (trim($norm) === '') { return []; }
+    $out = [];
+    foreach (array_keys((array) ($index['brands'] ?? [])) as $brand) {
+        $brand = (string) $brand;
+        if ($brand === '' || $brand === 'UNKNOWN') { continue; }
+        $brand_norm = trim(ado_qm_normalize_text($brand));
+        if ($brand_norm === '') { continue; }
+        if (strpos($norm, ' ' . $brand_norm . ' ') !== false) {
+            $out[] = $brand;
+        }
+    }
+    return array_values(array_unique($out));
 }
 
 function ado_qm_infer_brand_from_title(string $title): string {
@@ -215,6 +266,9 @@ function ado_qm_product_model_candidates(string $title, string $sku, array $meta
         $primary = ado_qm_primary_model_from_field((string) $source);
         if ($primary !== '') { $ordered[] = $primary; }
         foreach (ado_qm_extract_fragments_from_text((string) $source) as $fragment) {
+            $ordered[] = $fragment;
+        }
+        foreach (ado_qm_extract_series_fragments_from_text((string) $source) as $fragment) {
             $ordered[] = $fragment;
         }
     }
@@ -445,7 +499,8 @@ function ado_qm_trim_narrative_tail(string $raw_line): string {
 function ado_qm_split_raw_segments(string $raw_line): array {
     $clean = ado_qm_trim_narrative_tail($raw_line);
     if ($clean === '') { return []; }
-    $parts = preg_split('/\s+(?=(?:[1-9]|[1-9]\d)\s+[A-Z])/', $clean) ?: [];
+    $starters = 'ACTUATOR|AUTO|BOLLARD|CARD|COLUMN|DOOR|ELECTRIC|EMERGENCY|EXIT|LOCKSET|MAGLOCK|MISCELLANEOUS|MOUNTING|OPENER|OPERATOR|PERM|POWER|RELAY|STRIKE';
+    $parts = preg_split('/\s+(?=(?:[1-9]|[1-9]\d)\s+(?:' . $starters . ')\b)/', $clean) ?: [];
     $segments = [];
     foreach ($parts as $part) {
         $part = trim((string) $part);
@@ -465,13 +520,15 @@ function ado_qm_segment_qty(string $segment, int $fallback): int {
 
 function ado_qm_extract_candidates(array $item, string $segment, array $index): array {
     $ordered = [];
+    $brand_hint_pool = ado_qm_brand_hints_from_text(implode(' ', array_filter([(string) ($item['catalog'] ?? ''), $segment, (string) ($item['desc'] ?? '')], 'strlen')), $index);
     foreach (array_filter([(string) ($item['catalog'] ?? ''), $segment, (string) ($item['desc'] ?? '')], 'strlen') as $source) {
         foreach (ado_qm_extract_fragments_from_text((string) $source) as $fragment) {
             $normalized = ado_qm_compact($fragment);
             if ($normalized === '') { continue; }
             $variants = ado_qm_model_variants($fragment);
+            $review_variants = ado_qm_review_model_variants($fragment);
             $signature = ado_qm_model_signature($fragment);
-            $brand_hints = [];
+            $brand_hints = $brand_hint_pool;
             $anchor = ado_qm_alpha_prefix($fragment);
             if ($anchor !== '' && isset($index['anchors'][$anchor])) {
                 $brand_hints[] = (string) $index['anchors'][$anchor];
@@ -480,6 +537,7 @@ function ado_qm_extract_candidates(array $item, string $segment, array $index): 
                 'fragment' => $fragment,
                 'normalized' => $normalized,
                 'variants' => $variants ?: [$normalized],
+                'review_variants' => $review_variants,
                 'signature' => $signature,
                 'anchor' => $anchor,
                 'brand_hints' => array_values(array_unique($brand_hints)),
@@ -686,6 +744,14 @@ function ado_qm_match_segment(array $item, string $segment, array $index): array
         if ($exact_rows) {
             $candidate_rows = $exact_rows;
         } else {
+            foreach ((array) ($candidate['review_variants'] ?? []) as $review_variant) {
+                $review_ids = array_values(array_unique(array_map('intval', (array) ($index['global_models'][$review_variant] ?? []))));
+                if ($review_ids) {
+                    $candidate_rows = array_merge($candidate_rows, ado_qm_exact_product_rows($review_ids, $index, 'family_review', 92));
+                }
+            }
+        }
+        if (!$candidate_rows) {
             $candidate_rows = ado_qm_fuzzy_product_rows($candidate, $context_words, $index);
         }
         $candidate_rows = ado_qm_filter_rejected_rows($candidate_rows, (array) ($candidate['decision_keys'] ?? []));
