@@ -1,0 +1,16 @@
+{
+  "source_url": "https://www.camdencontrols.com/category/activation/push%20_-47-_%20exit%20buttons/products/CM_300_310_Series",
+  "brand": "Camden",
+  "category": "Actuators",
+  "series_title": "CM-300/310 Series",
+  "series_subtitle": "Rectangular LED Illuminated Switch",
+  "models": [
+    { "sku": "CM-300", "price": 42.99 },
+    { "sku": "CM-310", "price": 47.99 },
+    { "sku": "CM-310GPTE", "price": 47.99 },
+    { "sku": "CM-310RPTE", "price": 51.99 },
+    { "sku": "CM-310EE", "price": 47.99 },
+    { "sku": "CM-300GPTE", "price": 42.99 },
+    { "sku": "CM-300RPTE", "price": 46.99 }
+  ]
+}
