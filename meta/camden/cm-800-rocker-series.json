@@ -1,0 +1,14 @@
+{
+  "source_url": "https://www.camdencontrols.com/category/activation/Special%20Purpose%20Switches/products/CM_800_Series_Rocker",
+  "brand": "Camden",
+  "category": "Actuators",
+  "series_title": "CM-800 Series",
+  "series_subtitle": "Rocker Switches",
+  "models": [
+    { "sku": "CM-810", "price": 42.99 },
+    { "sku": "CM-820", "price": 42.99 },
+    { "sku": "CM-830", "price": 34.99 },
+    { "sku": "CM-840", "price": 37.99 },
+    { "sku": "CM-850", "price": 47.99 }
+  ]
+}

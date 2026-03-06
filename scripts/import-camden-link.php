@@ -462,6 +462,20 @@ function ado_camden_price_for_model(string $category_slug, array $model, array $
         return round($price, 2);
     }
 
+    if (preg_match('/^CM-8[1-5]0$/i', $sku) || str_contains($text, 'ROCKER SWITCH')) {
+        $price = 34.99;
+        if (str_contains($text, 'MAINTAINED')) {
+            $price += 3.00;
+        }
+        if (str_contains($text, 'NEMA')) {
+            $price += 8.00;
+        }
+        if (str_contains($text, 'REMOTE DOOR RELEASE')) {
+            $price += 10.00;
+        }
+        return round($price, 2);
+    }
+
     if ($category_slug === 'actuators') {
         if (str_contains($text, 'SCREW') || str_contains($text, 'PLUG')) {
             if (str_contains($text, 'BOX OF 100')) {
