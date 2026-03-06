@@ -257,6 +257,14 @@ function ado_camden_price_for_model(string $category_slug, array $model, array $
         return 89.99;
     }
 
+    if ($sku === 'CM-RQEPW' || $sku === 'CM-RQEPK') {
+        return 14.99;
+    }
+
+    if ($sku === 'CM-RQE70A' || $sku === 'CM-RQE70ABK') {
+        return str_contains($sku, 'BK') ? 94.99 : 89.99;
+    }
+
     $kinetic_prices = [
         'CM-40K' => 49.99,
         'CM-41K' => 47.99,
@@ -825,6 +833,12 @@ foreach ($models as $model) {
         }
     }
     if ($category_slug === 'actuators' && $sku === 'CM-RX-90') {
+        $misc_term_id = ado_camden_find_term_id('product_cat', 'Miscellaneous');
+        if ($misc_term_id > 0) {
+            $category_term_ids = [$misc_term_id];
+        }
+    }
+    if ($category_slug === 'sensors' && in_array($sku, ['CM-RQEPW', 'CM-RQEPK'], true)) {
         $misc_term_id = ado_camden_find_term_id('product_cat', 'Miscellaneous');
         if ($misc_term_id > 0) {
             $category_term_ids = [$misc_term_id];

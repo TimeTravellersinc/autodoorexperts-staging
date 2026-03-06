@@ -1,0 +1,12 @@
+{
+  "source_url": "https://www.camdencontrols.com/products/CM_RQE70",
+  "brand": "Camden",
+  "series_title": "CM-RQE70A / RQE70ABK",
+  "series_subtitle": "PIR Request to Exit Detectors",
+  "models": [
+    { "sku": "CM-RQE70A", "category": "Sensors", "price": 89.99 },
+    { "sku": "CM-RQE70ABK", "category": "Sensors", "price": 94.99 },
+    { "sku": "CM-RQEPW", "category": "Miscellaneous", "price": 14.99 },
+    { "sku": "CM-RQEPK", "category": "Miscellaneous", "price": 14.99 }
+  ]
+}
