@@ -1,0 +1,12 @@
+{
+  "source_url": "https://www.camdencontrols.com/category/control/Door%20Control%20Relays/products/CX_EMF_2",
+  "brand": "Camden",
+  "series_title": "CX-EMF-2",
+  "series_subtitle": "Multi-function Relay",
+  "models": [
+    { "sku": "CX-EMF-2", "category": "Relays", "price": 89.99 },
+    { "sku": "CX-EMF-2M", "category": "Relays", "price": 109.99 },
+    { "sku": "CX-EMF-2ABM", "category": "Relays", "price": 129.99 },
+    { "sku": "CX-EMF-2PS", "category": "PSUs", "price": 149.99 }
+  ]
+}

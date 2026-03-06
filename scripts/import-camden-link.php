@@ -327,6 +327,16 @@ function ado_camden_price_for_model(string $category_slug, array $model, array $
         return 99.99;
     }
 
+    $cx_emf_prices = [
+        'CX-EMF-2' => 89.99,
+        'CX-EMF-2M' => 109.99,
+        'CX-EMF-2ABM' => 129.99,
+        'CX-EMF-2PS' => 149.99,
+    ];
+    if (isset($cx_emf_prices[$sku])) {
+        return $cx_emf_prices[$sku];
+    }
+
     if ($sku === 'CX-SA1') {
         return 84.99;
     }
@@ -930,6 +940,12 @@ foreach ($models as $model) {
         $misc_term_id = ado_camden_find_term_id('product_cat', 'Miscellaneous');
         if ($misc_term_id > 0) {
             $category_term_ids = [$misc_term_id];
+        }
+    }
+    if ($category_slug === 'relays' && $sku === 'CX-EMF-2PS') {
+        $psu_term_id = ado_camden_find_term_id('product_cat', 'PSUs');
+        if ($psu_term_id > 0) {
+            $category_term_ids = [$psu_term_id];
         }
     }
     if ($category_slug === 'actuators' && str_contains($sku, '/C')) {
