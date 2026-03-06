@@ -222,6 +222,23 @@ function ado_camden_price_for_model(string $category_slug, array $model, array $
     $sku = strtoupper((string) ($model['model_number'] ?? ''));
     $text = strtoupper(trim(($model['subsection'] ?? '') . ' ' . ($model['title'] ?? '')));
 
+    if ($category_slug === 'miscellaneous' && str_contains($text, 'AURA')) {
+        $price = 59.99;
+        if (str_contains($sku, '/')) {
+            $price = 74.99;
+        }
+        if (str_contains($text, 'FLUSH')) {
+            $price += 5.00;
+        }
+        if (str_contains($text, 'ROUND')) {
+            $price += 5.00;
+        }
+        if (str_contains($text, 'BLUE')) {
+            $price += 2.00;
+        }
+        return round($price, 2);
+    }
+
     if ($category_slug !== 'actuators') {
         $base = $stats['median'] > 0 ? $stats['median'] : 99.99;
         return round($base, 2);

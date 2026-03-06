@@ -1,0 +1,57 @@
+{
+  "source_url": "https://www.camdencontrols.com/category/activation/All%20Active%20Switches/products/AURA_tm_Illuminated_Enclosurers",
+  "brand": "Camden",
+  "category": "Miscellaneous",
+  "series_title": "CM-54, CM-55 & CM-57 Series",
+  "series_subtitle": "Illuminated Push Plate Enclosures & Kits",
+  "models": [
+    {
+      "sku": "CM-54I",
+      "section": "AURA Illuminated Enclosures",
+      "description": "Surface, 4-1/2\" Square, RED/GREEN/BLUE, c/w sounder, mount box",
+      "price": 61.99
+    },
+    {
+      "sku": "CM-55I",
+      "section": "AURA Illuminated Enclosures",
+      "description": "Flush, 4-1/2\" Square, RED/GREEN/BLUE, c/w sounder, mount box",
+      "price": 66.99
+    },
+    {
+      "sku": "CM-57GR",
+      "section": "AURA Illuminated Enclosures",
+      "description": "Flush, 4-1/2\" Round, RED/GREEN, c/w sounder, mount box",
+      "price": 69.99
+    },
+    {
+      "sku": "CM-45/X54",
+      "section": "AURA Illuminated Switch Kits - Surface Mount",
+      "description": "4-1/2\" Square push plate (concealed screws) with sounder, illuminated RED/GREEN/BLUE surface mount CM-54i box",
+      "price": 76.99
+    },
+    {
+      "sku": "CM-46/X54",
+      "section": "AURA Illuminated Switch Kits - Surface Mount",
+      "description": "4-1/2\" Square push plate (exposed screws) with sounder, illuminated RED/GREEN/BLUE surface mount CM-54i box",
+      "price": 76.99
+    },
+    {
+      "sku": "CM-40/X57",
+      "section": "AURA Illuminated Switch Kits - Flush Mount",
+      "description": "4-1/2\" Round push plate, c/w sounder, illuminated GREEN/RED flush mount CM-57GR box",
+      "price": 84.99
+    },
+    {
+      "sku": "CM-45/X55",
+      "section": "AURA Illuminated Switch Kits - Flush Mount",
+      "description": "4-1/2\" Square (concealed screws) push plate, c/w sounder, illuminated RED/GREEN/BLUE flush mount CM-55i box",
+      "price": 81.99
+    },
+    {
+      "sku": "CM-46/X55",
+      "section": "AURA Illuminated Switch Kits - Flush Mount",
+      "description": "4-1/2\" Square push plate (exposed screws), c/w sounder, illuminated RED/GREENBLUE flush mount CM-55i box",
+      "price": 81.99
+    }
+  ]
+}
