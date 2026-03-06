@@ -222,6 +222,21 @@ function ado_camden_price_for_model(string $category_slug, array $model, array $
     $sku = strtoupper((string) ($model['model_number'] ?? ''));
     $text = strtoupper(trim(($model['subsection'] ?? '') . ' ' . ($model['title'] ?? '')));
 
+    if ($category_slug === 'keyswitches') {
+        if (str_contains($sku, 'CYL')) {
+            $price = str_contains($sku, 'KD') ? 26.99 : 24.99;
+            return round($price, 2);
+        }
+        if (str_contains($text, 'VESTIBULE')) {
+            return 74.99;
+        }
+        if (str_contains($text, 'KEY SWITCH')) {
+            return 69.99;
+        }
+        $base = $stats['median'] > 0 ? $stats['median'] : 59.99;
+        return round($base, 2);
+    }
+
     if ($category_slug === 'actuators' && str_contains($text, 'COLUMN')) {
         $price = 109.99;
         if (str_contains($text, '6"') || str_contains($text, '6”')) {

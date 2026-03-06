@@ -1,0 +1,29 @@
+{
+  "source_url": "https://www.camdencontrols.com/category/activation/All%20Active%20Switches/products/CM_2510_and_CM_2520_Series",
+  "brand": "Camden",
+  "category": "Keyswitches",
+  "series_title": "CM-2510 & CM-2520 Series",
+  "series_subtitle": "Double Gang Push Plate Switches",
+  "models": [
+    {
+      "sku": "CM-2510",
+      "description": "Double Gang Push Plate/Key Switch",
+      "price": 69.99
+    },
+    {
+      "sku": "CM-2520",
+      "description": "Double Gang Vestibule Push Plate Switch",
+      "price": 74.99
+    },
+    {
+      "sku": "CM-CYL60-KA",
+      "description": "Mortise cylinder 1 1/8 inch, solid brass, chrome finish, keyed alike",
+      "price": 24.99
+    },
+    {
+      "sku": "CM-CYL60-KD",
+      "description": "Mortise cylinder as above, keyed different",
+      "price": 26.99
+    }
+  ]
+}
