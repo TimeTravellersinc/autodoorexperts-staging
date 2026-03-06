@@ -265,6 +265,17 @@ function ado_camden_price_for_model(string $category_slug, array $model, array $
         return str_contains($sku, 'BK') ? 94.99 : 89.99;
     }
 
+    if (preg_match('/^CM-AF14/i', $sku)) {
+        $price = 64.99;
+        if (str_contains($text, 'MULTI-COLOR')) {
+            $price += 10.00;
+        }
+        if (str_contains($text, 'SOUNDER')) {
+            $price += 5.00;
+        }
+        return $price;
+    }
+
     if ($sku === 'CX-1000/77') {
         return 99.99;
     }
