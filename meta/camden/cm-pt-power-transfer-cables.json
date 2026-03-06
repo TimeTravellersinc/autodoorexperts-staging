@@ -1,0 +1,26 @@
+{
+  "source_url": "https://www.camdencontrols.com/category/activation/Power%20Transfer%20Cables/products/Heavy_Duty_Power_Transfer_Cables",
+  "brand": "Camden",
+  "category": "Wires",
+  "series_title": "CM-PT",
+  "series_subtitle": "Power Transfer Cables (Door Loops)",
+  "models": [
+    { "sku": "CM-PT250M", "price": 59.99 },
+    { "sku": "CM-PT516M", "price": 59.99 },
+    { "sku": "CM-PT250AL-18", "price": 31.99 },
+    { "sku": "CM-PT250AL-DUR-18", "price": 35.99 },
+    { "sku": "CM-PT375AL-18", "price": 37.99 },
+    { "sku": "CM-PT375AL-DUR-18", "price": 41.99 },
+    { "sku": "CM-PT250-12", "price": 37.99 },
+    { "sku": "CM-PT250SS-7", "price": 37.99 },
+    { "sku": "CM-PT250SS-12", "price": 37.99 },
+    { "sku": "CM-PT250SS-18", "price": 39.99 },
+    { "sku": "CM-PT250SS-24", "price": 41.99 },
+    { "sku": "CM-PT250SS-36", "price": 45.99 },
+    { "sku": "CM-PT375SS-7", "price": 43.99 },
+    { "sku": "CM-PT375SS-12", "price": 43.99 },
+    { "sku": "CM-PT375SS-18", "price": 45.99 },
+    { "sku": "CM-PT375SS-24", "price": 47.99 },
+    { "sku": "CM-PT375SS-36", "price": 51.99 }
+  ]
+}

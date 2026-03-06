@@ -373,6 +373,30 @@ function ado_camden_price_for_model(string $category_slug, array $model, array $
         }
     }
 
+    if ($category_slug === 'wires') {
+        $price = 29.99;
+        if (str_contains($text, 'CONCEALED') || str_contains($text, 'MORTISE')) {
+            $price = 59.99;
+        }
+        if (str_contains($text, '3/8')) {
+            $price += 6.00;
+        }
+        if (str_contains($text, 'STAINLESS')) {
+            $price += 8.00;
+        }
+        if (str_contains($text, 'DURANODIC')) {
+            $price += 4.00;
+        }
+        if (str_contains($text, '24')) {
+            $price += 4.00;
+        } elseif (str_contains($text, '36')) {
+            $price += 8.00;
+        } elseif (str_contains($text, '18')) {
+            $price += 2.00;
+        }
+        return round($price, 2);
+    }
+
     if ($category_slug !== 'actuators') {
         $base = $stats['median'] > 0 ? $stats['median'] : 99.99;
         return round($base, 2);
