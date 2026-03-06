@@ -249,6 +249,10 @@ function ado_camden_price_for_model(string $category_slug, array $model, array $
     $sku = strtoupper((string) ($model['model_number'] ?? ''));
     $text = strtoupper(trim(($model['subsection'] ?? '') . ' ' . ($model['title'] ?? '')));
 
+    if ($sku === 'CM-LP1') {
+        return 14.99;
+    }
+
     if ($category_slug === 'keyswitches') {
         if (str_contains($sku, 'CYL')) {
             $price = str_contains($sku, 'KD') ? 26.99 : 24.99;
@@ -418,6 +422,26 @@ function ado_camden_price_for_model(string $category_slug, array $model, array $
         return round($price, 2);
     }
 
+    if (preg_match('/^CM-33[1236]/i', $sku) || preg_match('/^CM-32[45]/i', $sku) || str_contains($text, 'SUREWAVE')) {
+        if ($sku === 'CM-LP1') {
+            return 14.99;
+        }
+        $price = 94.99;
+        if (str_contains($text, '2 RELAYS')) {
+            $price += 15.00;
+        }
+        if (str_contains($text, 'BATTERY POWERED')) {
+            $price += 20.00;
+        }
+        if (str_contains($text, 'WIRELESS')) {
+            $price += 10.00;
+        }
+        if (str_contains($text, 'ECONOMICAL')) {
+            $price -= 10.00;
+        }
+        return round($price, 2);
+    }
+
     if (preg_match('/^CM-22[12]/i', $sku) || str_contains($text, 'VALUEWAVE') || str_contains($text, 'TOUCHLESS SWITCH')) {
         $price = 79.99;
         if (str_contains($text, 'NARROW')) {
@@ -431,9 +455,6 @@ function ado_camden_price_for_model(string $category_slug, array $model, array $
         }
         if (str_contains($text, 'OVERRIDE')) {
             $price += 5.00;
-        }
-        if (str_contains($text, 'WAVE TO OPEN')) {
-            $price += 0.00;
         }
         if (str_contains($text, 'WAVE TO EXIT')) {
             $price += 2.00;
@@ -720,6 +741,12 @@ foreach ($models as $model) {
     }
 
     $category_term_ids = [$category_term_id];
+    if ($category_slug === 'actuators' && $sku === 'CM-LP1') {
+        $misc_term_id = ado_camden_find_term_id('product_cat', 'Miscellaneous');
+        if ($misc_term_id > 0) {
+            $category_term_ids = [$misc_term_id];
+        }
+    }
     if ($category_slug === 'actuators' && str_contains($sku, '/C')) {
         $wire_term_id = ado_camden_find_term_id('product_cat', 'Wires');
         if ($wire_term_id > 0) {

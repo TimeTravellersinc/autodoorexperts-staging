@@ -1,0 +1,15 @@
+{
+  "source_url": "https://www.camdencontrols.com/category/activation/Touchless/products/SureWave_Touchless_Switches",
+  "brand": "Camden",
+  "series_title": "CM-331/332/333/336/324/325 Series",
+  "series_subtitle": "SureWave Touchless Switches",
+  "models": [
+    { "sku": "CM-331", "category": "Actuators", "price": 104.99 },
+    { "sku": "CM-324", "category": "Actuators", "price": 94.99 },
+    { "sku": "CM-325", "category": "Actuators", "price": 94.99 },
+    { "sku": "CM-332", "category": "Actuators", "price": 119.99 },
+    { "sku": "CM-336", "category": "Actuators", "price": 124.99 },
+    { "sku": "CM-LP1", "category": "Miscellaneous", "price": 14.99 }
+  ],
+  "skipped_discontinued": ["CM-333"]
+}
