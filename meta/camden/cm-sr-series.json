@@ -1,0 +1,11 @@
+{
+  "source_url": "https://www.camdencontrols.com/category/activation/RF%20Wireless/products/CM_SR_Series",
+  "brand": "Camden",
+  "category": "Miscellaneous",
+  "series_title": "CM-SR Series",
+  "series_subtitle": "Receiver and Transmitters",
+  "models": [
+    { "sku": "CM-SRX2", "price": 89.99 },
+    { "sku": "CV-WTX2", "price": 39.99 }
+  ]
+}
