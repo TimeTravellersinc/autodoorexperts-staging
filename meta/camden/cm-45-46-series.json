@@ -1,0 +1,45 @@
+{
+  "source_url": "https://www.camdencontrols.com/category/activation/All%20Active%20Switches/products/CM_45_46_Series",
+  "brand": "Camden",
+  "category": "Actuators",
+  "series_title": "CM-45/46 Series",
+  "series_subtitle": "4-1/2 Inch Square Push Plate Switches",
+  "models": [
+    {
+      "sku": "CM-45",
+      "section": "Wired 4-1/2\" Square",
+      "description": "4-1/2\" Square Push Plate Switch, Concealed Screws",
+      "price": 34.99
+    },
+    {
+      "sku": "CM-46",
+      "section": "Wired 4-1/2\" Square",
+      "description": "4-1/2\" Square Push Plate Switch, Exposed Screws",
+      "price": 34.99
+    },
+    {
+      "sku": "CM-45K",
+      "section": "4-1/2\" Square, Kinetic(tm) No Battery Wireless",
+      "description": "4-1/2\" Square Push Plate Switch, Concealed Screws, w/ no-battery Kinetic wireless transmitter",
+      "price": 49.99
+    },
+    {
+      "sku": "CM-46K",
+      "section": "4-1/2\" Square, Kinetic(tm) No Battery Wireless",
+      "description": "4-1/2\" Square Push Plate Switch, Exposed Screws, w/ no-battery Kinetic wireless transmitter",
+      "price": 49.99
+    },
+    {
+      "sku": "CM-46CBK",
+      "section": "4-1/2\" Square, Kinetic(tm) No Battery Wireless",
+      "description": "4-1/2\" Square Blue Push Plate Switch, Exposed Screws, w/ no-battery Kinetic wireless transmitter",
+      "price": 51.99
+    },
+    {
+      "sku": "CM-46CB",
+      "section": "Wired 4-1/2\" Square",
+      "description": "4-1/2\" Square Blue Push Plate Switch, White Graphics, Exposed Screws.",
+      "price": 36.99
+    }
+  ]
+}
