@@ -1,0 +1,17 @@
+{
+  "source_url": "https://www.camdencontrols.com/category/activation/push%20_-47-_%20exit%20buttons/products/CM_8000_Series",
+  "brand": "Camden",
+  "category": "Actuators",
+  "series_title": "CM-8000/8100 Series",
+  "series_subtitle": "Vandal Resistant Push Button (Extended)",
+  "models": [
+    { "sku": "CM-8000", "price": 59.99 },
+    { "sku": "CM-8010", "price": 59.99 },
+    { "sku": "CM-8020", "price": 64.99 },
+    { "sku": "CM-8085", "price": 69.99 },
+    { "sku": "CM-8100", "price": 64.99 },
+    { "sku": "CM-8110", "price": 64.99 },
+    { "sku": "CM-8120", "price": 69.99 },
+    { "sku": "CM-8185", "price": 74.99 }
+  ]
+}

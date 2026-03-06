@@ -432,6 +432,20 @@ function ado_camden_price_for_model(string $category_slug, array $model, array $
         return round($price, 2);
     }
 
+    if (preg_match('/^CM-8/i', $sku)) {
+        $price = 59.99;
+        if (str_contains($text, 'NARROW')) {
+            $price += 5.00;
+        }
+        if (str_contains($text, 'N/O AND N/C') || str_contains($text, 'N/O \\& N/C')) {
+            $price += 5.00;
+        }
+        if (str_contains($text, 'PNEUMATIC') || str_contains($text, 'TIME DELAY') || str_contains($text, 'TIMER')) {
+            $price += 10.00;
+        }
+        return round($price, 2);
+    }
+
     if (preg_match('/^CM-9/i', $sku)) {
         $price = 64.99;
         if (str_contains($text, 'NARROW')) {
