@@ -295,6 +295,14 @@ function ado_camden_price_for_model(string $category_slug, array $model, array $
         return $price;
     }
 
+    $restroom_annunciator_prices = [
+        'CM-AF500' => 49.99,
+        'CM-AF550R' => 84.99,
+    ];
+    if (isset($restroom_annunciator_prices[$sku])) {
+        return $restroom_annunciator_prices[$sku];
+    }
+
     if (preg_match('/^CM-AF14/i', $sku)) {
         $price = 64.99;
         if (str_contains($text, 'MULTI-COLOR')) {
@@ -367,6 +375,25 @@ function ado_camden_price_for_model(string $category_slug, array $model, array $
 
     if ($sku === 'CX-1085M') {
         return 54.99;
+    }
+
+    $washroom_prices = [
+        'CM-45/4' => 36.99,
+        'CM-45/8B' => 41.99,
+        'CM-2520/48' => 84.99,
+        'CM-400R/8' => 44.99,
+        'CM-45/455SE1' => 94.99,
+        'CM-45/454SE1' => 89.99,
+        'CM-45/8B55SE1' => 99.99,
+        'CM-45/8B54SE1' => 94.99,
+        'CM-2520/4855SE1' => 109.99,
+        'CM-2520/4854SE1' => 104.99,
+        'CX-MDA' => 24.99,
+        'CX-MDC' => 29.99,
+        'CX-MDH' => 24.99,
+    ];
+    if (isset($washroom_prices[$sku])) {
+        return $washroom_prices[$sku];
     }
 
     if (preg_match('/^CX-247/i', $sku)) {
@@ -568,6 +595,17 @@ function ado_camden_price_for_model(string $category_slug, array $model, array $
         } elseif (str_contains($text, '36')) {
             $price += 8.00;
         } elseif (str_contains($text, '18')) {
+            $price += 2.00;
+        }
+        return round($price, 2);
+    }
+
+    if ($category_slug === 'sensors') {
+        $price = 24.99;
+        if (str_contains($text, 'SPDT')) {
+            $price += 5.00;
+        }
+        if (str_contains($text, 'RECESSED')) {
             $price += 2.00;
         }
         return round($price, 2);
@@ -997,6 +1035,24 @@ foreach ($models as $model) {
         $keyswitch_term_id = ado_camden_find_term_id('product_cat', 'Keyswitches');
         if ($keyswitch_term_id > 0) {
             $category_term_ids[] = $keyswitch_term_id;
+        }
+    }
+    if ($category_slug === 'washroom-kits') {
+        $relay_term_id = ado_camden_find_term_id('product_cat', 'Relays');
+        $psu_term_id = ado_camden_find_term_id('product_cat', 'PSUs');
+        $sensor_term_id = ado_camden_find_term_id('product_cat', 'Sensors');
+        $misc_term_id = ado_camden_find_term_id('product_cat', 'Miscellaneous');
+
+        if ($sku === 'CX-33PS' && $psu_term_id > 0) {
+            $category_term_ids[] = $psu_term_id;
+        } elseif ($sku === 'CX-EMF-2' && $relay_term_id > 0) {
+            $category_term_ids[] = $relay_term_id;
+        } elseif (in_array($sku, ['CX-MDA', 'CX-MDC', 'CX-MDH'], true) && $sensor_term_id > 0) {
+            $category_term_ids[] = $sensor_term_id;
+        } elseif (in_array($sku, ['CM-AF500', 'CM-AF550R'], true) && $misc_term_id > 0) {
+            $category_term_ids[] = $misc_term_id;
+        } else {
+            $category_term_ids[] = $actuator_term_id;
         }
     }
     wp_set_object_terms($saved_id, array_values(array_unique($category_term_ids)), 'product_cat', false);

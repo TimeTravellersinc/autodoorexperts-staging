@@ -1,0 +1,26 @@
+{
+  "source_url": "https://www.camdencontrols.com/category/control/Restroom%20Control/products/WC_Restroom_Control_Kits",
+  "brand": "Camden",
+  "category": "Washroom Kits",
+  "series_title": "CX-WC Series",
+  "series_subtitle": "Barrier Free Restroom Control",
+  "models": [
+    { "sku": "CX-33PS", "price": 149.99, "categories": ["Washroom Kits", "PSUs"] },
+    { "sku": "CX-EMF-2", "price": 89.99, "categories": ["Washroom Kits", "Relays"] },
+    { "sku": "CM-45/4", "price": 36.99, "categories": ["Washroom Kits", "Actuators"] },
+    { "sku": "CM-45/8B", "price": 41.99, "categories": ["Washroom Kits", "Actuators"] },
+    { "sku": "CM-2520/48", "price": 84.99, "categories": ["Washroom Kits", "Actuators"] },
+    { "sku": "CM-400R/8", "price": 44.99, "categories": ["Washroom Kits", "Actuators"] },
+    { "sku": "CM-AF500", "price": 49.99, "categories": ["Washroom Kits", "Miscellaneous"] },
+    { "sku": "CM-AF550R", "price": 84.99, "categories": ["Washroom Kits", "Miscellaneous"] },
+    { "sku": "CM-45/455SE1", "price": 94.99, "categories": ["Washroom Kits", "Actuators"] },
+    { "sku": "CM-45/454SE1", "price": 89.99, "categories": ["Washroom Kits", "Actuators"] },
+    { "sku": "CM-45/8B55SE1", "price": 99.99, "categories": ["Washroom Kits", "Actuators"] },
+    { "sku": "CM-45/8B54SE1", "price": 94.99, "categories": ["Washroom Kits", "Actuators"] },
+    { "sku": "CM-2520/4855SE1", "price": 109.99, "categories": ["Washroom Kits", "Actuators"] },
+    { "sku": "CM-2520/4854SE1", "price": 104.99, "categories": ["Washroom Kits", "Actuators"] },
+    { "sku": "CX-MDA", "price": 24.99, "categories": ["Washroom Kits", "Sensors"] },
+    { "sku": "CX-MDC", "price": 29.99, "categories": ["Washroom Kits", "Sensors"] },
+    { "sku": "CX-MDH", "price": 24.99, "categories": ["Washroom Kits", "Sensors"] }
+  ]
+}
