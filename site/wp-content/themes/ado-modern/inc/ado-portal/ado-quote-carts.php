@@ -325,7 +325,118 @@ function ado_quote_match_item(array $item): array {
 }
 
 function ado_quote_group_key(array $line): string {
-    return implode('|', [(string) ($line['door_id'] ?? ''), (string) ((int) ($line['product_id'] ?? 0)), ado_quote_compact_token((string) ($line['raw_line'] ?? ''))]);
+    return implode('|', [
+        (string) ($line['door_id'] ?? ''),
+        (string) ((int) ($line['product_id'] ?? 0)),
+        ado_quote_compact_token((string) ($line['raw_line'] ?? '')),
+        ado_quote_compact_token((string) ($line['source_model'] ?? '')),
+    ]);
+}
+
+function ado_quote_line_key(array $row): string {
+    return md5((string) wp_json_encode([
+        'door_id' => (string) ($row['door_id'] ?? ''),
+        'raw_line' => (string) ($row['raw_line'] ?? ''),
+        'model' => (string) ($row['source_model'] ?? ''),
+        'normalized_model' => (string) ($row['normalized_model'] ?? ''),
+        'reason_code' => (string) ($row['reason_code'] ?? ''),
+    ]));
+}
+
+function ado_quote_total_items(array $items): int {
+    return array_sum(array_map(static function (array $row): int {
+        return max(0, (int) ($row['qty'] ?? 0));
+    }, array_values(array_filter($items, 'is_array'))));
+}
+
+function ado_quote_cart_item_data(array $line): array {
+    return [
+        'adq_door_id' => (string) ($line['door_id'] ?? ''),
+        'adq_door_number' => (string) ($line['door_number'] ?? ''),
+        'adq_source_model' => (string) ($line['source_model'] ?? ''),
+        'adq_source_desc' => (string) ($line['source_desc'] ?? ''),
+        'adq_source_raw' => (string) ($line['raw_line'] ?? ''),
+        'adq_match_method' => (string) ($line['match_method'] ?? ''),
+        'adq_match_confidence' => (int) ($line['match_confidence'] ?? 0),
+    ];
+}
+
+function ado_quote_sync_cart_from_items(array $items): array {
+    if (!function_exists('WC') || !WC()->cart) {
+        return ['items' => array_values($items), 'total_items' => ado_quote_total_items($items)];
+    }
+    WC()->cart->empty_cart();
+    $snapshot = [];
+    $total_items = 0;
+    foreach ($items as $line) {
+        if (!is_array($line)) { continue; }
+        $pid = (int) ($line['product_id'] ?? 0);
+        $qty = (int) ($line['qty'] ?? 0);
+        if ($pid <= 0 || $qty <= 0) { continue; }
+        $cart_key = WC()->cart->add_to_cart($pid, $qty, 0, [], ado_quote_cart_item_data($line));
+        if (!$cart_key) { continue; }
+        $snapshot[] = array_merge($line, ['cart_item_key' => $cart_key]);
+        $total_items += $qty;
+    }
+    return ['items' => $snapshot, 'total_items' => $total_items];
+}
+
+function ado_quote_load_scope_payload_from_path(string $scope_path): array {
+    if ($scope_path === '' || !file_exists($scope_path)) { return []; }
+    $payload = json_decode((string) file_get_contents($scope_path), true);
+    return is_array($payload) ? $payload : [];
+}
+
+function ado_quote_set_last_scope_session(array $draft): void {
+    if (!function_exists('WC') || !WC()->session) { return; }
+    WC()->session->set('ado_last_scope_url', (string) ($draft['scope_url'] ?? ''));
+    WC()->session->set('ado_last_scope_path', (string) ($draft['scope_path'] ?? ''));
+    WC()->session->set('ado_last_quote_draft_id', (string) ($draft['id'] ?? ''));
+}
+
+function ado_quote_save_or_replace_draft(int $user_id, array $target_draft): void {
+    $drafts = ado_get_quote_drafts($user_id);
+    $updated = false;
+    foreach ($drafts as $idx => $draft) {
+        if ((string) ($draft['id'] ?? '') === (string) ($target_draft['id'] ?? '')) {
+            $drafts[$idx] = $target_draft;
+            $updated = true;
+            break;
+        }
+    }
+    if (!$updated) {
+        $drafts[] = $target_draft;
+    }
+    ado_save_quote_drafts($user_id, $drafts);
+}
+
+function ado_quote_rebuild_scope_draft(array $draft): array {
+    $scope_path = (string) ($draft['scope_path'] ?? '');
+    $payload = ado_quote_load_scope_payload_from_path($scope_path);
+    if (empty($payload['result']['doors'])) {
+        return $draft;
+    }
+    $mapped = ado_build_cart_lines_from_scope($payload);
+    $synced = ado_quote_sync_cart_from_items((array) ($mapped['lines'] ?? []));
+    return array_merge($draft, [
+        'items' => array_values((array) ($synced['items'] ?? [])),
+        'total_items' => (int) ($synced['total_items'] ?? 0),
+        'unmatched' => array_values((array) ($mapped['unmatched'] ?? [])),
+        'unmatched_count' => count((array) ($mapped['unmatched'] ?? [])),
+        'debug_log' => array_values((array) ($mapped['debug_log'] ?? [])),
+        'updated_at' => wp_date('Y-m-d H:i'),
+    ]);
+}
+
+function ado_quote_unmatched_next_action(array $row): string {
+    $reason = (string) ($row['reason_code'] ?? '');
+    if ($reason === 'EXTERNAL_SCOPE') {
+        return 'Excluded from quote matching because the line is marked by others or owner.';
+    }
+    if (!empty($row['candidate_products'])) {
+        return 'Select the best product below or mark none of these.';
+    }
+    return 'Add a matching Woo product, alias, or manufacturer part number.';
 }
 
 function ado_build_cart_lines_from_scope(array $scope_payload): array {
@@ -333,72 +444,145 @@ function ado_build_cart_lines_from_scope(array $scope_payload): array {
     $lines = [];
     $unmatched = [];
     $debug_log = [];
+    $index = ado_qm_get_index();
     foreach ($doors as $door) {
         if (!is_array($door)) { continue; }
         $door_id = (string) ($door['door_id'] ?? '');
         $door_number = (string) ($door['door_id'] ?? '');
-        foreach ((array) ($door['items'] ?? []) as $item) {
+        foreach ((array) ($door['items'] ?? []) as $item_index => $item) {
             if (!is_array($item)) { continue; }
-            $qty = ado_quote_item_qty($item);
-            $match = ado_quote_match_item($item);
-            $pid = (int) ($match['product_id'] ?? 0);
-            $debug_entry = [
-                'door_id' => $door_id,
-                'door_number' => $door_number,
-                'raw_line' => (string) ($item['raw'] ?? ''),
-                'model' => (string) ($item['catalog'] ?? ''),
-                'description' => (string) ($item['desc'] ?? ''),
-                'qty' => $qty,
-                'tokens' => array_values((array) ($match['tokens'] ?? [])),
-                'matched_product_id' => $pid,
-                'matched_by' => (string) ($match['match_method'] ?? 'none'),
-                'confidence' => (int) ($match['confidence'] ?? 0),
-                'reason_code' => (string) ($match['reason_code'] ?? ''),
-                'attempts' => array_values((array) ($match['trace'] ?? [])),
-                'candidate_scores' => array_values((array) ($match['candidate_scores'] ?? [])),
-            ];
-            $debug_log[] = $debug_entry;
-            if ($pid <= 0) {
-                $unmatched[] = [
+            foreach (ado_qm_match_item_segments($item, $index) as $segment_index => $match) {
+                if (!is_array($match)) { continue; }
+                $qty = max(1, (int) ($match['qty'] ?? ado_quote_item_qty($item)));
+                $raw_line = (string) ($match['raw_line'] ?? ($item['raw'] ?? ''));
+                $normalized_model = (string) ($match['normalized_model'] ?? '');
+                $candidate_products = array_values((array) ($match['candidate_products'] ?? []));
+                $base_row = [
                     'door_id' => $door_id,
                     'door_number' => $door_number,
+                    'raw_line' => $raw_line,
+                    'source_model' => (string) ($match['source_model'] ?? ($item['catalog'] ?? '')),
+                    'source_desc' => (string) ($match['source_desc'] ?? ($item['desc'] ?? '')),
+                    'normalized_model' => $normalized_model,
+                    'reason_code' => (string) ($match['reason_code'] ?? ''),
+                ];
+                $line_key = ado_quote_line_key(array_merge($base_row, [
+                    'door_item_index' => (int) $item_index,
+                    'segment_index' => (int) $segment_index,
+                ]));
+                $pid = (int) ($match['product_id'] ?? 0);
+                $debug_entry = [
+                    'line_key' => $line_key,
+                    'door_id' => $door_id,
+                    'door_number' => $door_number,
+                    'raw_line' => $raw_line,
                     'model' => (string) ($item['catalog'] ?? ''),
                     'description' => (string) ($item['desc'] ?? ''),
                     'qty' => $qty,
-                    'raw_line' => (string) ($item['raw'] ?? ''),
-                    'tokens' => $debug_entry['tokens'],
-                    'reason_code' => (string) ($match['reason_code'] ?? 'NO_CANDIDATES'),
-                    'next_action' => 'Add alias, enrich product meta, or create a real Woo product.',
+                    'tokens' => ado_qm_extract_fragments_from_text($raw_line . ' ' . (string) ($item['catalog'] ?? '') . ' ' . (string) ($item['desc'] ?? '')),
+                    'matched_product_id' => $pid,
+                    'matched_by' => (string) ($match['match_method'] ?? 'none'),
+                    'confidence' => (int) ($match['confidence'] ?? 0),
+                    'reason_code' => (string) ($match['reason_code'] ?? ''),
+                    'decision_key' => (string) ($match['decision_key'] ?? ''),
+                    'normalized_model' => $normalized_model,
+                    'attempts' => array_values((array) ($match['trace'] ?? [])),
+                    'candidate_scores' => $candidate_products,
                 ];
-                continue;
+                $debug_log[] = $debug_entry;
+                if ($pid <= 0) {
+                    $unmatched_row = [
+                        'line_key' => $line_key,
+                        'door_id' => $door_id,
+                        'door_number' => $door_number,
+                        'model' => (string) ($item['catalog'] ?? ''),
+                        'description' => (string) ($item['desc'] ?? ''),
+                        'qty' => $qty,
+                        'raw_line' => $raw_line,
+                        'tokens' => $debug_entry['tokens'],
+                        'reason_code' => (string) ($match['reason_code'] ?? 'NO_CANDIDATES'),
+                        'decision_key' => (string) ($match['decision_key'] ?? ''),
+                        'normalized_model' => $normalized_model,
+                        'candidate_products' => $candidate_products,
+                    ];
+                    $unmatched_row['next_action'] = ado_quote_unmatched_next_action($unmatched_row);
+                    $unmatched[] = $unmatched_row;
+                    continue;
+                }
+                $line = [
+                    'line_key' => $line_key,
+                    'product_id' => $pid,
+                    'qty' => $qty,
+                    'door_id' => $door_id,
+                    'door_number' => $door_number,
+                    'raw_line' => $raw_line,
+                    'source_model' => (string) ($match['source_model'] ?? ($item['catalog'] ?? '')),
+                    'source_desc' => (string) ($match['source_desc'] ?? ($item['desc'] ?? '')),
+                    'match_method' => (string) ($match['match_method'] ?? ''),
+                    'match_confidence' => (int) ($match['confidence'] ?? 0),
+                ];
+                $key = ado_quote_group_key($line);
+                if (!isset($lines[$key])) {
+                    $lines[$key] = $line;
+                } else {
+                    $lines[$key]['qty'] += $qty;
+                }
             }
-            $line = [
-                'product_id' => $pid,
-                'qty' => $qty,
-                'door_id' => $door_id,
-                'door_number' => $door_number,
-                'raw_line' => (string) ($item['raw'] ?? ''),
-                'source_model' => (string) ($item['catalog'] ?? ''),
-                'source_desc' => (string) ($item['desc'] ?? ''),
-                'match_method' => (string) ($match['match_method'] ?? ''),
-                'match_confidence' => (int) ($match['confidence'] ?? 0),
-            ];
-            $key = ado_quote_group_key($line);
-            if (!isset($lines[$key])) { $lines[$key] = $line; }
-            else { $lines[$key]['qty'] += $qty; }
         }
     }
     return ['lines' => array_values($lines), 'unmatched' => array_values($unmatched), 'debug_log' => array_values($debug_log)];
 }
 
-function ado_render_unmatched_html(array $unmatched): string {
+function ado_render_quote_review_actions_html(array $row, string $draft_id): string {
+    $candidates = array_values((array) ($row['candidate_products'] ?? []));
+    if ($draft_id === '' || !$candidates) { return ''; }
+    $line_key = (string) ($row['line_key'] ?? '');
+    if ($line_key === '') { return ''; }
+    ob_start();
+    echo '<div class="ado-match-review">';
+    foreach ($candidates as $candidate) {
+        if (!is_array($candidate)) { continue; }
+        $product_id = (int) ($candidate['product_id'] ?? 0);
+        if ($product_id <= 0) { continue; }
+        $label = trim((string) ($candidate['sku'] ?? ''));
+        if ($label === '') {
+            $label = 'Product #' . $product_id;
+        }
+        echo '<div style="margin-bottom:8px;">';
+        echo '<button type="button" class="button button-small ado-match-review-choice" data-draft-id="' . esc_attr($draft_id) . '" data-line-key="' . esc_attr($line_key) . '" data-product-id="' . esc_attr((string) $product_id) . '">' . esc_html($label) . '</button>';
+        echo '<div class="ado-muted" style="margin-top:4px;">' . esc_html((string) ($candidate['title'] ?? '')) . ' [' . esc_html((string) ($candidate['score'] ?? 0)) . ']</div>';
+        echo '</div>';
+    }
+    echo '<button type="button" class="button ado-match-review-reject" data-draft-id="' . esc_attr($draft_id) . '" data-line-key="' . esc_attr($line_key) . '">None of these</button>';
+    echo '</div>';
+    return (string) ob_get_clean();
+}
+
+function ado_render_unmatched_html(array $unmatched, string $draft_id = ''): string {
     if (!$unmatched) { return ''; }
+    $show_review = false;
+    foreach ($unmatched as $row) {
+        if (!empty($row['candidate_products'])) {
+            $show_review = true;
+            break;
+        }
+    }
     ob_start();
     echo '<div class="ado-card" style="border-color:#f59e0b;background:#fffaf0;"><h3 style="margin-top:0;">Unmatched Items</h3>';
-    echo '<table class="ado-table"><thead><tr><th>Door</th><th>Model</th><th>Description</th><th>Qty</th><th>Reason</th><th>Raw Line</th></tr></thead><tbody>';
+    echo '<table class="ado-table"><thead><tr><th>Door</th><th>Model</th><th>Description</th><th>Qty</th><th>Reason</th><th>Raw Line</th>';
+    if ($show_review) { echo '<th>Review</th>'; }
+    echo '</tr></thead><tbody>';
     foreach ($unmatched as $row) {
         if (!is_array($row)) { continue; }
-        echo '<tr><td>' . esc_html((string) ($row['door_number'] ?? '')) . '</td><td>' . esc_html((string) ($row['model'] ?? '')) . '</td><td>' . esc_html((string) ($row['description'] ?? '')) . '</td><td>' . esc_html((string) ($row['qty'] ?? '')) . '</td><td>' . esc_html((string) ($row['reason_code'] ?? '')) . '</td><td>' . esc_html((string) ($row['raw_line'] ?? '')) . '</td></tr>';
+        echo '<tr><td>' . esc_html((string) ($row['door_number'] ?? '')) . '</td><td>' . esc_html((string) ($row['model'] ?? '')) . '</td><td>' . esc_html((string) ($row['description'] ?? '')) . '</td><td>' . esc_html((string) ($row['qty'] ?? '')) . '</td><td>' . esc_html((string) ($row['reason_code'] ?? '')) . '</td><td>' . esc_html((string) ($row['raw_line'] ?? ''));
+        if (!empty($row['next_action'])) {
+            echo '<div class="ado-muted" style="margin-top:4px;">' . esc_html((string) $row['next_action']) . '</div>';
+        }
+        echo '</td>';
+        if ($show_review) {
+            echo '<td>' . ado_render_quote_review_actions_html($row, $draft_id) . '</td>';
+        }
+        echo '</tr>';
     }
     echo '</tbody></table></div>';
     return (string) ob_get_clean();
@@ -441,7 +625,7 @@ function ado_render_quote_result_html(array $draft): string {
     $items = is_array($draft['items'] ?? null) ? array_values((array) $draft['items']) : [];
     $unmatched = is_array($draft['unmatched'] ?? null) ? array_values((array) $draft['unmatched']) : [];
     $debug_log = is_array($draft['debug_log'] ?? null) ? array_values((array) $draft['debug_log']) : [];
-    return ado_render_unmatched_html($unmatched) . ado_render_matched_lines_html($items) . ado_render_debug_log_html($debug_log);
+    return ado_render_unmatched_html($unmatched, (string) ($draft['id'] ?? '')) . ado_render_matched_lines_html($items) . ado_render_debug_log_html($debug_log);
 }
 
 function ado_render_quote_drafts_html(int $user_id): string {
@@ -471,24 +655,6 @@ function ado_assert_client_ajax(): int {
     return (int) get_current_user_id();
 }
 
-add_action('save_post_product', static function (int $post_id, WP_Post $post, bool $update): void {
-    if (defined('DOING_AUTOSAVE') && DOING_AUTOSAVE) { return; }
-    if (wp_is_post_revision($post_id)) { return; }
-    ado_quote_rebuild_generated_aliases();
-}, 20, 3);
-
-add_action('trashed_post', static function (int $post_id): void {
-    if (get_post_type($post_id) === 'product') { ado_quote_rebuild_generated_aliases(); }
-});
-
-add_action('untrashed_post', static function (int $post_id): void {
-    if (get_post_type($post_id) === 'product') { ado_quote_rebuild_generated_aliases(); }
-});
-
-add_action('deleted_post', static function (int $post_id): void {
-    if (get_post_type($post_id) === 'product') { ado_quote_rebuild_generated_aliases(); }
-});
-
 add_filter('woocommerce_get_item_data', static function (array $item_data, array $cart_item): array {
     foreach (['adq_door_number' => 'Door', 'adq_source_model' => 'Model', 'adq_match_method' => 'Match', 'adq_source_raw' => 'Raw Line'] as $key => $label) {
         if (!empty($cart_item[$key])) { $item_data[] = ['key' => $label, 'value' => wp_kses_post((string) $cart_item[$key])]; }
@@ -511,51 +677,41 @@ add_action('wp_ajax_ado_scope_to_quote_cart', static function (): void {
     if ($quote_name === '') { $quote_name = 'Quote ' . wp_date('Y-m-d H:i'); }
     $scope_path = ado_scope_url_to_path($scope_url);
     if ($scope_path === '' || !file_exists($scope_path)) { wp_send_json_error(['message' => 'Scoped JSON file not found.'], 404); }
-    $payload = json_decode((string) file_get_contents($scope_path), true);
+    $payload = ado_quote_load_scope_payload_from_path($scope_path);
     if (!is_array($payload) || empty($payload['result']['doors'])) { wp_send_json_error(['message' => 'Invalid scoped JSON payload.'], 400); }
 
     $mapped = ado_build_cart_lines_from_scope($payload);
-    WC()->cart->empty_cart();
-    $snapshot = [];
-    $total_items = 0;
-    foreach ((array) $mapped['lines'] as $line) {
-        if (!is_array($line)) { continue; }
-        $pid = (int) ($line['product_id'] ?? 0);
-        $qty = (int) ($line['qty'] ?? 0);
-        if ($pid <= 0 || $qty <= 0) { continue; }
-        $cart_item_data = [
-            'adq_door_id' => (string) ($line['door_id'] ?? ''),
-            'adq_door_number' => (string) ($line['door_number'] ?? ''),
-            'adq_source_model' => (string) ($line['source_model'] ?? ''),
-            'adq_source_desc' => (string) ($line['source_desc'] ?? ''),
-            'adq_source_raw' => (string) ($line['raw_line'] ?? ''),
-            'adq_match_method' => (string) ($line['match_method'] ?? ''),
-            'adq_match_confidence' => (int) ($line['match_confidence'] ?? 0),
-        ];
-        $cart_key = WC()->cart->add_to_cart($pid, $qty, 0, [], $cart_item_data);
-        if (!$cart_key) { continue; }
-        $snapshot[] = array_merge($line, ['cart_item_key' => $cart_key]);
-        $total_items += $qty;
-    }
-    if (!$snapshot) {
-        wp_send_json_error([
-            'message' => 'No existing WooCommerce products could be matched from this scope.',
-            'unmatched_count' => count((array) $mapped['unmatched']),
-            'result_html' => ado_render_unmatched_html(array_values((array) $mapped['unmatched'])) . ado_render_debug_log_html(array_values((array) $mapped['debug_log'])),
-        ], 400);
+    $synced = ado_quote_sync_cart_from_items((array) ($mapped['lines'] ?? []));
+    $snapshot = array_values((array) ($synced['items'] ?? []));
+    $total_items = (int) ($synced['total_items'] ?? 0);
+    if (!$snapshot && empty($mapped['unmatched'])) {
+        wp_send_json_error(['message' => 'No quote lines were created from this scope.'], 400);
     }
 
-    $drafts = ado_get_quote_drafts($uid);
     $draft_id = wp_generate_uuid4();
-    $draft = ['id' => $draft_id, 'name' => $quote_name, 'created_at' => wp_date('Y-m-d H:i'), 'items' => $snapshot, 'total_items' => $total_items, 'scope_url' => $scope_url, 'scope_path' => $scope_path, 'unmatched' => array_values((array) $mapped['unmatched']), 'unmatched_count' => count((array) $mapped['unmatched']), 'debug_log' => array_values((array) $mapped['debug_log'])];
-    $drafts[] = $draft;
-    ado_save_quote_drafts($uid, $drafts);
-    if (function_exists('WC') && WC()->session) {
-        WC()->session->set('ado_last_scope_url', $scope_url);
-        WC()->session->set('ado_last_scope_path', $scope_path);
-        WC()->session->set('ado_last_quote_draft_id', $draft_id);
-    }
-    wp_send_json_success(['message' => 'Quote cart created.', 'cart_url' => wc_get_cart_url(), 'drafts_html' => ado_render_quote_drafts_html($uid), 'matched_line_count' => count((array) $snapshot), 'unmatched_count' => count((array) $mapped['unmatched']), 'result_html' => ado_render_quote_result_html($draft)]);
+    $draft = [
+        'id' => $draft_id,
+        'name' => $quote_name,
+        'created_at' => wp_date('Y-m-d H:i'),
+        'items' => $snapshot,
+        'total_items' => $total_items,
+        'scope_url' => $scope_url,
+        'scope_path' => $scope_path,
+        'unmatched' => array_values((array) ($mapped['unmatched'] ?? [])),
+        'unmatched_count' => count((array) ($mapped['unmatched'] ?? [])),
+        'debug_log' => array_values((array) ($mapped['debug_log'] ?? [])),
+    ];
+    ado_quote_save_or_replace_draft($uid, $draft);
+    ado_quote_set_last_scope_session($draft);
+    wp_send_json_success([
+        'message' => $total_items > 0 ? 'Quote cart created.' : 'Quote review created. Resolve matches to continue.',
+        'cart_url' => wc_get_cart_url(),
+        'drafts_html' => ado_render_quote_drafts_html($uid),
+        'matched_line_count' => count($snapshot),
+        'matched_item_qty' => $total_items,
+        'unmatched_count' => count((array) ($mapped['unmatched'] ?? [])),
+        'result_html' => ado_render_quote_result_html($draft),
+    ]);
 });
 
 add_action('wp_ajax_ado_show_quote_draft_output', static function (): void {
@@ -564,6 +720,59 @@ add_action('wp_ajax_ado_show_quote_draft_output', static function (): void {
     $draft = ado_find_draft_by_id($uid, $draft_id);
     if (!$draft) { wp_send_json_error(['message' => 'Quote draft not found.'], 404); }
     wp_send_json_success(['message' => 'Quote output loaded.', 'result_html' => ado_render_quote_result_html($draft)]);
+});
+
+add_action('wp_ajax_ado_resolve_quote_match_review', static function (): void {
+    $uid = ado_assert_client_ajax();
+    if (!function_exists('WC') || !WC()->cart) { wp_send_json_error(['message' => 'WooCommerce cart unavailable.'], 500); }
+    $draft_id = sanitize_text_field((string) ($_POST['draft_id'] ?? ''));
+    $line_key = sanitize_text_field((string) ($_POST['line_key'] ?? ''));
+    $product_id = isset($_POST['product_id']) ? (int) $_POST['product_id'] : 0;
+    $draft = ado_find_draft_by_id($uid, $draft_id);
+    if (!$draft) { wp_send_json_error(['message' => 'Quote draft not found.'], 404); }
+    if ((string) ($draft['scope_path'] ?? '') === '') { wp_send_json_error(['message' => 'This draft has no scoped source to rebuild from.'], 400); }
+    $review_row = null;
+    foreach ((array) ($draft['unmatched'] ?? []) as $row) {
+        if (is_array($row) && (string) ($row['line_key'] ?? '') === $line_key) {
+            $review_row = $row;
+            break;
+        }
+    }
+    if (!$review_row) { wp_send_json_error(['message' => 'Match review row not found.'], 404); }
+
+    $decision_key = (string) ($review_row['decision_key'] ?? '');
+    $normalized_model = (string) ($review_row['normalized_model'] ?? '');
+    $candidates = array_values((array) ($review_row['candidate_products'] ?? []));
+    if (!$candidates) { wp_send_json_error(['message' => 'This row has no review candidates.'], 400); }
+
+    if ($product_id > 0) {
+        $selected = null;
+        foreach ($candidates as $candidate) {
+            if ((int) ($candidate['product_id'] ?? 0) === $product_id) {
+                $selected = $candidate;
+                break;
+            }
+        }
+        if (!$selected) { wp_send_json_error(['message' => 'Selected product is not valid for this row.'], 400); }
+        ado_qm_save_override_choice($decision_key, $normalized_model, (string) ($selected['brand'] ?? ''), $product_id);
+        $message = 'Match saved and quote rebuilt.';
+    } else {
+        ado_qm_save_rejection($decision_key, array_map(static fn(array $row): int => (int) ($row['product_id'] ?? 0), $candidates));
+        $message = 'Candidates rejected and quote rebuilt.';
+    }
+
+    $updated_draft = ado_quote_rebuild_scope_draft($draft);
+    ado_quote_save_or_replace_draft($uid, $updated_draft);
+    ado_quote_set_last_scope_session($updated_draft);
+    wp_send_json_success([
+        'message' => $message,
+        'cart_url' => wc_get_cart_url(),
+        'drafts_html' => ado_render_quote_drafts_html($uid),
+        'matched_line_count' => count((array) ($updated_draft['items'] ?? [])),
+        'matched_item_qty' => (int) ($updated_draft['total_items'] ?? 0),
+        'unmatched_count' => (int) ($updated_draft['unmatched_count'] ?? 0),
+        'result_html' => ado_render_quote_result_html($updated_draft),
+    ]);
 });
 
 add_action('wp_ajax_ado_save_current_cart_quote', static function (): void {
@@ -588,19 +797,8 @@ add_action('wp_ajax_ado_load_quote_draft', static function (): void {
     $draft_id = sanitize_text_field((string) ($_POST['draft_id'] ?? ''));
     $target = ado_find_draft_by_id($uid, $draft_id);
     if (!$target) { wp_send_json_error(['message' => 'Quote draft not found.'], 404); }
-    WC()->cart->empty_cart();
-    foreach ((array) ($target['items'] ?? []) as $item) {
-        if (!is_array($item)) { continue; }
-        $pid = (int) ($item['product_id'] ?? 0);
-        $qty = (int) ($item['qty'] ?? 1);
-        if ($pid <= 0 || $qty <= 0) { continue; }
-        WC()->cart->add_to_cart($pid, $qty, 0, [], ['adq_door_id' => (string) ($item['door_id'] ?? ''), 'adq_door_number' => (string) ($item['door_number'] ?? ''), 'adq_source_model' => (string) ($item['source_model'] ?? ''), 'adq_source_desc' => (string) ($item['source_desc'] ?? ''), 'adq_source_raw' => (string) ($item['raw_line'] ?? ''), 'adq_match_method' => (string) ($item['match_method'] ?? ''), 'adq_match_confidence' => (int) ($item['match_confidence'] ?? 0)]);
-    }
-    if (function_exists('WC') && WC()->session) {
-        WC()->session->set('ado_last_scope_url', (string) ($target['scope_url'] ?? ''));
-        WC()->session->set('ado_last_scope_path', (string) ($target['scope_path'] ?? ''));
-        WC()->session->set('ado_last_quote_draft_id', (string) ($target['id'] ?? ''));
-    }
+    ado_quote_sync_cart_from_items((array) ($target['items'] ?? []));
+    ado_quote_set_last_scope_session($target);
     wp_send_json_success(['message' => 'Quote cart loaded.', 'cart_url' => wc_get_cart_url(), 'checkout_url' => wc_get_checkout_url(), 'result_html' => ado_render_quote_result_html($target)]);
 });
 
@@ -666,6 +864,17 @@ add_shortcode('ado_quote_workspace', static function (): string {
         $('#ado-parser-output').show();
       }
       function showGeneratedOutput(html){ $('#ado-generated-output').html(html || ''); }
+      function handleReviewResponse(r){
+        if(!r.success){ status(r.data && r.data.message ? r.data.message : 'Failed', true); return; }
+        if (r.data && r.data.drafts_html) {
+          $('#ado-drafts-wrap').html(r.data.drafts_html || '');
+          bindDrafts();
+        }
+        showGeneratedOutput(r.data && r.data.result_html ? r.data.result_html : '');
+        if (r.data && (r.data.matched_item_qty || 0) > 0) { $('#ado-go-cart').show(); }
+        else { $('#ado-go-cart').hide(); }
+        status(r.data && r.data.message ? r.data.message : 'Quote rebuilt.', false);
+      }
       function bindDrafts(){
         $('#ado-drafts-wrap .ado-load-draft').off('click').on('click', function(){
           post('ado_load_quote_draft', {draft_id: $(this).data('id')}, function(r){
@@ -711,11 +920,17 @@ add_shortcode('ado_quote_workspace', static function (): string {
           $('#ado-drafts-wrap').html(r.data.drafts_html || '');
           bindDrafts();
           showGeneratedOutput(r.data && r.data.result_html ? r.data.result_html : '');
-          $('#ado-go-cart').show();
+          if ((r.data.matched_item_qty || 0) > 0) { $('#ado-go-cart').show(); } else { $('#ado-go-cart').hide(); }
           status((r.data.message || 'Quote cart created.') + ' Matched: ' + (r.data.matched_line_count || 0) + ', Unmatched: ' + (r.data.unmatched_count || 0), false);
         });
       }
       bindDrafts();
+      $(document).on('click', '#ado-generated-output .ado-match-review-choice', function(){
+        post('ado_resolve_quote_match_review', {draft_id: $(this).data('draft-id'), line_key: $(this).data('line-key'), product_id: $(this).data('product-id')}, handleReviewResponse);
+      });
+      $(document).on('click', '#ado-generated-output .ado-match-review-reject', function(){
+        post('ado_resolve_quote_match_review', {draft_id: $(this).data('draft-id'), line_key: $(this).data('line-key'), product_id: 0}, handleReviewResponse);
+      });
       $(document).ajaxSuccess(function(_e, _x, _s, r){
         if (r && r.success && r.data && r.data.download_url_scope) {
           latestScope = r.data.download_url_scope;

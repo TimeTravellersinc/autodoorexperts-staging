@@ -1531,6 +1531,34 @@ add_shortcode('ado_client_dashboard_app', static function (): string {
           flash((res.data && res.data.message) ? res.data.message : 'Quote output loaded.', true);
         });
       });
+      $(document).on('click', '#ado-quote-preview-output .ado-match-review-choice', function(){
+        postQuote('ado_resolve_quote_match_review', {
+          draft_id: $(this).data('draft-id'),
+          line_key: $(this).data('line-key'),
+          product_id: $(this).data('product-id')
+        }, function(res){
+          if (!res.success) {
+            flash((res.data && res.data.message) ? res.data.message : 'Could not save match review.', false);
+            return;
+          }
+          showQuotePreview((res.data && res.data.result_html) ? res.data.result_html : '');
+          flash((res.data && res.data.message) ? res.data.message : 'Match saved.', true);
+        });
+      });
+      $(document).on('click', '#ado-quote-preview-output .ado-match-review-reject', function(){
+        postQuote('ado_resolve_quote_match_review', {
+          draft_id: $(this).data('draft-id'),
+          line_key: $(this).data('line-key'),
+          product_id: 0
+        }, function(res){
+          if (!res.success) {
+            flash((res.data && res.data.message) ? res.data.message : 'Could not reject candidates.', false);
+            return;
+          }
+          showQuotePreview((res.data && res.data.result_html) ? res.data.result_html : '');
+          flash((res.data && res.data.message) ? res.data.message : 'Candidates rejected.', true);
+        });
+      });
       $(document).on('submit', '#ado-site-doc-form', function(e){
         e.preventDefault();
         var fileInput = $('#ado-site-doc-files')[0];
