@@ -93,8 +93,29 @@ function ado_hes_attach_image(int $product_id, string $image_url): bool {
         return true;
     }
 
-    $tmp_file = download_url($image_url, 60);
-    if (is_wp_error($tmp_file)) {
+    $response = wp_remote_get($image_url, [
+        'timeout' => 60,
+        'headers' => [
+            'User-Agent' => 'Mozilla/5.0 (compatible; ADO-HES-Importer/1.0)',
+            'Referer' => 'https://www.hesinnovations.com/',
+        ],
+    ]);
+    if (is_wp_error($response)) {
+        return false;
+    }
+    $status = (int) wp_remote_retrieve_response_code($response);
+    $body = (string) wp_remote_retrieve_body($response);
+    if ($status < 200 || $status >= 300 || $body === '') {
+        return false;
+    }
+
+    $extension = pathinfo((string) parse_url($image_url, PHP_URL_PATH), PATHINFO_EXTENSION);
+    $tmp_file = wp_tempnam('hes-image.' . ($extension !== '' ? $extension : 'img'));
+    if (!$tmp_file) {
+        return false;
+    }
+    if (file_put_contents($tmp_file, $body) === false) {
+        @unlink($tmp_file);
         return false;
     }
 
@@ -111,6 +132,55 @@ function ado_hes_attach_image(int $product_id, string $image_url): bool {
 
     set_post_thumbnail($product_id, $attachment_id);
     return true;
+}
+
+function ado_hes_normalize_url(string $url): string {
+    if ($url === '') {
+        return '';
+    }
+    if (str_starts_with($url, 'http://') || str_starts_with($url, 'https://')) {
+        return $url;
+    }
+    if (str_starts_with($url, '/')) {
+        return 'https://www.hesinnovations.com' . $url;
+    }
+    return 'https://www.hesinnovations.com/' . ltrim($url, '/');
+}
+
+function ado_hes_resolve_image_url(string $product_url, string $image_url): string {
+    if ($image_url !== '' && !str_contains($image_url, 'ic_img_placeholder.svg')) {
+        return ado_hes_normalize_url($image_url);
+    }
+
+    $response = wp_remote_get($product_url, [
+        'timeout' => 30,
+        'headers' => [
+            'User-Agent' => 'Mozilla/5.0 (compatible; ADO-HES-Importer/1.0)',
+        ],
+    ]);
+    if (is_wp_error($response)) {
+        return '';
+    }
+
+    $html = (string) wp_remote_retrieve_body($response);
+    if ($html === '') {
+        return '';
+    }
+
+    foreach ([
+        '/<meta\s+property="og:image"\s+content="([^"]+)"/i',
+        '/<meta\s+name="productImage"\s+content="([^"]+)"/i',
+        '/<meta\s+name="image"\s+content="([^"]+)"/i',
+    ] as $pattern) {
+        if (preg_match($pattern, $html, $match)) {
+            $resolved = ado_hes_normalize_url(trim((string) ($match[1] ?? '')));
+            if ($resolved !== '' && !str_contains($resolved, 'ic_img_placeholder.svg')) {
+                return $resolved;
+            }
+        }
+    }
+
+    return '';
 }
 
 function ado_hes_find_term_id(string $taxonomy, string $name): int {
@@ -168,7 +238,9 @@ foreach ($products as $entry) {
     $high_price = (float) $entry['high_price'];
     $sku = ado_hes_family_sku($url);
 
-    if ($image_url === '' || str_contains($image_url, 'ic_img_placeholder.svg')) {
+    $image_url = ado_hes_resolve_image_url($url, $image_url);
+
+    if ($image_url === '') {
         echo 'SKIPPED|NO_IMAGE|' . $sku . PHP_EOL;
         $skipped++;
         continue;
