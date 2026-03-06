@@ -93,6 +93,7 @@ final class ADO_Quote_Integration
         $mapped = $this->map_payload($payload, !empty($args['debug']));
         $lines = (array) ($mapped['lines'] ?? []);
         $unmatched = array_values((array) ($mapped['unmatched'] ?? []));
+        $excluded = array_values((array) ($mapped['excluded'] ?? []));
         if (!$lines && !$unmatched) {
             return [
                 'ok' => false,
@@ -127,6 +128,7 @@ final class ADO_Quote_Integration
         update_post_meta($quote_id, '_adq_doors', array_values((array) ($mapped['doors'] ?? [])));
         update_post_meta($quote_id, '_adq_cart_snapshot', array_values($lines));
         update_post_meta($quote_id, '_adq_unmatched_items', array_values((array) ($mapped['unmatched'] ?? [])));
+        update_post_meta($quote_id, '_adq_excluded_items', $excluded);
         update_post_meta($quote_id, '_adq_match_log', array_values((array) ($mapped['debug_log'] ?? [])));
         update_post_meta($quote_id, '_adq_door_notes', []);
         update_post_meta($quote_id, '_adq_line_adjustments', []);
@@ -154,12 +156,14 @@ final class ADO_Quote_Integration
         $mapped = $this->map_payload($payload, $debug, $quote_id);
         $lines = (array) ($mapped['lines'] ?? []);
         $unmatched = array_values((array) ($mapped['unmatched'] ?? []));
+        $excluded = array_values((array) ($mapped['excluded'] ?? []));
         if (!$lines && !$unmatched) {
             return ['ok' => false, 'message' => 'No products matched after rerun.'];
         }
         update_post_meta($quote_id, '_adq_cart_snapshot', array_values($lines));
         update_post_meta($quote_id, '_adq_doors', array_values((array) ($mapped['doors'] ?? [])));
         update_post_meta($quote_id, '_adq_unmatched_items', $unmatched);
+        update_post_meta($quote_id, '_adq_excluded_items', $excluded);
         update_post_meta($quote_id, '_adq_match_log', array_values((array) ($mapped['debug_log'] ?? [])));
         update_post_meta($quote_id, '_adq_updated_at', current_time('mysql'));
         update_post_meta($quote_id, '_adq_totals', $this->calculate_snapshot_totals($lines));
@@ -493,6 +497,7 @@ final class ADO_Quote_Integration
 
         $doors = get_post_meta($quote_id, '_adq_doors', true);
         $unmatched = get_post_meta($quote_id, '_adq_unmatched_items', true);
+        $excluded = get_post_meta($quote_id, '_adq_excluded_items', true);
         $door_notes = $this->get_quote_door_notes($quote_id);
         $line_adjustments = $this->get_quote_line_adjustments($quote_id);
         $scope_snapshot = (string) get_post_meta($quote_id, '_adq_scoped_json_snapshot', true);
@@ -502,6 +507,7 @@ final class ADO_Quote_Integration
         $order->update_meta_data('_ado_quote_id', $quote_id);
         $order->update_meta_data('_ado_project_doors', is_array($doors) ? $doors : []);
         $order->update_meta_data('_ado_unmatched_items', is_array($unmatched) ? $unmatched : []);
+        $order->update_meta_data('_ado_excluded_items', is_array($excluded) ? $excluded : []);
         $order->update_meta_data('_ado_quote_door_notes', $door_notes);
         $order->update_meta_data('_ado_quote_line_adjustments', $line_adjustments);
         if ($scope_snapshot !== '') {
@@ -636,6 +642,7 @@ final class ADO_Quote_Integration
         $doors = [];
         $line_map = [];
         $unmatched = [];
+        $excluded = [];
         $debug_log = [];
         $index = ado_qm_get_index();
         $line_adjustments = $quote_id > 0 ? $this->get_quote_line_adjustments($quote_id) : [];
@@ -719,7 +726,7 @@ final class ADO_Quote_Integration
                         }
 
                         if ($pid <= 0 && $line_type !== 'manual') {
-                            $unmatched[] = [
+                            $unmatched_row = [
                                 'line_key' => $line_key,
                                 'door_id' => (string) ($door_meta['door_id'] ?? ''),
                                 'door_number' => (string) ($door_meta['door_number'] ?? ''),
@@ -733,6 +740,13 @@ final class ADO_Quote_Integration
                                 'candidate_products' => $candidate_products,
                                 'adjustment' => $adjustment,
                             ];
+                            $bucket = $this->classify_unmatched_row($door_meta, $unmatched_row, $match, $item);
+                            if ($bucket === 'excluded_external_scope') {
+                                $unmatched_row['excluded_reason'] = 'external_scope';
+                                $excluded[] = $unmatched_row;
+                            } else {
+                                $unmatched[] = $unmatched_row;
+                            }
                             continue;
                         }
 
@@ -766,7 +780,7 @@ final class ADO_Quote_Integration
             }
         }
 
-        return ['doors' => array_values($doors), 'lines' => array_values($line_map), 'unmatched' => $unmatched, 'debug_log' => $debug_log];
+        return ['doors' => array_values($doors), 'lines' => array_values($line_map), 'unmatched' => $unmatched, 'excluded' => $excluded, 'debug_log' => $debug_log];
     }
 
     private function build_group_key(array $line): string
@@ -814,8 +828,44 @@ final class ADO_Quote_Integration
             'desc' => $desc,
             'location' => $location,
             'door_type' => $type,
+            'is_scoped' => true,
             'has_operator' => $this->door_has_operator((array) ($door['items'] ?? [])),
         ];
+    }
+
+    private function classify_unmatched_row(array $door_meta, array $row, array $match, array $item): string
+    {
+        $reason = strtoupper((string) ($row['reason_code'] ?? ($match['reason_code'] ?? '')));
+        if ($reason === 'EXTERNAL_SCOPE') {
+            return 'excluded_external_scope';
+        }
+
+        foreach ([
+            (string) ($row['raw_line'] ?? ''),
+            (string) ($row['description'] ?? ''),
+            (string) ($row['model'] ?? ''),
+            (string) ($item['raw'] ?? ''),
+            (string) ($item['desc'] ?? ''),
+            (string) ($item['catalog'] ?? ''),
+        ] as $candidate) {
+            if ($this->is_external_scope_reference($candidate)) {
+                return 'excluded_external_scope';
+            }
+        }
+
+        return 'review';
+    }
+
+    private function is_external_scope_reference(string $text): bool
+    {
+        $normalized = strtoupper(trim($text));
+        if ($normalized === '') {
+            return false;
+        }
+        if (function_exists('ado_qm_is_external_scope_line') && ado_qm_is_external_scope_line($normalized)) {
+            return true;
+        }
+        return (bool) preg_match('/\b(?:BY\s+DIV\.?\s*\d+|BY\s+DIVISION\s*\d+|DIV\.?\s*28|ACCESS\s+CONTROL|CARD\s+READER|NURSE\s+CALL\s+SYSTEM|INTERCOM)\b/', $normalized);
     }
 
     private function door_has_operator(array $items): bool
