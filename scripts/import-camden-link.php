@@ -462,6 +462,17 @@ function ado_camden_price_for_model(string $category_slug, array $model, array $
         return round($price, 2);
     }
 
+    if (preg_match('/^CM-70[123]/i', $sku) || str_contains($text, 'PULL STATION')) {
+        $price = 59.99;
+        if (str_contains($text, 'ALARM')) {
+            $price += 10.00;
+        }
+        if (str_contains($text, 'N/C')) {
+            $price += 5.00;
+        }
+        return round($price, 2);
+    }
+
     if (preg_match('/^CM-8[1-5]0$/i', $sku) || str_contains($text, 'ROCKER SWITCH')) {
         $price = 34.99;
         if (str_contains($text, 'MAINTAINED')) {
