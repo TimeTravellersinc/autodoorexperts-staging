@@ -378,13 +378,16 @@ function ado_camden_price_for_model(string $category_slug, array $model, array $
         return round($base, 2);
     }
 
-    if (preg_match('/^CM-4/i', $sku) || str_contains($text, 'PUSHBUTTON') || str_contains($text, 'PUSH/PULL') || str_contains($text, 'FACEPLATE')) {
+    if (preg_match('/^CM-[34]/i', $sku) || str_contains($text, 'PUSHBUTTON') || str_contains($text, 'PUSH/PULL') || str_contains($text, 'FACEPLATE')) {
         $price = 34.99;
         if (str_contains($text, 'NARROW') || str_ends_with($sku, 'N')) {
             $price = 39.99;
         }
         if (str_contains($text, 'DOUBLE GANG') || str_ends_with($sku, 'W')) {
             $price = 44.99;
+        }
+        if (str_contains($text, 'ILLUMINATED') || preg_match('/^CM-3/i', $sku)) {
+            $price += 8.00;
         }
         if (str_contains($text, 'N/O AND N/C') || str_contains($text, 'N/O \\& N/C')) {
             $price += 5.00;

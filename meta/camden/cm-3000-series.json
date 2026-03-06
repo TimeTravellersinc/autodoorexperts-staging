@@ -1,0 +1,21 @@
+{
+  "source_url": "https://www.camdencontrols.com/category/activation/Mushroom%20Push%20Buttons/products/CM_3000_Series",
+  "brand": "Camden",
+  "category": "Actuators",
+  "series_title": "CM-3000/3100 Series",
+  "series_subtitle": "Illuminated Mushroom Pushbutton",
+  "models": [
+    { "sku": "CM-3000", "price": 42.99 },
+    { "sku": "CM-3010", "price": 42.99 },
+    { "sku": "CM-3020", "price": 47.99 },
+    { "sku": "CM-3030", "price": 50.99 },
+    { "sku": "CM-3040", "price": 50.99 },
+    { "sku": "CM-3050", "price": 55.99 },
+    { "sku": "CM-3100", "price": 47.99 },
+    { "sku": "CM-3110", "price": 47.99 },
+    { "sku": "CM-3120", "price": 52.99 },
+    { "sku": "CM-3130", "price": 55.99 },
+    { "sku": "CM-3140", "price": 55.99 },
+    { "sku": "CM-3150", "price": 60.99 }
+  ]
+}
