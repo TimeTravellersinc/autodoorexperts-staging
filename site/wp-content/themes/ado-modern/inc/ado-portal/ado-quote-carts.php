@@ -558,7 +558,33 @@ function ado_render_quote_review_actions_html(array $row, string $draft_id): str
     return (string) ob_get_clean();
 }
 
-function ado_render_unmatched_html(array $unmatched, string $draft_id = ''): string {
+function ado_render_unmatched_debug_html(array $unmatched, array $debug_log): string {
+    if (!$unmatched || !$debug_log) { return ''; }
+    $line_keys = [];
+    foreach ($unmatched as $row) {
+        if (!is_array($row)) { continue; }
+        $line_key = (string) ($row['line_key'] ?? '');
+        if ($line_key !== '') {
+            $line_keys[$line_key] = true;
+        }
+    }
+    $filtered = [];
+    foreach ($debug_log as $entry) {
+        if (!is_array($entry)) { continue; }
+        $line_key = (string) ($entry['line_key'] ?? '');
+        if ($line_key !== '' && isset($line_keys[$line_key])) {
+            $filtered[] = $entry;
+        }
+    }
+    if (!$filtered) { return ''; }
+    ob_start();
+    echo '<details class="ado-unmatched-debug" style="margin:0 0 12px;"><summary><strong>Unmatched Debug Data</strong> (' . esc_html((string) count($filtered)) . ' lines)</summary>';
+    echo '<pre style="margin-top:10px;max-height:320px;overflow:auto;background:#0f172a;color:#e2e8f0;padding:12px;border-radius:8px;">' . esc_html(wp_json_encode($filtered, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES)) . '</pre>';
+    echo '</details>';
+    return (string) ob_get_clean();
+}
+
+function ado_render_unmatched_html(array $unmatched, string $draft_id = '', array $debug_log = []): string {
     if (!$unmatched) { return ''; }
     $show_review = false;
     foreach ($unmatched as $row) {
@@ -569,6 +595,7 @@ function ado_render_unmatched_html(array $unmatched, string $draft_id = ''): str
     }
     ob_start();
     echo '<div class="ado-card" style="border-color:#f59e0b;background:#fffaf0;"><h3 style="margin-top:0;">Unmatched Items</h3>';
+    echo ado_render_unmatched_debug_html($unmatched, $debug_log);
     echo '<table class="ado-table"><thead><tr><th>Door</th><th>Model</th><th>Description</th><th>Qty</th><th>Reason</th><th>Raw Line</th>';
     if ($show_review) { echo '<th>Review</th>'; }
     echo '</tr></thead><tbody>';
@@ -585,26 +612,6 @@ function ado_render_unmatched_html(array $unmatched, string $draft_id = ''): str
         echo '</tr>';
     }
     echo '</tbody></table></div>';
-    return (string) ob_get_clean();
-}
-
-function ado_render_debug_log_html(array $debug_log): string {
-    ob_start();
-    echo '<div class="ado-card"><h3 style="margin-top:0;">Output Window</h3>';
-    if (!$debug_log) {
-        echo '<p class="ado-muted">No match trace available yet.</p></div>';
-        return (string) ob_get_clean();
-    }
-    foreach ($debug_log as $entry) {
-        if (!is_array($entry)) { continue; }
-        $product = !empty($entry['matched_product_id']) ? wc_get_product((int) $entry['matched_product_id']) : null;
-        echo '<details style="margin-bottom:10px;"><summary><strong>' . esc_html((string) ($entry['door_number'] ?? '')) . '</strong> | ' . esc_html((string) ($entry['raw_line'] ?? '')) . '</summary><div style="padding-top:8px;">';
-        echo '<p><strong>Result:</strong> ' . esc_html($product ? $product->get_name() : 'UNMATCHED') . '</p>';
-        echo '<p><strong>Method:</strong> ' . esc_html((string) ($entry['matched_by'] ?? 'none')) . ' | <strong>Confidence:</strong> ' . esc_html((string) ($entry['confidence'] ?? 0)) . '</p>';
-        if (!empty($entry['reason_code'])) { echo '<p><strong>Reason:</strong> ' . esc_html((string) $entry['reason_code']) . '</p>'; }
-        echo '<pre style="max-height:220px;overflow:auto;background:#0f172a;color:#e2e8f0;padding:10px;border-radius:8px;">' . esc_html(wp_json_encode($entry, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES)) . '</pre></div></details>';
-    }
-    echo '</div>';
     return (string) ob_get_clean();
 }
 
@@ -625,7 +632,7 @@ function ado_render_quote_result_html(array $draft): string {
     $items = is_array($draft['items'] ?? null) ? array_values((array) $draft['items']) : [];
     $unmatched = is_array($draft['unmatched'] ?? null) ? array_values((array) $draft['unmatched']) : [];
     $debug_log = is_array($draft['debug_log'] ?? null) ? array_values((array) $draft['debug_log']) : [];
-    return ado_render_unmatched_html($unmatched, (string) ($draft['id'] ?? '')) . ado_render_matched_lines_html($items) . ado_render_debug_log_html($debug_log);
+    return ado_render_unmatched_html($unmatched, (string) ($draft['id'] ?? ''), $debug_log) . ado_render_matched_lines_html($items);
 }
 
 function ado_render_quote_drafts_html(int $user_id): string {

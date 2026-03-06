@@ -146,10 +146,20 @@ $review_html = ado_render_quote_result_html([
             'score' => 88,
         ]],
     ]],
-    'debug_log' => [],
+    'debug_log' => [[
+        'line_key' => 'line-review-test',
+        'door_number' => 'R-1',
+        'raw_line' => '1 Auto Opener 9531',
+        'matched_product_id' => 0,
+        'matched_by' => 'review',
+        'confidence' => 88,
+        'reason_code' => 'MULTIPLE_CANDIDATES',
+    ]],
 ]);
 $assert(strpos($review_html, 'ado-match-review-choice') !== false, 'review choice button renders');
 $assert(strpos($review_html, 'ado-match-review-reject') !== false, 'review reject button renders');
+$assert(strpos($review_html, 'Unmatched Debug Data') !== false, 'combined unmatched debug block renders');
+$assert(strpos($review_html, 'Output Window') === false, 'legacy per-line output window removed');
 
 if ($failures) {
     fwrite(STDERR, 'Failures: ' . implode(', ', $failures) . PHP_EOL);
