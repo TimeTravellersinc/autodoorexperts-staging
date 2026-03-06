@@ -298,6 +298,7 @@ function ado_camden_price_for_model(string $category_slug, array $model, array $
     $restroom_annunciator_prices = [
         'CM-AF500' => 49.99,
         'CM-AF550R' => 84.99,
+        'CM-AF142SOFE' => 74.99,
     ];
     if (isset($restroom_annunciator_prices[$sku])) {
         return $restroom_annunciator_prices[$sku];
@@ -394,6 +395,26 @@ function ado_camden_price_for_model(string $category_slug, array $model, array $
     ];
     if (isset($washroom_prices[$sku])) {
         return $washroom_prices[$sku];
+    }
+
+    $wec_prices = [
+        'CM-450R/12' => 69.99,
+        'CM-450R/12FE' => 74.99,
+        'CM-AF501SO' => 59.99,
+        'CM-AF540SO' => 79.99,
+        'CM-AF141SO' => 69.99,
+        'CM-AF142SO' => 79.99,
+        'CM-AF142SOFE' => 74.99,
+        'CM-SE21A' => 24.99,
+        'CX-LRS12' => 84.99,
+        'CX-LRS24' => 84.99,
+        'CM-8010R/13' => 49.99,
+        'CM-1205/14-60KD' => 104.99,
+        'CM-SE21' => 19.99,
+        'CM-SE21F' => 19.99,
+    ];
+    if (isset($wec_prices[$sku])) {
+        return $wec_prices[$sku];
     }
 
     if (preg_match('/^CX-247/i', $sku)) {
@@ -1052,6 +1073,21 @@ foreach ($models as $model) {
         } elseif (in_array($sku, ['CM-AF500', 'CM-AF550R'], true) && $misc_term_id > 0) {
             $category_term_ids[] = $misc_term_id;
         } else {
+            $category_term_ids[] = $actuator_term_id;
+        }
+    }
+    if ($category_slug === 'washroom-kits') {
+        $relay_term_id = ado_camden_find_term_id('product_cat', 'Relays');
+        $keyswitch_term_id = ado_camden_find_term_id('product_cat', 'Keyswitches');
+        $misc_term_id = ado_camden_find_term_id('product_cat', 'Miscellaneous');
+
+        if (in_array($sku, ['CX-LRS12', 'CX-LRS24'], true) && $relay_term_id > 0) {
+            $category_term_ids[] = $relay_term_id;
+        } elseif ($sku === 'CM-1205/14-60KD' && $keyswitch_term_id > 0) {
+            $category_term_ids[] = $keyswitch_term_id;
+        } elseif (in_array($sku, ['CM-AF501SO', 'CM-AF540SO', 'CM-AF141SO', 'CM-AF142SO', 'CM-AF142SOFE', 'CM-SE21A', 'CM-SE21', 'CM-SE21F'], true) && $misc_term_id > 0) {
+            $category_term_ids[] = $misc_term_id;
+        } elseif (in_array($sku, ['CM-450R/12', 'CM-450R/12FE', 'CM-8010R/13'], true) && $actuator_term_id > 0) {
             $category_term_ids[] = $actuator_term_id;
         }
     }

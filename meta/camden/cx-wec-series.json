@@ -1,0 +1,23 @@
+{
+  "source_url": "https://www.camdencontrols.com/category/control/Restroom%20Control/products/CX_WEC_Series",
+  "brand": "Camden",
+  "category": "Washroom Kits",
+  "series_title": "CX-WEC Series",
+  "series_subtitle": "Emergency Call Systems",
+  "models": [
+    { "sku": "CM-450R/12", "price": 69.99, "categories": ["Washroom Kits", "Actuators"] },
+    { "sku": "CM-450R/12FE", "price": 74.99, "categories": ["Washroom Kits", "Actuators"] },
+    { "sku": "CM-AF501SO", "price": 59.99, "categories": ["Washroom Kits", "Miscellaneous"] },
+    { "sku": "CM-AF540SO", "price": 79.99, "categories": ["Washroom Kits", "Miscellaneous"] },
+    { "sku": "CM-AF141SO", "price": 69.99, "categories": ["Washroom Kits", "Miscellaneous"] },
+    { "sku": "CM-AF142SO", "price": 79.99, "categories": ["Washroom Kits", "Miscellaneous"] },
+    { "sku": "CM-AF142SOFE", "price": 74.99, "categories": ["Washroom Kits", "Miscellaneous"] },
+    { "sku": "CM-SE21A", "price": 24.99, "categories": ["Washroom Kits", "Miscellaneous"] },
+    { "sku": "CX-LRS12", "price": 84.99, "categories": ["Washroom Kits", "Relays"] },
+    { "sku": "CX-LRS24", "price": 84.99, "categories": ["Washroom Kits", "Relays"] },
+    { "sku": "CM-8010R/13", "price": 49.99, "categories": ["Washroom Kits", "Actuators"] },
+    { "sku": "CM-1205/14-60KD", "price": 104.99, "categories": ["Washroom Kits", "Keyswitches"] },
+    { "sku": "CM-SE21", "price": 19.99, "categories": ["Washroom Kits", "Miscellaneous"] },
+    { "sku": "CM-SE21F", "price": 19.99, "categories": ["Washroom Kits", "Miscellaneous"] }
+  ]
+}
