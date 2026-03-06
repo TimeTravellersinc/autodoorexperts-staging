@@ -525,6 +525,17 @@ function ado_camden_price_for_model(string $category_slug, array $model, array $
     if (isset($ed1410_prices[$sku])) {
         return $ed1410_prices[$sku];
     }
+    $ed2079_prices = [
+        'CX-ED2079' => 179.99,
+        'CX-ED2079-BK' => 189.99,
+        'CX-ED2071' => 174.99,
+        'CX-ED2071-BK' => 184.99,
+        'CX-ED2079-1' => 169.99,
+        'CX-ED2079-1-BK' => 179.99,
+    ];
+    if (isset($ed2079_prices[$sku])) {
+        return $ed2079_prices[$sku];
+    }
 
     if (preg_match('/^CX-247/i', $sku)) {
         $price = 89.99;
