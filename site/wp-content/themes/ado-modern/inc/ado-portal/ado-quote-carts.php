@@ -570,12 +570,22 @@ function ado_quote_unmatched_next_action(array $row): string {
         return 'Excluded from quote matching because the line is marked by others or owner.';
     }
     if ($reason === 'INACTIVE_PRODUCT') {
-        return 'Matching Woo product exists but is inactive or trashed. Restore it or publish an active replacement.';
+        return 'Matching Woo product exists but is inactive or trashed. Restore it or choose an active replacement below.';
     }
     if (in_array($reason, ['USER_REVIEW', 'MULTIPLE_CANDIDATES'], true) && !empty($row['candidate_products'])) {
-        return 'Select the best product below or mark none of these.';
+        return 'Edit the extracted model if needed, then pick a suggested product or search for another Woo product.';
     }
-    return 'Add a matching Woo product, alias, or manufacturer part number.';
+    return 'Edit the extracted model and search for the Woo product you want to use.';
+}
+
+function ado_quote_review_model_value(array $row): string {
+    $model = trim((string) ($row['normalized_model'] ?? ''));
+    if ($model !== '') { return $model; }
+    foreach ((array) ($row['tokens'] ?? []) as $token) {
+        $token = trim((string) $token);
+        if ($token !== '') { return $token; }
+    }
+    return '';
 }
 
 function ado_build_cart_lines_from_scope(array $scope_payload): array {
@@ -595,6 +605,8 @@ function ado_build_cart_lines_from_scope(array $scope_payload): array {
                 $qty = max(1, (int) ($match['qty'] ?? ado_quote_item_qty($item)));
                 $raw_line = (string) ($match['raw_line'] ?? ($item['raw'] ?? ''));
                 $normalized_model = (string) ($match['normalized_model'] ?? '');
+                $raw_tokens = ado_qm_extract_fragments_from_text($raw_line);
+                $display_model = $normalized_model !== '' ? $normalized_model : ((string) ($raw_tokens[0] ?? ''));
                 $candidate_products = array_values((array) ($match['candidate_products'] ?? []));
                 $base_row = [
                     'door_id' => $door_id,
@@ -615,10 +627,10 @@ function ado_build_cart_lines_from_scope(array $scope_payload): array {
                     'door_id' => $door_id,
                     'door_number' => $door_number,
                     'raw_line' => $raw_line,
-                    'model' => (string) ($item['catalog'] ?? ''),
+                    'model' => $display_model,
                     'description' => (string) ($item['desc'] ?? ''),
                     'qty' => $qty,
-                    'tokens' => ado_qm_extract_fragments_from_text(trim($raw_line . ' ' . (string) ($item['catalog'] ?? ''))),
+                    'tokens' => $raw_tokens,
                     'matched_product_id' => $pid,
                     'matched_by' => (string) ($match['match_method'] ?? 'none'),
                     'confidence' => (int) ($match['confidence'] ?? 0),
@@ -634,7 +646,7 @@ function ado_build_cart_lines_from_scope(array $scope_payload): array {
                         'line_key' => $line_key,
                         'door_id' => $door_id,
                         'door_number' => $door_number,
-                        'model' => (string) ($item['catalog'] ?? ''),
+                        'model' => $display_model,
                         'description' => (string) ($item['desc'] ?? ''),
                         'qty' => $qty,
                         'raw_line' => $raw_line,
@@ -674,27 +686,61 @@ function ado_build_cart_lines_from_scope(array $scope_payload): array {
 
 function ado_render_quote_review_actions_html(array $row, string $draft_id): string {
     $reason = (string) ($row['reason_code'] ?? '');
-    if (!in_array($reason, ['USER_REVIEW', 'MULTIPLE_CANDIDATES'], true)) { return ''; }
+    if ($draft_id === '' || $reason === 'EXTERNAL_SCOPE') { return ''; }
     $candidates = array_values((array) ($row['candidate_products'] ?? []));
-    if ($draft_id === '' || !$candidates) { return ''; }
+    $active_candidates = array_values(array_filter($candidates, static function ($candidate): bool {
+        return is_array($candidate)
+            && (int) ($candidate['product_id'] ?? 0) > 0
+            && (string) ($candidate['availability'] ?? 'active') === 'active';
+    }));
+    $inactive_candidates = array_values(array_filter($candidates, static function ($candidate): bool {
+        return is_array($candidate)
+            && (int) ($candidate['product_id'] ?? 0) > 0
+            && (string) ($candidate['availability'] ?? '') === 'inactive';
+    }));
     $line_key = (string) ($row['line_key'] ?? '');
     if ($line_key === '') { return ''; }
+    $review_model = ado_quote_review_model_value($row);
+    $search_seed = $review_model !== '' ? $review_model : trim((string) ($row['model'] ?? ''));
     ob_start();
-    echo '<div class="ado-match-review">';
-    foreach ($candidates as $candidate) {
-        if (!is_array($candidate)) { continue; }
-        $product_id = (int) ($candidate['product_id'] ?? 0);
-        if ($product_id <= 0) { continue; }
-        $label = trim((string) ($candidate['sku'] ?? ''));
-        if ($label === '') {
-            $label = 'Product #' . $product_id;
+    echo '<div class="ado-match-review" data-draft-id="' . esc_attr($draft_id) . '" data-line-key="' . esc_attr($line_key) . '">';
+    echo '<label style="display:block;margin-bottom:8px;">Corrected Model';
+    echo '<input type="text" class="ado-match-model-input" value="' . esc_attr($review_model) . '" placeholder="Model from raw line" style="width:100%;margin-top:4px;">';
+    echo '</label>';
+    if ($active_candidates) {
+        echo '<div class="ado-muted" style="margin-bottom:6px;">Suggested active products</div>';
+        foreach ($active_candidates as $candidate) {
+            if (!is_array($candidate)) { continue; }
+            $product_id = (int) ($candidate['product_id'] ?? 0);
+            if ($product_id <= 0) { continue; }
+            $label = trim((string) ($candidate['sku'] ?? ''));
+            if ($label === '') {
+                $label = 'Product #' . $product_id;
+            }
+            echo '<div style="margin-bottom:8px;">';
+            echo '<button type="button" class="button button-small ado-match-review-choice" data-product-id="' . esc_attr((string) $product_id) . '">' . esc_html($label) . '</button>';
+            echo '<div class="ado-muted" style="margin-top:4px;">' . esc_html((string) ($candidate['title'] ?? '')) . ' [' . esc_html((string) ($candidate['score'] ?? 0)) . ']</div>';
+            echo '</div>';
         }
-        echo '<div style="margin-bottom:8px;">';
-        echo '<button type="button" class="button button-small ado-match-review-choice" data-draft-id="' . esc_attr($draft_id) . '" data-line-key="' . esc_attr($line_key) . '" data-product-id="' . esc_attr((string) $product_id) . '">' . esc_html($label) . '</button>';
-        echo '<div class="ado-muted" style="margin-top:4px;">' . esc_html((string) ($candidate['title'] ?? '')) . ' [' . esc_html((string) ($candidate['score'] ?? 0)) . ']</div>';
-        echo '</div>';
     }
-    echo '<button type="button" class="button ado-match-review-reject" data-draft-id="' . esc_attr($draft_id) . '" data-line-key="' . esc_attr($line_key) . '">None of these</button>';
+    if ($inactive_candidates) {
+        echo '<div class="ado-muted" style="margin:8px 0 6px;">Inactive matches</div>';
+        foreach ($inactive_candidates as $candidate) {
+            $label = trim((string) ($candidate['sku'] ?? ''));
+            if ($label === '') {
+                $label = 'Product #' . (int) ($candidate['product_id'] ?? 0);
+            }
+            echo '<div class="ado-muted" style="margin-bottom:6px;">' . esc_html($label . ' - ' . (string) ($candidate['title'] ?? '')) . '</div>';
+        }
+    }
+    echo '<div class="ado-row" style="gap:6px;align-items:flex-start;margin-top:8px;">';
+    echo '<input type="text" class="ado-match-search-query" value="' . esc_attr($search_seed) . '" placeholder="Search Woo product" style="min-width:180px;flex:1;">';
+    echo '<button type="button" class="button button-small ado-match-search">Search</button>';
+    echo '</div>';
+    echo '<div class="ado-match-search-results" style="margin-top:8px;"></div>';
+    if ($active_candidates) {
+        echo '<button type="button" class="button ado-match-review-reject" style="margin-top:8px;" data-draft-id="' . esc_attr($draft_id) . '" data-line-key="' . esc_attr($line_key) . '">None of these</button>';
+    }
     echo '</div>';
     return (string) ob_get_clean();
 }
@@ -713,7 +759,7 @@ function ado_render_unmatched_html(array $unmatched, string $draft_id = '', arra
     if (!$unmatched) { return ''; }
     $show_review = false;
     foreach ($unmatched as $row) {
-        if (is_array($row) && in_array((string) ($row['reason_code'] ?? ''), ['USER_REVIEW', 'MULTIPLE_CANDIDATES'], true) && !empty($row['candidate_products'])) {
+        if (is_array($row) && (string) ($row['reason_code'] ?? '') !== 'EXTERNAL_SCOPE' && $draft_id !== '') {
             $show_review = true;
             break;
         }
@@ -786,6 +832,15 @@ function ado_assert_client_ajax(): int {
     check_ajax_referer('ado_quote_nonce', 'nonce');
     return (int) get_current_user_id();
 }
+
+add_action('wp_ajax_ado_search_quote_match_products', static function (): void {
+    ado_assert_client_ajax();
+    $query = sanitize_text_field((string) ($_POST['query'] ?? ''));
+    if ($query === '') { wp_send_json_error(['message' => 'Search text is required.'], 400); }
+    wp_send_json_success([
+        'results' => ado_qm_search_active_products($query, 10),
+    ]);
+});
 
 add_filter('woocommerce_get_item_data', static function (array $item_data, array $cart_item): array {
     foreach (['adq_door_number' => 'Door', 'adq_source_model' => 'Model', 'adq_match_method' => 'Match', 'adq_source_raw' => 'Raw Line'] as $key => $label) {
@@ -861,6 +916,7 @@ add_action('wp_ajax_ado_resolve_quote_match_review', static function (): void {
     $draft_id = sanitize_text_field((string) ($_POST['draft_id'] ?? ''));
     $line_key = sanitize_text_field((string) ($_POST['line_key'] ?? ''));
     $product_id = isset($_POST['product_id']) ? (int) $_POST['product_id'] : 0;
+    $corrected_model = sanitize_text_field((string) ($_POST['corrected_model'] ?? ''));
     $draft = ado_find_draft_by_id($uid, $draft_id);
     if (!$draft) { wp_send_json_error(['message' => 'Quote draft not found.'], 404); }
     if ((string) ($draft['scope_path'] ?? '') === '') { wp_send_json_error(['message' => 'This draft has no scoped source to rebuild from.'], 400); }
@@ -872,11 +928,13 @@ add_action('wp_ajax_ado_resolve_quote_match_review', static function (): void {
         }
     }
     if (!$review_row) { wp_send_json_error(['message' => 'Match review row not found.'], 404); }
+    if ((string) ($review_row['reason_code'] ?? '') === 'EXTERNAL_SCOPE') {
+        wp_send_json_error(['message' => 'External-scope rows cannot be manually matched.'], 400);
+    }
 
     $decision_key = (string) ($review_row['decision_key'] ?? '');
-    $normalized_model = (string) ($review_row['normalized_model'] ?? '');
     $candidates = array_values((array) ($review_row['candidate_products'] ?? []));
-    if (!$candidates) { wp_send_json_error(['message' => 'This row has no review candidates.'], 400); }
+    $review_model = $corrected_model !== '' ? $corrected_model : ado_quote_review_model_value($review_row);
 
     if ($product_id > 0) {
         $selected = null;
@@ -886,10 +944,23 @@ add_action('wp_ajax_ado_resolve_quote_match_review', static function (): void {
                 break;
             }
         }
+        if (!$selected) {
+            foreach (ado_qm_search_active_products($review_model !== '' ? $review_model : ((string) ($review_row['raw_line'] ?? '')), 20) as $candidate) {
+                if ((int) ($candidate['product_id'] ?? 0) === $product_id) {
+                    $selected = $candidate;
+                    break;
+                }
+            }
+        }
         if (!$selected) { wp_send_json_error(['message' => 'Selected product is not valid for this row.'], 400); }
-        ado_qm_save_override_choice($decision_key, $normalized_model, (string) ($selected['brand'] ?? ''), $product_id);
-        $message = 'Match saved and quote rebuilt.';
+        if ((string) ($selected['availability'] ?? 'active') !== 'active') {
+            wp_send_json_error(['message' => 'Selected product is inactive. Restore it first or choose an active replacement.'], 400);
+        }
+        if ($review_model === '') { wp_send_json_error(['message' => 'Enter the corrected model before saving the match.'], 400); }
+        ado_qm_save_manual_resolution((string) ($review_row['raw_line'] ?? ''), $review_model, $decision_key, (string) ($selected['brand'] ?? ''), $product_id);
+        $message = 'Manual correction saved and quote rebuilt.';
     } else {
+        if (!$candidates) { wp_send_json_error(['message' => 'Pick a Woo product to save this row.'], 400); }
         ado_qm_save_rejection($decision_key, array_map(static fn(array $row): int => (int) ($row['product_id'] ?? 0), $candidates));
         $message = 'Candidates rejected and quote rebuilt.';
     }
@@ -997,6 +1068,33 @@ add_shortcode('ado_quote_workspace', static function (): string {
         $('#ado-parser-output').show();
       }
       function showGeneratedOutput(html){ $('#ado-generated-output').html(html || ''); }
+      function reviewBox(el){ return $(el).closest('.ado-match-review'); }
+      function reviewModel(box){ return $.trim(box.find('.ado-match-model-input').val() || ''); }
+      function resolveManualMatch(box, productId){
+        post('ado_resolve_quote_match_review', {
+          draft_id: box.data('draft-id'),
+          line_key: box.data('line-key'),
+          product_id: productId,
+          corrected_model: reviewModel(box)
+        }, handleReviewResponse);
+      }
+      function renderSearchResults(box, results){
+        var wrap = box.find('.ado-match-search-results');
+        wrap.empty();
+        if (!results || !results.length) {
+          wrap.html('<div class="ado-muted">No active Woo products found.</div>');
+          return;
+        }
+        results.forEach(function(row){
+          var label = row.sku || ('Product #' + row.product_id);
+          wrap.append(
+            '<div style="margin-bottom:8px;">'
+            + '<button type="button" class="button button-small ado-match-search-choice" data-product-id="' + String(row.product_id) + '">' + label + '</button>'
+            + '<div class="ado-muted" style="margin-top:4px;">' + (row.title || '') + ' [' + String(row.score || 0) + ']</div>'
+            + '</div>'
+          );
+        });
+      }
       function handleReviewResponse(r){
         if(!r.success){ status(r.data && r.data.message ? r.data.message : 'Failed', true); return; }
         if (r.data && r.data.drafts_html) {
@@ -1059,7 +1157,19 @@ add_shortcode('ado_quote_workspace', static function (): string {
       }
       bindDrafts();
       $(document).on('click', '#ado-generated-output .ado-match-review-choice', function(){
-        post('ado_resolve_quote_match_review', {draft_id: $(this).data('draft-id'), line_key: $(this).data('line-key'), product_id: $(this).data('product-id')}, handleReviewResponse);
+        resolveManualMatch(reviewBox(this), $(this).data('product-id'));
+      });
+      $(document).on('click', '#ado-generated-output .ado-match-search', function(){
+        var box = reviewBox(this);
+        var query = $.trim(box.find('.ado-match-search-query').val() || reviewModel(box));
+        if (!query) { status('Enter a product search or corrected model first.', true); return; }
+        post('ado_search_quote_match_products', {query: query}, function(r){
+          if(!r.success){ status(r.data && r.data.message ? r.data.message : 'Failed', true); return; }
+          renderSearchResults(box, (r.data && r.data.results) ? r.data.results : []);
+        });
+      });
+      $(document).on('click', '#ado-generated-output .ado-match-search-choice', function(){
+        resolveManualMatch(reviewBox(this), $(this).data('product-id'));
       });
       $(document).on('click', '#ado-generated-output .ado-match-review-reject', function(){
         post('ado_resolve_quote_match_review', {draft_id: $(this).data('draft-id'), line_key: $(this).data('line-key'), product_id: 0}, handleReviewResponse);

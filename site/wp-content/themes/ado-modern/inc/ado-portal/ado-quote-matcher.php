@@ -15,6 +15,10 @@ function ado_qm_rejection_option_key(): string {
     return 'ado_quote_matcher_rejections_v1';
 }
 
+function ado_qm_correction_option_key(): string {
+    return 'ado_quote_matcher_corrections_v1';
+}
+
 function ado_qm_meta_model_fields(): array {
     return ['_manufacturer_part_number', 'manufacturer_part_number', '_ado_model', '_ado_catalog', 'manufacturer_sku', 'alternate_sku', 'mpn'];
 }
@@ -531,6 +535,22 @@ function ado_qm_get_rejections(): array {
     return is_array($rejections) ? $rejections : [];
 }
 
+function ado_qm_get_corrections(): array {
+    $corrections = get_option(ado_qm_correction_option_key(), []);
+    return is_array($corrections) ? $corrections : [];
+}
+
+function ado_qm_segment_lookup_key(string $raw_line): string {
+    return ado_qm_normalize_text($raw_line);
+}
+
+function ado_qm_segment_correction_lookup(string $raw_line): ?array {
+    $key = ado_qm_segment_lookup_key($raw_line);
+    if ($key === '') { return null; }
+    $entry = ado_qm_get_corrections()[$key] ?? null;
+    return is_array($entry) ? $entry : null;
+}
+
 function ado_qm_override_lookup(string $decision_key): int {
     $overrides = ado_qm_get_overrides();
     $entry = $overrides[$decision_key] ?? null;
@@ -566,6 +586,33 @@ function ado_qm_save_rejection(string $decision_key, array $product_ids): void {
         $rejections[$decision_key][(string) $product_id] = (int) (($rejections[$decision_key][(string) $product_id] ?? 0) + 1);
     }
     update_option(ado_qm_rejection_option_key(), $rejections, false);
+}
+
+function ado_qm_save_segment_correction(string $raw_line, string $corrected_model, string $brand, int $product_id): void {
+    $key = ado_qm_segment_lookup_key($raw_line);
+    $corrected_model = ado_qm_normalize_text($corrected_model);
+    $normalized_model = ado_qm_compact($corrected_model);
+    if ($key === '' || $corrected_model === '' || $normalized_model === '' || $product_id <= 0) { return; }
+    $corrections = ado_qm_get_corrections();
+    $current = $corrections[$key] ?? ['count' => 0];
+    $corrections[$key] = [
+        'raw_line' => ado_qm_normalize_text($raw_line),
+        'corrected_model' => $corrected_model,
+        'normalized_model' => $normalized_model,
+        'product_id' => $product_id,
+        'brand' => $brand,
+        'count' => (int) ($current['count'] ?? 0) + 1,
+        'updated_at' => current_time('mysql'),
+    ];
+    update_option(ado_qm_correction_option_key(), $corrections, false);
+}
+
+function ado_qm_save_manual_resolution(string $raw_line, string $corrected_model, string $decision_key, string $brand, int $product_id): void {
+    $corrected_model = ado_qm_normalize_text($corrected_model);
+    $normalized_model = ado_qm_compact($corrected_model);
+    if ($corrected_model === '' || $normalized_model === '' || $product_id <= 0) { return; }
+    ado_qm_save_segment_correction($raw_line, $corrected_model, $brand, $product_id);
+    ado_qm_save_override_choice($decision_key !== '' ? $decision_key : ('*|' . $normalized_model), $normalized_model, $brand, $product_id);
 }
 
 function ado_qm_is_external_scope_line(string $raw_line): bool {
@@ -621,12 +668,13 @@ function ado_qm_segment_qty(string $segment, int $fallback): int {
     return $fallback;
 }
 
-function ado_qm_extract_candidates(array $item, string $segment, array $index): array {
+function ado_qm_candidates_from_sources(array $sources, array $index): array {
     $ordered = [];
     $sources = array_values(array_filter(
-        [(string) ($item['catalog'] ?? ''), $segment],
+        array_map(static fn($source): string => (string) $source, $sources),
         static fn(string $source): bool => trim($source) !== ''
     ));
+    if (!$sources) { return []; }
     $brand_hint_pool = ado_qm_brand_hints_from_text(implode(' ', $sources), $index);
     foreach ($sources as $source) {
         foreach (ado_qm_extract_fragments_from_text((string) $source) as $fragment) {
@@ -672,6 +720,10 @@ function ado_qm_extract_candidates(array $item, string $segment, array $index): 
     return $out;
 }
 
+function ado_qm_extract_candidates(array $item, string $segment, array $index): array {
+    return ado_qm_candidates_from_sources([$segment], $index);
+}
+
 function ado_qm_exact_product_rows(array $product_ids, array $index, string $method, int $score, bool $inactive = false): array {
     $products = $inactive ? (array) (($index['inactive']['products'] ?? [])) : (array) ($index['products'] ?? []);
     $rows = [];
@@ -710,6 +762,60 @@ function ado_qm_unique_candidate_rows(array $rows): array {
 function ado_qm_context_overlap_score(array $context_words, array $product): int {
     $overlap = array_intersect($context_words, (array) ($product['context_words'] ?? []));
     return min(18, count($overlap) * 6);
+}
+
+function ado_qm_search_active_products(string $query, int $limit = 10): array {
+    $query = ado_qm_normalize_text($query);
+    $query_compact = ado_qm_compact($query);
+    if ($query === '' && $query_compact === '') { return []; }
+    $index = ado_qm_get_index();
+    $rows = [];
+    foreach ((array) ($index['products'] ?? []) as $product_id => $product) {
+        if (!is_array($product)) { continue; }
+        $score = 0;
+        $title_norm = (string) ($product['title_norm'] ?? ado_qm_normalize_text((string) ($product['title'] ?? '')));
+        $sku_compact = (string) ($product['sku_compact'] ?? ado_qm_compact((string) ($product['sku'] ?? '')));
+        if ($query_compact !== '') {
+            if ($query_compact === $sku_compact) {
+                $score = max($score, 120);
+            } elseif ($sku_compact !== '' && strpos($sku_compact, $query_compact) !== false) {
+                $score = max($score, 96);
+            }
+        }
+        if ($query !== '' && $title_norm !== '') {
+            if ($title_norm === $query) {
+                $score = max($score, 110);
+            } elseif (strpos($title_norm, $query) !== false) {
+                $score = max($score, 82);
+            }
+        }
+        foreach ((array) ($product['model_map'] ?? []) as $model => $meta) {
+            if (!is_array($meta)) { continue; }
+            $display = ado_qm_normalize_text((string) ($meta['display'] ?? $model));
+            if ($query_compact !== '') {
+                if ($query_compact === (string) $model) {
+                    $score = max($score, 118);
+                } elseif (strpos((string) $model, $query_compact) !== false) {
+                    $score = max($score, 100);
+                }
+            }
+            if ($query !== '' && $display !== '' && strpos($display, $query) !== false) {
+                $score = max($score, 92);
+            }
+        }
+        if ($score <= 0) { continue; }
+        $rows[] = [
+            'product_id' => (int) $product_id,
+            'score' => $score,
+            'sku' => (string) ($product['sku'] ?? ''),
+            'title' => (string) ($product['title'] ?? ''),
+            'brand' => (string) ($product['brand'] ?? 'UNKNOWN'),
+            'status' => (string) ($product['status'] ?? ''),
+            'availability' => 'active',
+        ];
+    }
+    $rows = ado_qm_unique_candidate_rows($rows);
+    return array_slice($rows, 0, max(1, $limit));
 }
 
 function ado_qm_fuzzy_product_rows(array $candidate, array $context_words, array $index, bool $inactive = false): array {
@@ -821,7 +927,7 @@ function ado_qm_filter_rejected_rows(array $rows, array $decision_keys): array {
 function ado_qm_match_segment(array $item, string $segment, array $index): array {
     $clean_segment = trim($segment);
     $qty = ado_qm_segment_qty($clean_segment, isset($item['qty']) ? (int) $item['qty'] : 1);
-    $context_words = ado_qm_context_words(((string) ($item['desc'] ?? '')) . ' ' . $clean_segment);
+    $context_words = ado_qm_context_words($clean_segment);
     $trace = ['segment=' . $clean_segment];
     if (ado_qm_is_external_scope_line($clean_segment)) {
         return [
@@ -840,7 +946,49 @@ function ado_qm_match_segment(array $item, string $segment, array $index): array
         ];
     }
 
-    $candidates = ado_qm_extract_candidates($item, $clean_segment, $index);
+    $correction = ado_qm_segment_correction_lookup($clean_segment);
+    if (is_array($correction) && !empty($correction['corrected_model'])) {
+        $corrected_model = ado_qm_normalize_text((string) ($correction['corrected_model'] ?? ''));
+        $corrected_product_id = (int) ($correction['product_id'] ?? 0);
+        $corrected_normalized_model = ado_qm_compact((string) ($correction['normalized_model'] ?? $corrected_model));
+        $trace[] = 'segment_correction=' . $corrected_model;
+        if ($corrected_product_id > 0 && !empty($index['products'][$corrected_product_id])) {
+            return [
+                'product_id' => $corrected_product_id,
+                'qty' => $qty,
+                'raw_line' => $clean_segment,
+                'source_model' => (string) ($item['catalog'] ?? ''),
+                'source_desc' => (string) ($item['desc'] ?? ''),
+                'match_method' => 'manual_correction',
+                'confidence' => 100,
+                'reason_code' => '',
+                'candidate_products' => [],
+                'decision_key' => $corrected_normalized_model !== '' ? ('*|' . $corrected_normalized_model) : '',
+                'normalized_model' => $corrected_normalized_model,
+                'trace' => array_merge($trace, ['manual_product=' . $corrected_product_id]),
+            ];
+        }
+        if ($corrected_product_id > 0 && !empty($index['inactive']['products'][$corrected_product_id])) {
+            $inactive_rows = ado_qm_exact_product_rows([$corrected_product_id], $index, 'inactive_exact', 100, true);
+            return [
+                'product_id' => 0,
+                'qty' => $qty,
+                'raw_line' => $clean_segment,
+                'source_model' => (string) ($item['catalog'] ?? ''),
+                'source_desc' => (string) ($item['desc'] ?? ''),
+                'match_method' => 'inactive',
+                'confidence' => (int) ($inactive_rows[0]['score'] ?? 0),
+                'reason_code' => 'INACTIVE_PRODUCT',
+                'candidate_products' => $inactive_rows,
+                'decision_key' => $corrected_normalized_model !== '' ? ('*|' . $corrected_normalized_model) : '',
+                'normalized_model' => $corrected_normalized_model,
+                'trace' => array_merge($trace, ['manual_inactive=' . $corrected_product_id]),
+            ];
+        }
+        $candidates = ado_qm_candidates_from_sources([$corrected_model], $index);
+    } else {
+        $candidates = ado_qm_extract_candidates($item, $clean_segment, $index);
+    }
     $trace[] = 'candidates=' . implode(', ', array_map(static fn(array $row): string => (string) ($row['fragment'] ?? ''), $candidates));
     if (!$candidates) {
         return [

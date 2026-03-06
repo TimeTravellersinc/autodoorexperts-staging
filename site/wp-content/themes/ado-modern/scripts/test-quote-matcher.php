@@ -32,6 +32,14 @@ $find_product_id_by_sku = static function (string $sku): int {
     ));
 };
 
+$restore_option = static function (string $key, $value): void {
+    if ($value === false) {
+        delete_option($key);
+        return;
+    }
+    update_option($key, $value, false);
+};
+
 $index = ado_qm_get_index(true);
 $assert(!empty($index['products']), 'matcher index builds product bank');
 $sku_9531_id = $find_product_id_by_sku('9531');
@@ -103,6 +111,18 @@ $power_supply_contaminated_desc_first = is_array($power_supply_contaminated_desc
 $print_match('power_supply_contaminated_desc', $power_supply_contaminated_desc_first);
 $assert(((string) ($power_supply_contaminated_desc_first['reason_code'] ?? '')) === 'NO_CANDIDATES', 'contaminated description does not turn generic power supply into opener hardware');
 $assert(empty($power_supply_contaminated_desc_first['candidate_products']), 'generic power supply stays unresolved when raw line has no model');
+
+$power_supply_catalog_contaminated = ado_qm_match_item_segments([
+    'qty' => 1,
+    'catalog' => '9531',
+    'desc' => 'Auto Opener 9531',
+    'raw' => '1 POWER SUPPLY POWER SUPPLY',
+], $index);
+$power_supply_catalog_contaminated_first = is_array($power_supply_catalog_contaminated[0] ?? null) ? $power_supply_catalog_contaminated[0] : [];
+$print_match('power_supply_catalog_contaminated', $power_supply_catalog_contaminated_first);
+$assert(((string) ($power_supply_catalog_contaminated_first['reason_code'] ?? '')) === 'NO_CANDIDATES', 'catalog field does not create model candidates when raw line has no model');
+$assert(empty($power_supply_catalog_contaminated_first['candidate_products']), 'catalog contamination does not create product candidates');
+$assert(((string) ($power_supply_catalog_contaminated_first['normalized_model'] ?? '')) === '', 'catalog contamination does not set a normalized model');
 
 $opener_9542_contaminated_desc = ado_qm_match_item_segments([
     'qty' => 1,
@@ -408,6 +428,72 @@ $assert(empty((array) ($power_supply_debug['tokens'] ?? [])), 'debug tokens igno
 $assert(!in_array('4040XP-18PA', (array) ($opener_9542_debug['tokens'] ?? []), true), 'debug tokens do not inherit mounting plate model from contaminated description');
 $assert(((array) ($opener_9542_debug['tokens'] ?? [])) === ['9542'], 'debug tokens for contaminated 9542 opener come only from the raw segment');
 
+$synthetic_catalog_contaminated = ado_build_cart_lines_from_scope([
+    'result' => [
+        'doors' => [
+            [
+                'door_id' => 'T-3',
+                'items' => [
+                    [
+                        'qty' => 1,
+                        'catalog' => '9531',
+                        'desc' => 'Auto Opener 9531',
+                        'raw' => '1 POWER SUPPLY POWER SUPPLY',
+                    ],
+                ],
+            ],
+        ],
+    ],
+]);
+$catalog_power_supply_debug = null;
+$catalog_power_supply_unmatched = null;
+foreach ((array) ($synthetic_catalog_contaminated['debug_log'] ?? []) as $row) {
+    if (is_array($row) && (($row['raw_line'] ?? '') === '1 POWER SUPPLY POWER SUPPLY')) {
+        $catalog_power_supply_debug = $row;
+        break;
+    }
+}
+foreach ((array) ($synthetic_catalog_contaminated['unmatched'] ?? []) as $row) {
+    if (is_array($row) && (($row['raw_line'] ?? '') === '1 POWER SUPPLY POWER SUPPLY')) {
+        $catalog_power_supply_unmatched = $row;
+        break;
+    }
+}
+$assert(is_array($catalog_power_supply_debug), 'catalog contaminated debug row is present');
+$assert(is_array($catalog_power_supply_unmatched), 'catalog contaminated unmatched row is present');
+$assert(empty((array) ($catalog_power_supply_debug['tokens'] ?? [])), 'debug tokens ignore catalog contamination');
+$assert(((string) ($catalog_power_supply_debug['model'] ?? '')) === '', 'debug model comes from raw line only');
+$assert(((string) ($catalog_power_supply_unmatched['model'] ?? '')) === '', 'unmatched model comes from raw line only');
+
+$manual_fixture_product_id = $find_product_id_by_sku('HES-1006-SERIES');
+$assert($manual_fixture_product_id > 0, 'manual correction fixture product exists');
+$original_override_option = get_option(ado_qm_override_option_key(), false);
+$original_rejection_option = get_option(ado_qm_rejection_option_key(), false);
+$original_correction_option = get_option(ado_qm_correction_option_key(), false);
+update_option(ado_qm_override_option_key(), [], false);
+update_option(ado_qm_rejection_option_key(), [], false);
+update_option(ado_qm_correction_option_key(), [], false);
+ado_qm_save_manual_resolution('1 POWER SUPPLY POWER SUPPLY', '1006CS-630', '', 'HES', $manual_fixture_product_id);
+$saved_correction = ado_qm_segment_correction_lookup('1 POWER SUPPLY POWER SUPPLY');
+$assert(is_array($saved_correction), 'manual correction lookup entry is saved');
+$assert(((string) ($saved_correction['corrected_model'] ?? '')) === '1006CS-630', 'manual correction stores the corrected model');
+$assert(((string) ($saved_correction['normalized_model'] ?? '')) === '1006CS630', 'manual correction stores normalized corrected model');
+$assert((int) ($saved_correction['product_id'] ?? 0) === $manual_fixture_product_id, 'manual correction stores selected product id');
+$manual_corrected = ado_qm_match_item_segments([
+    'qty' => 1,
+    'catalog' => '9531',
+    'desc' => 'Auto Opener 9531',
+    'raw' => '1 POWER SUPPLY POWER SUPPLY',
+], $index);
+$manual_corrected_first = is_array($manual_corrected[0] ?? null) ? $manual_corrected[0] : [];
+$print_match('manual_corrected_power_supply', $manual_corrected_first);
+$assert((int) ($manual_corrected_first['product_id'] ?? 0) === $manual_fixture_product_id, 'manual correction auto-resolves the same raw line');
+$assert(((string) ($manual_corrected_first['match_method'] ?? '')) === 'manual_correction', 'manual correction uses dedicated match method');
+$assert(((string) ($manual_corrected_first['normalized_model'] ?? '')) === '1006CS630', 'manual correction reuses corrected model');
+$restore_option(ado_qm_override_option_key(), $original_override_option);
+$restore_option(ado_qm_rejection_option_key(), $original_rejection_option);
+$restore_option(ado_qm_correction_option_key(), $original_correction_option);
+
 $review_draft = [
     'id' => 'draft-review-test',
     'name' => 'Draft Review Test',
@@ -451,6 +537,21 @@ $assert(count((array) ($export_payload['unmatched_debug'] ?? [])) === 1, 'debug 
 $review_html = ado_render_quote_result_html($review_draft);
 $assert(strpos($review_html, 'ado-match-review-choice') !== false, 'review choice button renders');
 $assert(strpos($review_html, 'ado-match-review-reject') !== false, 'review reject button renders');
+$inactive_review_html = ado_render_quote_review_actions_html([
+    'line_key' => 'line-inactive-test',
+    'reason_code' => 'INACTIVE_PRODUCT',
+    'model' => 'GE947W',
+    'normalized_model' => 'GE947W',
+    'candidate_products' => [[
+        'product_id' => 1703,
+        'sku' => 'GE947W',
+        'title' => 'Catalog GE947W',
+        'score' => 100,
+        'availability' => 'inactive',
+    ]],
+], 'draft-inactive-test');
+$assert(strpos($inactive_review_html, 'ado-match-review-choice') === false, 'inactive review rows do not render selectable choice buttons');
+$assert(strpos($inactive_review_html, 'Inactive matches') !== false, 'inactive review rows render inactive match summary');
 $assert(strpos($review_html, 'Unmatched Debug Data') !== false, 'combined unmatched debug block renders');
 $assert(strpos($review_html, 'Output Window') === false, 'legacy per-line output window removed');
 
