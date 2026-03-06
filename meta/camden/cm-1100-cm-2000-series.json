@@ -1,0 +1,41 @@
+{
+  "source_url": "https://www.camdencontrols.com/category/activation/Key%20Switches/products/CM_1100_CM_2000_Series",
+  "brand": "Camden",
+  "category": "Keyswitches",
+  "series_title": "CM-1100 & CM-2000 Series",
+  "series_subtitle": "Cast Aluminum, Flush Mount",
+  "models": [
+    { "sku": "CM-1100", "price": 79.99 },
+    { "sku": "CM-1105", "price": 79.99 },
+    { "sku": "CM-1110", "price": 79.99 },
+    { "sku": "CM-1120", "price": 79.99 },
+    { "sku": "CM-1130", "price": 79.99 },
+    { "sku": "CM-1150", "price": 79.99 },
+    { "sku": "CM-1160", "price": 79.99 },
+    { "sku": "CM-1170", "price": 79.99 },
+    { "sku": "CM-1180", "price": 79.99 },
+    { "sku": "CM-1182", "price": 79.99 },
+    { "sku": "CM-1190", "price": 79.99 },
+    { "sku": "CM-1192", "price": 79.99 },
+    { "sku": "CM-2000", "price": 79.99 },
+    { "sku": "CM-2005", "price": 79.99 },
+    { "sku": "CM-2010", "price": 79.99 },
+    { "sku": "CM-2020", "price": 79.99 },
+    { "sku": "CM-2030", "price": 79.99 },
+    { "sku": "CM-2050", "price": 79.99 },
+    { "sku": "CM-2060", "price": 79.99 },
+    { "sku": "CM-2070", "price": 79.99 },
+    { "sku": "CM-2080", "price": 79.99 },
+    { "sku": "CM-2082", "price": 79.99 },
+    { "sku": "CM-2090", "price": 79.99 },
+    { "sku": "CM-2092", "price": 79.99 },
+    { "sku": "CM-1000/31", "price": 24.99 },
+    { "sku": "CM-CYL60-KA", "price": 24.99 },
+    { "sku": "CM-CYL60-KD", "price": 26.99 },
+    { "sku": "CM-307", "price": 29.99 },
+    { "sku": "CM-308", "price": 39.99 }
+  ],
+  "skipped_no_image": [
+    "CM-1000/37"
+  ]
+}

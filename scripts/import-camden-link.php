@@ -260,6 +260,9 @@ function ado_camden_price_for_model(string $category_slug, array $model, array $
         if ($sku === 'CM-308') {
             return 39.99;
         }
+        if ($sku === 'CM-1000/31' || $sku === 'CM-1000/37') {
+            return 24.99;
+        }
         if (str_contains($sku, 'CI-1050CP') || str_contains($text, 'COVER')) {
             return 89.99;
         }
