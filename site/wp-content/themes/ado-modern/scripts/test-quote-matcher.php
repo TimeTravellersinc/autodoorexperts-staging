@@ -24,8 +24,18 @@ $print_match = static function (string $label, array $match): void {
         . PHP_EOL;
 };
 
+$find_product_id_by_sku = static function (string $sku): int {
+    global $wpdb;
+    return (int) $wpdb->get_var($wpdb->prepare(
+        "SELECT post_id FROM {$wpdb->postmeta} WHERE meta_key = '_sku' AND meta_value = %s ORDER BY post_id DESC LIMIT 1",
+        $sku
+    ));
+};
+
 $index = ado_qm_get_index(true);
 $assert(!empty($index['products']), 'matcher index builds product bank');
+$sku_9531_id = $find_product_id_by_sku('9531');
+$assert($sku_9531_id > 0 && !empty($index['inactive']['products'][$sku_9531_id]), 'inactive index includes trashed 9531 product');
 $assert(ado_qm_is_external_scope_line('1 Card Reader CARD READER BY OTHERS PROX'), 'external scope detection');
 $assert(ado_qm_is_external_scope_line('4 Card Reader BY DIV.28 KINGSTON JOB NO. 19011/2001-01 2024-12-19'), 'division scope detection');
 $assert(ado_qm_strip_revision_tail('1 Electric Strike 6300-FSE-24V-630 630 ADDED: PC-047') === '1 ELECTRIC STRIKE 6300-FSE-24V-630 630', 'revision tail trimming');
@@ -75,6 +85,51 @@ $opener_9542 = ado_qm_match_item_segments([
 $opener_9542_first = is_array($opener_9542[0] ?? null) ? $opener_9542[0] : [];
 $print_match('opener_9542', $opener_9542_first);
 $assert((int) ($opener_9542_first['product_id'] ?? 0) === 0, '9542 does not auto-match silently');
+$assert(((string) ($opener_9542_first['reason_code'] ?? '')) === 'NO_CANDIDATES', '9542 does not inherit unrelated inactive candidates');
+
+$opener_9531_plain = ado_qm_match_item_segments([
+    'qty' => 1,
+    'catalog' => '',
+    'desc' => 'Auto Opener',
+    'raw' => '1 AUTO OPENER 9531 628 RH HDR T.B. X CONCEALED IN HEADER ON/OFF/HO SWITCH PULL SIDE MTG 628',
+], $index);
+$opener_9531_plain_first = is_array($opener_9531_plain[0] ?? null) ? $opener_9531_plain[0] : [];
+$print_match('opener_9531_plain', $opener_9531_plain_first);
+$assert(((string) ($opener_9531_plain_first['reason_code'] ?? '')) === 'INACTIVE_PRODUCT', '9531 inactive product is surfaced explicitly');
+$assert(((string) ($opener_9531_plain_first['candidate_products'][0]['sku'] ?? '')) === '9531', '9531 inactive candidate is exposed');
+
+$mount_plate_9530_18 = ado_qm_match_item_segments([
+    'qty' => 1,
+    'catalog' => '',
+    'desc' => 'Auto Opener Mounting Plate',
+    'raw' => '1 AUTO OPENER MOUNTING PLATE 9530-18 628 41 1/2 628',
+], $index);
+$mount_plate_9530_18_first = is_array($mount_plate_9530_18[0] ?? null) ? $mount_plate_9530_18[0] : [];
+$print_match('mount_plate_9530_18', $mount_plate_9530_18_first);
+$assert(((string) ($mount_plate_9530_18_first['reason_code'] ?? '')) === 'INACTIVE_PRODUCT', '9530-18 inactive product is surfaced explicitly');
+$assert(((string) ($mount_plate_9530_18_first['candidate_products'][0]['sku'] ?? '')) === '9530-18', '9530-18 inactive candidate is exposed');
+
+$door_contact_ge947w = ado_qm_match_item_segments([
+    'qty' => 1,
+    'catalog' => '',
+    'desc' => 'Door Contact',
+    'raw' => '1 DOOR CONTACT GE947W DOOR CONTACT',
+], $index);
+$door_contact_ge947w_first = is_array($door_contact_ge947w[0] ?? null) ? $door_contact_ge947w[0] : [];
+$print_match('door_contact_ge947w', $door_contact_ge947w_first);
+$assert(((string) ($door_contact_ge947w_first['reason_code'] ?? '')) === 'INACTIVE_PRODUCT', 'GE947W inactive product is surfaced explicitly');
+$assert(((string) ($door_contact_ge947w_first['candidate_products'][0]['sku'] ?? '')) === 'GE947W', 'GE947W inactive candidate is exposed');
+
+$strike_1006 = ado_qm_match_item_segments([
+    'qty' => 1,
+    'catalog' => '',
+    'desc' => 'Electric Strike',
+    'raw' => '1 ELECTRIC STRIKE 1006-FSE-24V-630 KM-630 630',
+], $index);
+$strike_1006_first = is_array($strike_1006[0] ?? null) ? $strike_1006[0] : [];
+$print_match('strike_1006', $strike_1006_first);
+$assert(((string) ($strike_1006_first['reason_code'] ?? '')) === 'INACTIVE_PRODUCT', '1006/KM-630 line is surfaced as inactive product');
+$assert(in_array((string) ($strike_1006_first['candidate_products'][0]['sku'] ?? ''), ['1006-630', 'KM-630'], true), '1006/KM-630 inactive candidate is exposed');
 
 $camden_plate = ado_qm_match_item_segments([
     'qty' => 2,

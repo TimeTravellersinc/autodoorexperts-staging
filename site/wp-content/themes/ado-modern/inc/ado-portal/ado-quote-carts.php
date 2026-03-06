@@ -569,7 +569,10 @@ function ado_quote_unmatched_next_action(array $row): string {
     if ($reason === 'EXTERNAL_SCOPE') {
         return 'Excluded from quote matching because the line is marked by others or owner.';
     }
-    if (!empty($row['candidate_products'])) {
+    if ($reason === 'INACTIVE_PRODUCT') {
+        return 'Matching Woo product exists but is inactive or trashed. Restore it or publish an active replacement.';
+    }
+    if (in_array($reason, ['USER_REVIEW', 'MULTIPLE_CANDIDATES'], true) && !empty($row['candidate_products'])) {
         return 'Select the best product below or mark none of these.';
     }
     return 'Add a matching Woo product, alias, or manufacturer part number.';
@@ -670,6 +673,8 @@ function ado_build_cart_lines_from_scope(array $scope_payload): array {
 }
 
 function ado_render_quote_review_actions_html(array $row, string $draft_id): string {
+    $reason = (string) ($row['reason_code'] ?? '');
+    if (!in_array($reason, ['USER_REVIEW', 'MULTIPLE_CANDIDATES'], true)) { return ''; }
     $candidates = array_values((array) ($row['candidate_products'] ?? []));
     if ($draft_id === '' || !$candidates) { return ''; }
     $line_key = (string) ($row['line_key'] ?? '');
@@ -708,7 +713,7 @@ function ado_render_unmatched_html(array $unmatched, string $draft_id = '', arra
     if (!$unmatched) { return ''; }
     $show_review = false;
     foreach ($unmatched as $row) {
-        if (!empty($row['candidate_products'])) {
+        if (is_array($row) && in_array((string) ($row['reason_code'] ?? ''), ['USER_REVIEW', 'MULTIPLE_CANDIDATES'], true) && !empty($row['candidate_products'])) {
             $show_review = true;
             break;
         }

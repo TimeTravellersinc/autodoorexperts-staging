@@ -285,10 +285,10 @@ function ado_qm_product_model_candidates(string $title, string $sku, array $meta
     return $out;
 }
 
-function ado_qm_rebuild_index(): array {
+function ado_qm_collect_raw_products(array $post_statuses): array {
     $posts = get_posts([
         'post_type' => 'product',
-        'post_status' => ['publish', 'draft', 'pending', 'private', 'future'],
+        'post_status' => $post_statuses,
         'posts_per_page' => -1,
         'fields' => 'ids',
         'no_found_rows' => true,
@@ -315,6 +315,7 @@ function ado_qm_rebuild_index(): array {
             'id' => $post_id,
             'title' => $title,
             'sku' => $sku,
+            'status' => (string) get_post_status($post_id),
             'meta' => $meta_values,
             'models' => $models,
             'brand' => $brand !== '' ? $brand : 'UNKNOWN',
@@ -329,26 +330,16 @@ function ado_qm_rebuild_index(): array {
             }
         }
     }
+    return ['products' => $raw_products, 'anchor_votes' => $anchor_votes];
+}
 
-    $anchor_map = [];
-    foreach ($anchor_votes as $anchor => $votes) {
-        arsort($votes);
-        $brands = array_keys($votes);
-        if (count($brands) === 1 || (($votes[$brands[0]] ?? 0) > ($votes[$brands[1]] ?? 0))) {
-            $anchor_map[$anchor] = $brands[0];
-        }
-    }
-
-    $index = [
-        'version' => 1,
-        'generated_at' => current_time('mysql'),
+function ado_qm_build_index_group(array $raw_products, array $anchor_map): array {
+    $group = [
         'products' => [],
         'brands' => [],
-        'anchors' => $anchor_map,
         'global_models' => [],
         'numeric_heads' => [],
     ];
-
     foreach ($raw_products as $post_id => $product) {
         $brand = (string) ($product['brand'] ?? 'UNKNOWN');
         if ($brand === 'UNKNOWN') {
@@ -369,34 +360,34 @@ function ado_qm_rebuild_index(): array {
             if ($normalized === '') { continue; }
             $signature = ado_qm_model_signature($model);
             $product['model_map'][$normalized] = ['display' => $model, 'signature' => $signature];
-            $index['global_models'][$normalized][] = $post_id;
-            if (!isset($index['brands'][$brand])) {
-                $index['brands'][$brand] = ['products' => [], 'models' => [], 'families' => [], 'anchors' => []];
+            $group['global_models'][$normalized][] = $post_id;
+            if (!isset($group['brands'][$brand])) {
+                $group['brands'][$brand] = ['products' => [], 'models' => [], 'families' => [], 'anchors' => []];
             }
-            $index['brands'][$brand]['products'][] = $post_id;
-            $index['brands'][$brand]['models'][$normalized][] = $post_id;
+            $group['brands'][$brand]['products'][] = $post_id;
+            $group['brands'][$brand]['models'][$normalized][] = $post_id;
             if ($signature !== '') {
-                if (!isset($index['brands'][$brand]['families'][$signature])) {
-                    $index['brands'][$brand]['families'][$signature] = [
+                if (!isset($group['brands'][$brand]['families'][$signature])) {
+                    $group['brands'][$brand]['families'][$signature] = [
                         'regex' => ado_qm_signature_to_regex($signature),
                         'models' => [],
                     ];
                 }
-                $index['brands'][$brand]['families'][$signature]['models'][$normalized][] = $post_id;
+                $group['brands'][$brand]['families'][$signature]['models'][$normalized][] = $post_id;
             }
             $anchor = ado_qm_alpha_prefix($model);
             if ($anchor !== '') {
-                $index['brands'][$brand]['anchors'][$anchor] = true;
+                $group['brands'][$brand]['anchors'][$anchor] = true;
             }
             $head = ado_qm_numeric_head($model);
             if ($head !== '') {
-                $index['numeric_heads'][$head][] = $post_id;
+                $group['numeric_heads'][$head][] = $post_id;
             }
         }
-        $index['products'][$post_id] = $product;
+        $group['products'][$post_id] = $product;
     }
 
-    foreach ($index['brands'] as &$brand_group) {
+    foreach ($group['brands'] as &$brand_group) {
         $brand_group['products'] = array_values(array_unique(array_map('intval', (array) $brand_group['products'])));
         foreach ($brand_group['models'] as &$product_ids) {
             $product_ids = array_values(array_unique(array_map('intval', (array) $product_ids)));
@@ -406,15 +397,60 @@ function ado_qm_rebuild_index(): array {
     }
     unset($brand_group);
 
-    foreach ($index['global_models'] as &$product_ids) {
+    foreach ($group['global_models'] as &$product_ids) {
         $product_ids = array_values(array_unique(array_map('intval', (array) $product_ids)));
     }
     unset($product_ids);
 
-    foreach ($index['numeric_heads'] as &$product_ids) {
+    foreach ($group['numeric_heads'] as &$product_ids) {
         $product_ids = array_values(array_unique(array_map('intval', (array) $product_ids)));
     }
     unset($product_ids);
+
+    return $group;
+}
+
+function ado_qm_rebuild_index(): array {
+    $active = ado_qm_collect_raw_products(['publish', 'draft', 'pending', 'private', 'future']);
+    $inactive = ado_qm_collect_raw_products(['trash']);
+    $raw_products = (array) ($active['products'] ?? []);
+    $anchor_votes = (array) ($active['anchor_votes'] ?? []);
+    $anchor_map = [];
+    foreach ($anchor_votes as $anchor => $votes) {
+        arsort($votes);
+        $brands = array_keys($votes);
+        if (count($brands) === 1 || (($votes[$brands[0]] ?? 0) > ($votes[$brands[1]] ?? 0))) {
+            $anchor_map[$anchor] = $brands[0];
+        }
+    }
+
+    $index = [
+        'version' => 2,
+        'generated_at' => current_time('mysql'),
+        'anchors' => $anchor_map,
+        'products' => [],
+        'brands' => [],
+        'global_models' => [],
+        'numeric_heads' => [],
+        'inactive' => [
+            'products' => [],
+            'brands' => [],
+            'global_models' => [],
+            'numeric_heads' => [],
+        ],
+    ];
+    $active_group = ado_qm_build_index_group($raw_products, $anchor_map);
+    $inactive_group = ado_qm_build_index_group((array) ($inactive['products'] ?? []), $anchor_map);
+    $index['products'] = (array) ($active_group['products'] ?? []);
+    $index['brands'] = (array) ($active_group['brands'] ?? []);
+    $index['global_models'] = (array) ($active_group['global_models'] ?? []);
+    $index['numeric_heads'] = (array) ($active_group['numeric_heads'] ?? []);
+    $index['inactive'] = [
+        'products' => (array) ($inactive_group['products'] ?? []),
+        'brands' => (array) ($inactive_group['brands'] ?? []),
+        'global_models' => (array) ($inactive_group['global_models'] ?? []),
+        'numeric_heads' => (array) ($inactive_group['numeric_heads'] ?? []),
+    ];
 
     update_option(ado_qm_index_option_key(), $index, false);
     return $index;
@@ -424,7 +460,7 @@ function ado_qm_get_index(bool $force = false): array {
     static $cache = null;
     if (!$force && is_array($cache)) { return $cache; }
     $index = !$force ? get_option(ado_qm_index_option_key(), null) : null;
-    if (!is_array($index) || (int) ($index['version'] ?? 0) !== 1) {
+    if (!is_array($index) || (int) ($index['version'] ?? 0) !== 2) {
         $index = ado_qm_rebuild_index();
     }
     $cache = is_array($index) ? $index : [];
@@ -566,11 +602,12 @@ function ado_qm_extract_candidates(array $item, string $segment, array $index): 
     return $out;
 }
 
-function ado_qm_exact_product_rows(array $product_ids, array $index, string $method, int $score): array {
+function ado_qm_exact_product_rows(array $product_ids, array $index, string $method, int $score, bool $inactive = false): array {
+    $products = $inactive ? (array) (($index['inactive']['products'] ?? [])) : (array) ($index['products'] ?? []);
     $rows = [];
     foreach (array_values(array_unique(array_map('intval', $product_ids))) as $product_id) {
-        if ($product_id <= 0 || empty($index['products'][$product_id])) { continue; }
-        $product = $index['products'][$product_id];
+        if ($product_id <= 0 || empty($products[$product_id])) { continue; }
+        $product = $products[$product_id];
         $rows[] = [
             'product_id' => $product_id,
             'score' => $score,
@@ -578,6 +615,8 @@ function ado_qm_exact_product_rows(array $product_ids, array $index, string $met
             'sku' => (string) ($product['sku'] ?? ''),
             'title' => (string) ($product['title'] ?? ''),
             'brand' => (string) ($product['brand'] ?? 'UNKNOWN'),
+            'status' => (string) ($product['status'] ?? ''),
+            'availability' => $inactive ? 'inactive' : 'active',
         ];
     }
     return $rows;
@@ -588,29 +627,32 @@ function ado_qm_context_overlap_score(array $context_words, array $product): int
     return min(18, count($overlap) * 6);
 }
 
-function ado_qm_fuzzy_product_rows(array $candidate, array $context_words, array $index): array {
+function ado_qm_fuzzy_product_rows(array $candidate, array $context_words, array $index, bool $inactive = false): array {
     $normalized = (string) ($candidate['normalized'] ?? '');
     if ($normalized === '') { return []; }
     $signature = (string) ($candidate['signature'] ?? '');
     $head = ado_qm_numeric_head($normalized);
+    $brands = $inactive ? (array) (($index['inactive']['brands'] ?? [])) : (array) ($index['brands'] ?? []);
+    $numeric_heads = $inactive ? (array) (($index['inactive']['numeric_heads'] ?? [])) : (array) ($index['numeric_heads'] ?? []);
+    $products = $inactive ? (array) (($index['inactive']['products'] ?? [])) : (array) ($index['products'] ?? []);
     $pool = [];
     foreach ((array) ($candidate['brand_hints'] ?? []) as $brand) {
-        $pool = array_merge($pool, (array) ($index['brands'][$brand]['products'] ?? []));
+        $pool = array_merge($pool, (array) ($brands[$brand]['products'] ?? []));
         if ($signature !== '') {
-            foreach ((array) ($index['brands'][$brand]['families'][$signature]['models'] ?? []) as $product_ids) {
+            foreach ((array) ($brands[$brand]['families'][$signature]['models'] ?? []) as $product_ids) {
                 $pool = array_merge($pool, (array) $product_ids);
             }
         }
     }
     if (!$pool && $head !== '') {
-        $pool = array_merge($pool, (array) ($index['numeric_heads'][$head] ?? []));
+        $pool = array_merge($pool, (array) ($numeric_heads[$head] ?? []));
     }
     if (!$pool) { return []; }
 
     $rows = [];
     foreach (array_values(array_unique(array_map('intval', $pool))) as $product_id) {
-        if (empty($index['products'][$product_id])) { continue; }
-        $product = $index['products'][$product_id];
+        if (empty($products[$product_id])) { continue; }
+        $product = $products[$product_id];
         $best_score = 0;
         foreach ((array) ($product['model_map'] ?? []) as $product_model => $meta) {
             $score = 0;
@@ -630,10 +672,42 @@ function ado_qm_fuzzy_product_rows(array $candidate, array $context_words, array
             'sku' => (string) ($product['sku'] ?? ''),
             'title' => (string) ($product['title'] ?? ''),
             'brand' => (string) ($product['brand'] ?? 'UNKNOWN'),
+            'status' => (string) ($product['status'] ?? ''),
+            'availability' => $inactive ? 'inactive' : 'active',
         ];
     }
     usort($rows, static fn(array $a, array $b): int => ((int) $b['score'] <=> (int) $a['score']) ?: ((int) $a['product_id'] <=> (int) $b['product_id']));
     return array_slice($rows, 0, 5);
+}
+
+function ado_qm_inactive_candidate_rows(array $candidates, array $context_words, array $index): array {
+    $best_rows = [];
+    $best_key = '';
+    $best_model = '';
+    $best_score = -1;
+    foreach ($candidates as $candidate) {
+        if (!is_array($candidate)) { continue; }
+        $normalized = (string) ($candidate['normalized'] ?? '');
+        if ($normalized === '') { continue; }
+        $rows = [];
+        $exact_variant = '';
+        foreach ((array) ($candidate['variants'] ?? [$normalized]) as $variant) {
+            $exact_ids = array_values(array_unique(array_map('intval', (array) (($index['inactive']['global_models'][$variant] ?? [])))));
+            if ($exact_ids) {
+                $exact_variant = $exact_variant ?: $variant;
+                $rows = array_merge($rows, ado_qm_exact_product_rows($exact_ids, $index, 'inactive_exact', 100, true));
+            }
+        }
+        if (!$rows) { continue; }
+        $top_score = (int) ($rows[0]['score'] ?? 0);
+        if ($top_score > $best_score) {
+            $best_score = $top_score;
+            $best_rows = $rows;
+            $best_key = $exact_variant !== '' ? ('*|' . $exact_variant) : (string) (($candidate['decision_keys'][0] ?? '*|' . $normalized));
+            $best_model = $exact_variant !== '' ? $exact_variant : $normalized;
+        }
+    }
+    return ['rows' => $best_rows, 'decision_key' => $best_key, 'normalized_model' => $best_model];
 }
 
 function ado_qm_filter_rejected_rows(array $rows, array $decision_keys): array {
@@ -782,6 +856,25 @@ function ado_qm_match_segment(array $item, string $segment, array $index): array
             'decision_key' => $review_key,
             'normalized_model' => $review_model,
             'trace' => array_merge($trace, ['review=' . $review_key]),
+        ];
+    }
+
+    $inactive = ado_qm_inactive_candidate_rows($candidates, $context_words, $index);
+    $inactive_rows = array_values((array) ($inactive['rows'] ?? []));
+    if ($inactive_rows) {
+        return [
+            'product_id' => 0,
+            'qty' => $qty,
+            'raw_line' => $clean_segment,
+            'source_model' => (string) ($item['catalog'] ?? ''),
+            'source_desc' => (string) ($item['desc'] ?? ''),
+            'match_method' => 'inactive',
+            'confidence' => (int) ($inactive_rows[0]['score'] ?? 0),
+            'reason_code' => 'INACTIVE_PRODUCT',
+            'candidate_products' => $inactive_rows,
+            'decision_key' => (string) ($inactive['decision_key'] ?? ''),
+            'normalized_model' => (string) ($inactive['normalized_model'] ?? ''),
+            'trace' => array_merge($trace, ['inactive=' . (string) ($inactive['decision_key'] ?? '')]),
         ];
     }
 
