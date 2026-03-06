@@ -269,6 +269,10 @@ function ado_camden_price_for_model(string $category_slug, array $model, array $
         return 99.99;
     }
 
+    if ($sku === 'CX-1085M') {
+        return 54.99;
+    }
+
     if (preg_match('/^CX-247/i', $sku)) {
         $price = 89.99;
         if (str_contains($sku, 'H-')) {
