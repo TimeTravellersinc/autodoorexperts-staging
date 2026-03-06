@@ -1,20 +1,165 @@
 ﻿{
   "source_url": "https://commercial.schlage.com/en/products/system-accessories.html",
   "products": [
-    {"sku":"SCH-700-SERIES-PUSHBUTTONS","brand":"Schlage","category":"Actuators","url":"https://commercial.schlage.com/en/products/system-accessories/700-series-pushbuttons.html","price":69.99},
-    {"sku":"SCH-620-631-SERIES-PUSHBUTTONS","brand":"Schlage","category":"Actuators","url":"https://commercial.schlage.com/en/products/system-accessories/620-631-series-heavy-duty-pushbuttons.html","price":89.99},
-    {"sku":"SCH-672-SERIES-TOUCHBAR","brand":"Schlage","category":"Actuators","url":"https://commercial.schlage.com/en/products/system-accessories/672-series-request-to-exit-touchbars.html","price":219.99},
-    {"sku":"SCH-692-SERIES-SMARTBAR","brand":"Schlage","category":"Actuators","url":"https://commercial.schlage.com/en/products/system-accessories/692-series-request-to-exit-smartbars.html","price":259.99},
-    {"sku":"SCH-650-SERIES-KEYSWITCHES","brand":"Schlage","category":"Keyswitches","url":"https://commercial.schlage.com/en/products/system-accessories/650-series-keyswitches.html","price":89.99},
-    {"sku":"SCH-FSS1-SERIES-DOOR-SENSORS","brand":"Schlage","category":"Sensors","url":"https://commercial.schlage.com/en/products/system-accessories/fss1-series-high-security-door-position-sensors.html","price":49.99},
-    {"sku":"SCH-674-679-7764-7766-DPS","brand":"Schlage","category":"Sensors","url":"https://commercial.schlage.com/en/products/system-accessories/674-679-7764-7766-series-door-position-switches.html","price":44.99},
-    {"sku":"SCH-SCAN-II-MOTION-SENSORS","brand":"Schlage","category":"Sensors","url":"https://commercial.schlage.com/en/products/system-accessories/scan-ii-motion-sensors.html","price":79.99},
-    {"sku":"SCH-1910-SERIES-ELECTRIC-HORNS","brand":"Schlage","category":"Miscellaneous","url":"https://commercial.schlage.com/en/products/system-accessories/1910-series-electric-horns.html","price":94.99},
-    {"sku":"SCH-740-SERIES-BREAK-GLASS","brand":"Schlage","category":"Miscellaneous","url":"https://commercial.schlage.com/en/products/system-accessories/740-series-emergency-break-glass-release.html","price":89.99},
-    {"sku":"SCH-660-SERIES-REMOTE-RELEASE","brand":"Schlage","category":"Miscellaneous","url":"https://commercial.schlage.com/en/products/system-accessories/660-series-concealed-remote-release-buttons-or-switches.html","price":49.99},
-    {"sku":"SCH-800-801-MONITORING-STATIONS","brand":"Schlage","category":"Miscellaneous","url":"https://commercial.schlage.com/en/products/system-accessories/800-801-series-remote-and-local-wall-mount-monitoring-stations.html","price":129.99},
-    {"sku":"SCH-8200-REMOTE-DESK-CONSOLE","brand":"Schlage","category":"Miscellaneous","url":"https://commercial.schlage.com/en/products/system-accessories/8200-series-remote-monitor-and-control-desk-consoles.html","price":189.99},
-    {"sku":"SCH-442S-CABINET-LOCK","brand":"Schlage","category":"Miscellaneous","url":"https://commercial.schlage.com/en/products/system-accessories/442s-series-cabinet-lock.html","price":119.99},
-    {"sku":"SCH-PB405-SERIES-POWER-BOLT","brand":"Schlage","category":"Miscellaneous","url":"https://commercial.schlage.com/en/products/system-accessories/pb405-series-power-bolts.html","price":179.99}
+    {
+      "sku": "SCH-700-SERIES-PUSHBUTTONS",
+      "brand": "Schlage",
+      "category": "Actuators",
+      "source_url": "https://commercial.schlage.com/en/products/system-accessories/700-series-pushbuttons.html",
+      "title": "700 Series Pushbuttons",
+      "description": "Schlage 700 Series pushbuttons are economical yet feature the durability of a stainless steel plate. A momentary switch and faceplate to cover a single gang box come standard; narrow stile options available. LED indication available with round or square button styles.",
+      "image_url": "https://commercial.schlage.com/content/dam/schlage-commercial/product-images/system-components/SCH_709GR_EX_ILL_1000x1000_SR.png",
+      "price": 69.99
+    },
+    {
+      "sku": "SCH-620-631-SERIES-PUSHBUTTONS",
+      "brand": "Schlage",
+      "category": "Actuators",
+      "source_url": "https://commercial.schlage.com/en/products/system-accessories/620-631-series-heavy-duty-pushbuttons.html",
+      "title": "620/631 Series Heavy Duty Pushbuttons",
+      "description": "Schlage 620/631 Series heavy-duty pushbuttons are commonly used to control ingress and/or egress of a door. 620 and 631 Series come standard with a momentary switch but feature many factory orderable options including delayed or maintained action and narrow stile faceplates. Glow-in-the-dark and illuminated cone options on 621 and 623 models.",
+      "image_url": "https://commercial.schlage.com/content/dam/schlage-commercial/product-images/system-components/SCH_620_631_Pushbuttons_1000x1000_SR.png",
+      "price": 89.99
+    },
+    {
+      "sku": "SCH-672-SERIES-TOUCHBAR",
+      "brand": "Schlage",
+      "category": "Actuators",
+      "source_url": "https://commercial.schlage.com/en/products/system-accessories/672-series-request-to-exit-touchbars.html",
+      "title": "672 Series Request-to-Exit TouchBar",
+      "description": "Schlage 672 Series request-to-exit push bars enable immediate egress when properly installed per local code. The 672 Series is designed for simple push bar activation of an electronic locking device, most commonly an electromagnetic lock. Pivoting bar design allows 1/4\" activation.",
+      "image_url": "https://commercial.schlage.com/content/dam/schlage-commercial/product-images/system-components/SCH_672-GID_628__1000x1000_HO.png",
+      "price": 219.99
+    },
+    {
+      "sku": "SCH-692-SERIES-SMARTBAR",
+      "brand": "Schlage",
+      "category": "Actuators",
+      "source_url": "https://commercial.schlage.com/en/products/system-accessories/692-series-request-to-exit-smartbars.html",
+      "title": "692 Series Request-to-Exit SmartBar",
+      "description": "Schlage 692 Series request-to-exit push bars enable immediate egress when properly installed per local code. The 692 Series uses two photo beams along the bar to detect intention to exit. Breaking either or both beams, or loss of power, will deactivate the relay and release the door.",
+      "image_url": "https://commercial.schlage.com/content/dam/schlage-commercial/product-images/system-components/SCH_692_GID_628__1000x1000_HO.png",
+      "price": 259.99
+    },
+    {
+      "sku": "SCH-650-SERIES-KEYSWITCHES",
+      "brand": "Schlage",
+      "category": "Keyswitches",
+      "source_url": "https://commercial.schlage.com/en/products/system-accessories/650-series-keyswitches.html",
+      "title": "650 Series Keyswitches",
+      "description": "Schlage 650 Series Keyswitches can be activated only by the use of a key for momentary or maintained action. They are commonly used for ADA openings to enable or disable auto operators, operating overhead doors and locking or unlocking access control openings to sensitive areas.",
+      "image_url": "https://commercial.schlage.com/content/dam/schlage-commercial/product-images/system-components/SCH_653-L2_626__1000x1000_HO.png",
+      "price": 89.99
+    },
+    {
+      "sku": "SCH-FSS1-SERIES-DOOR-SENSORS",
+      "brand": "Schlage",
+      "category": "Sensors",
+      "source_url": "https://commercial.schlage.com/en/products/system-accessories/fss1-series-high-security-door-position-sensors.html",
+      "title": "FSS1 Series High Security Door Position Sensor",
+      "description": "FSS1 door position sensors provide a true high-security solution with adjustable anti-tamper features to help prevent against attacks through magnetic, electronic or physical means. Designed with built-in intelligence and Hall effect features, they are ideal for government and IT applications.",
+      "image_url": "https://commercial.schlage.com/content/dam/schlage-commercial/product-images/system-components/SCH_FSS1_194555101647_194555101654_194555101661_1000x1000.png",
+      "price": 49.99
+    },
+    {
+      "sku": "SCH-674-679-7764-7766-DPS",
+      "brand": "Schlage",
+      "category": "Sensors",
+      "source_url": "https://commercial.schlage.com/en/products/system-accessories/674-679-7764-7766-series-door-position-switches.html",
+      "title": "674 / 679 / 7764 / 7766 Door Position Switches",
+      "description": "Schlage door position switches, or DPS, are used to detect the open or closed status of a door relative to its frame and then relay this status to a control panel. A variety of magnetic sensors are available in concealed, concealed flush mount, and surface mount options for monitoring doors, roof hatches, gates, and more.",
+      "image_url": "https://commercial.schlage.com/content/dam/schlage-commercial/product-images/system-components/SCH_DPS_1000x1000__1000x1000_SR.png",
+      "price": 44.99
+    },
+    {
+      "sku": "SCH-SCAN-II-MOTION-SENSORS",
+      "brand": "Schlage",
+      "category": "Sensors",
+      "source_url": "https://commercial.schlage.com/en/products/system-accessories/scan-ii-motion-sensors.html",
+      "title": "Scan II Motion Sensors",
+      "description": "Schlage Scan II passive infrared motion sensors for request-to-exit applications are wall or ceiling mounted and designed to maximize coverage area regardless of installation height.",
+      "image_url": "https://commercial.schlage.com/content/dam/schlage-commercial/product-images/system-components/SCH_ScanII_1000x1000_SR.png",
+      "price": 79.99
+    },
+    {
+      "sku": "SCH-1910-SERIES-ELECTRIC-HORNS",
+      "brand": "Schlage",
+      "category": "Miscellaneous",
+      "source_url": "https://commercial.schlage.com/en/products/system-accessories/1910-series-electric-horns.html",
+      "title": "1910 Series Electric Horns",
+      "description": "Schlage electric horns are used as a warning device that can be integrated into building management systems for general alarm purposes or connected to specific entries to signal an open door.",
+      "image_url": "https://commercial.schlage.com/content/dam/schlage-commercial/product-images/system-components/SCH_1910_Horns_1000x1000_SL.png",
+      "price": 94.99
+    },
+    {
+      "sku": "SCH-740-SERIES-BREAK-GLASS",
+      "brand": "Schlage",
+      "category": "Miscellaneous",
+      "source_url": "https://commercial.schlage.com/en/products/system-accessories/740-series-emergency-break-glass-release.html",
+      "title": "740 Series Emergency Break Glass Release",
+      "description": "Schlage 740 Series emergency break-glass release products allow normally locked doors to function when emergency egress is needed. 3 models include release only, release with visual LED, or release with audible signaling. Includes 4 replacement lens disks.",
+      "image_url": "https://commercial.schlage.com/content/dam/schlage-commercial/product-images/system-components/SCH_741_1000x1000_SR.png",
+      "price": 89.99
+    },
+    {
+      "sku": "SCH-660-SERIES-REMOTE-RELEASE",
+      "brand": "Schlage",
+      "category": "Miscellaneous",
+      "source_url": "https://commercial.schlage.com/en/products/system-accessories/660-series-concealed-remote-release-buttons-or-switches.html",
+      "title": "660 Series Concealed Remote Release Button or Switch",
+      "description": "Schlage 660 Series concealed remote button or switch can be used in conjunction with electric strikes, electromagnetic locks, electrified locks and other door locking and control devices. The simple 660 Series concealed remote button or toggle switch is ideally used under a desk or counter to remotely release a single entry locking device.",
+      "image_url": "https://commercial.schlage.com/content/dam/schlage-commercial/product-images/system-components/SCH_660_1000x1000_SR.png",
+      "price": 49.99
+    },
+    {
+      "sku": "SCH-800-801-MONITORING-STATIONS",
+      "brand": "Schlage",
+      "category": "Miscellaneous",
+      "source_url": "https://commercial.schlage.com/en/products/system-accessories/800-801-series-remote-and-local-wall-mount-monitoring-stations.html",
+      "title": "800/801 Series Remote and Local Wall Mount Monitoring Station",
+      "description": "Schlage 800/801 Series remote wall mount stations provide audible, visual or a combination of both as an indication of the status of the lock. The 801 Series provides code required indication on a delayed egress application to show the system is functioning. Available in single or double gang box mounting.",
+      "image_url": "https://commercial.schlage.com/content/dam/schlage-commercial/product-images/system-components/SCH_800L2_1000x1000_SR.png",
+      "price": 129.99
+    },
+    {
+      "sku": "SCH-8200-REMOTE-DESK-CONSOLE",
+      "brand": "Schlage",
+      "category": "Miscellaneous",
+      "source_url": "https://commercial.schlage.com/en/products/system-accessories/8200-series-remote-monitor-and-control-desk-consoles.html",
+      "title": "8200 Series Remote Monitor and Control Desk Console",
+      "description": "Schlage 8200 Series remote monitor and control consoles allow both control and monitoring for up to eight zones. They are designed to meet a wide range of security requirements, and can be used for status monitoring of electrified door hardware and accessories.",
+      "image_url": "https://commercial.schlage.com/content/dam/schlage-commercial/product-images/system-components/SCH_8200_1000x1000_SR.png",
+      "price": 189.99
+    },
+    {
+      "sku": "SCH-442S-CABINET-LOCK",
+      "brand": "Schlage",
+      "category": "Miscellaneous",
+      "source_url": "https://commercial.schlage.com/en/products/system-accessories/442s-series-cabinet-lock.html",
+      "title": "442S Series Cabinet Lock",
+      "description": "The 442S Series is a compact and easy to install hardwired cabinet lock. It is fail secure and driven by a dual voltage solenoid. The voltage is field selectable 12 or 24 VDC.",
+      "image_url": "https://commercial.schlage.com/content/dam/schlage-commercial/product-images/system-components/SCH_442S__1000x1000_SR.png",
+      "price": 119.99
+    },
+    {
+      "sku": "SCH-PB405-SERIES-POWER-BOLT",
+      "brand": "Schlage",
+      "category": "Miscellaneous",
+      "source_url": "https://commercial.schlage.com/en/products/system-accessories/pb405-series-power-bolts.html",
+      "title": "PB405 Series Power Bolt",
+      "description": "The PB405 PowerBolt is a mortise, right angle deadbolt with a .61 inch diameter bolt and a .67 inch throw. It is available fail-safe PB405 or fail-secure PB405S. Powerbolts install in the door frame for minimal impact to the door and a clean, cohesive opening.",
+      "image_url": "https://commercial.schlage.com/content/dam/schlage-commercial/product-images/system-components/SCH_PB405_PB405S_628_1000x1000_SL.png",
+      "price": 179.99
+    },
+    {
+      "sku": "SCH-788-798-ARMORED-DOOR-CORDS",
+      "brand": "Schlage",
+      "category": "Wires",
+      "source_url": "https://commercial.schlage.com/en/products/system-accessories/788-798-series-armored-door-cords.html",
+      "title": "788/798 Series Armored Door Cords",
+      "description": "Schlage 788/798 Series heavy-duty armored door cords provide a simple and economic solution for transferring power from frame to door.",
+      "image_url": "https://commercial.schlage.com/content/dam/schlage-commercial/product-images/system-components/SCH_Armored_Door_Cord__1000x1000_HO.png",
+      "price": 54.99
+    }
   ]
 }
