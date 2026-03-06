@@ -130,11 +130,15 @@ function ado_quote_grouped_lines(int $quote_id): array
             $unit = max(0.0, (float) ($line['manual_unit_price'] ?? 0.0));
             $line['product_name'] = (string) ($line['manual_description'] ?? 'Manual line item');
             $line['sku'] = (string) ($line['manual_sku'] ?? ($line['source_model'] ?? ''));
+            $line['display_model'] = (string) ($line['manual_sku'] ?? ($line['source_model'] ?? $line['model'] ?? ''));
+            $line['display_description'] = (string) ($line['manual_description'] ?? $line['description'] ?? 'Manual line item');
             $line['line_total'] = $unit * max(1, $qty);
             $line['unit_price'] = $unit;
         } else {
             $line['product_name'] = $product ? (string) $product->get_name() : ('Product #' . $product_id);
             $line['sku'] = $product ? (string) $product->get_sku() : '';
+            $line['display_model'] = $product ? ado_quote_product_display_model($product) : (string) ($line['source_model'] ?? $line['model'] ?? '');
+            $line['display_description'] = $product ? ado_quote_product_display_description($product) : (string) ($line['description'] ?? $line['source_desc'] ?? '');
             $line['line_total'] = $product ? ((float) $product->get_price('edit') * max(1, $qty)) : 0;
             $line['unit_price'] = $product ? (float) $product->get_price('edit') : 0.0;
         }
@@ -142,6 +146,30 @@ function ado_quote_grouped_lines(int $quote_id): array
     }
 
     return array_values($door_map);
+}
+
+function ado_quote_product_display_model(WC_Product $product): string
+{
+    foreach (['_manufacturer_part_number', 'manufacturer_part_number', '_ado_model', '_ado_catalog', 'manufacturer_sku', 'alternate_sku', 'mpn'] as $meta_key) {
+        $value = trim((string) $product->get_meta($meta_key, true));
+        if ($value !== '') {
+            return $value;
+        }
+    }
+    $sku = trim((string) $product->get_sku());
+    if ($sku !== '') {
+        return $sku;
+    }
+    return trim((string) $product->get_name());
+}
+
+function ado_quote_product_display_description(WC_Product $product): string
+{
+    $name = trim((string) $product->get_name());
+    if ($name !== '') {
+        return $name;
+    }
+    return trim((string) $product->get_short_description());
 }
 
 function ado_quote_door_notes(int $quote_id): array
@@ -662,7 +690,7 @@ function ado_render_quote_detail(int $user_id, int $quote_id): string
                 <svg class="qr-door-chevron" width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path fill-rule="evenodd" d="M4.646 1.646a.5.5 0 01.708 0l6 6a.5.5 0 010 .708l-6 6a.5.5 0 01-.708-.708L10.293 8 4.646 2.354a.5.5 0 010-.708z" clip-rule="evenodd"/></svg>
               </div>
               <div class="qr-door-body">
-                <?php if ($lines) : ?><table class="qr-table"><thead><tr><th>Model</th><th>Description</th><th style="text-align:center">Qty</th><th>Unit Price</th><th>Line Total</th></tr></thead><tbody><?php foreach ($lines as $line) : $line_state = ((string) ($line['line_type'] ?? '') === 'manual') ? 'none' : ((((float) ($line['match_confidence'] ?? 0)) > 0 && ((float) ($line['match_confidence'] ?? 0)) < 95) ? 'fuzzy' : ''); ?><tr><td><span class="qr-model<?php echo $line_state ? ' ' . esc_attr($line_state) : ''; ?>"><?php echo esc_html((string) ($line['model'] ?? $line['source_model'] ?? '')); ?></span></td><td><span class="qr-desc"><?php echo esc_html((string) ($line['description'] ?? $line['product_name'] ?? '')); ?></span><?php if (!empty($line['line_type']) && $line['line_type'] === 'manual') : ?><span class="qr-desc subtle"><br>Manual pricing line</span><?php endif; ?></td><td style="text-align:center"><?php echo esc_html((string) ((int) ($line['qty'] ?? 0))); ?></td><td><?php echo wp_kses_post(ado_quote_totals_html(['subtotal' => (float) ($line['unit_price'] ?? 0)])); ?></td><td><?php echo wp_kses_post(ado_quote_totals_html(['subtotal' => (float) ($line['line_total'] ?? 0)])); ?></td></tr><?php endforeach; ?></tbody></table><?php endif; ?>
+                <?php if ($lines) : ?><table class="qr-table"><thead><tr><th>Model</th><th>Description</th><th style="text-align:center">Qty</th><th>Unit Price</th><th>Line Total</th></tr></thead><tbody><?php foreach ($lines as $line) : $line_state = ((string) ($line['line_type'] ?? '') === 'manual') ? 'none' : ((((float) ($line['match_confidence'] ?? 0)) > 0 && ((float) ($line['match_confidence'] ?? 0)) < 95) ? 'fuzzy' : ''); ?><tr><td><span class="qr-model<?php echo $line_state ? ' ' . esc_attr($line_state) : ''; ?>"><?php echo esc_html((string) ($line['display_model'] ?? $line['sku'] ?? $line['model'] ?? $line['source_model'] ?? '')); ?></span></td><td><span class="qr-desc"><?php echo esc_html((string) ($line['display_description'] ?? $line['product_name'] ?? $line['description'] ?? '')); ?></span><?php if (!empty($line['line_type']) && $line['line_type'] === 'manual') : ?><span class="qr-desc subtle"><br>Manual pricing line</span><?php endif; ?></td><td style="text-align:center"><?php echo esc_html((string) ((int) ($line['qty'] ?? 0))); ?></td><td><?php echo wp_kses_post(ado_quote_totals_html(['subtotal' => (float) ($line['unit_price'] ?? 0)])); ?></td><td><?php echo wp_kses_post(ado_quote_totals_html(['subtotal' => (float) ($line['line_total'] ?? 0)])); ?></td></tr><?php endforeach; ?></tbody></table><?php endif; ?>
                 <?php foreach ($unmatched_rows as $row_unmatched) : $line_key = (string) ($row_unmatched['line_key'] ?? ''); $adjustment = is_array($line_adjustments[$line_key] ?? null) ? $line_adjustments[$line_key] : []; echo ado_render_quote_inline_review($row_unmatched, $quote_id, $adjustment); endforeach; ?>
                 <?php if ($state === 'out-of-scope') : ?><div class="qr-inline-review" style="background:#f0f1f3;border:1px solid var(--ado-border);"><div class="qr-inline-copy"><strong>This door is out of scope</strong><span>Hardware schedule shows no operator hardware for this door. It is visible for completeness but not priced.</span></div></div><?php endif; ?>
                 <div class="qr-notes-row"><div class="qr-notes-label">Notes</div><div class="qr-notes-wrap"><textarea class="qr-notes" data-quote-id="<?php echo esc_attr((string) $quote_id); ?>" data-door-id="<?php echo esc_attr($door_id); ?>" placeholder="Add install notes, special conditions, or clarification for this door."><?php echo esc_textarea($note); ?></textarea><button type="button" class="qr-mini-btn primary ado-save-door-note" data-quote-id="<?php echo esc_attr((string) $quote_id); ?>" data-door-id="<?php echo esc_attr($door_id); ?>" style="margin-top:8px;">Save note</button></div></div>
