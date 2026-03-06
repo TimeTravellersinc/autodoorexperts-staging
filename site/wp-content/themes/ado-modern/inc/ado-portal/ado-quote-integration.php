@@ -92,11 +92,12 @@ final class ADO_Quote_Integration
 
         $mapped = $this->map_payload($payload, !empty($args['debug']));
         $lines = (array) ($mapped['lines'] ?? []);
-        if (!$lines) {
+        $unmatched = array_values((array) ($mapped['unmatched'] ?? []));
+        if (!$lines && !$unmatched) {
             return [
                 'ok' => false,
                 'message' => 'No products matched scoped JSON.',
-                'unmatched' => array_values((array) ($mapped['unmatched'] ?? [])),
+                'unmatched' => $unmatched,
                 'debug_log' => array_values((array) ($mapped['debug_log'] ?? [])),
             ];
         }
@@ -132,8 +133,8 @@ final class ADO_Quote_Integration
         return [
             'ok' => true,
             'quote_id' => $quote_id,
-            'message' => 'Quote created from scoped JSON.',
-            'unmatched_count' => count((array) ($mapped['unmatched'] ?? [])),
+            'message' => $lines ? 'Quote created from scoped JSON.' : 'Quote created for match review.',
+            'unmatched_count' => count($unmatched),
             'debug_log' => array_values((array) ($mapped['debug_log'] ?? [])),
         ];
     }
@@ -150,16 +151,22 @@ final class ADO_Quote_Integration
         }
         $mapped = $this->map_payload($payload, $debug);
         $lines = (array) ($mapped['lines'] ?? []);
-        if (!$lines) {
+        $unmatched = array_values((array) ($mapped['unmatched'] ?? []));
+        if (!$lines && !$unmatched) {
             return ['ok' => false, 'message' => 'No products matched after rerun.'];
         }
         update_post_meta($quote_id, '_adq_cart_snapshot', array_values($lines));
         update_post_meta($quote_id, '_adq_doors', array_values((array) ($mapped['doors'] ?? [])));
-        update_post_meta($quote_id, '_adq_unmatched_items', array_values((array) ($mapped['unmatched'] ?? [])));
+        update_post_meta($quote_id, '_adq_unmatched_items', $unmatched);
         update_post_meta($quote_id, '_adq_match_log', array_values((array) ($mapped['debug_log'] ?? [])));
         update_post_meta($quote_id, '_adq_updated_at', current_time('mysql'));
         update_post_meta($quote_id, '_adq_totals', $this->calculate_snapshot_totals($lines));
-        return ['ok' => true, 'message' => 'Matching rerun completed.', 'debug_log' => (array) ($mapped['debug_log'] ?? [])];
+        return [
+            'ok' => true,
+            'message' => $lines ? 'Matching rerun completed.' : 'Review candidates refreshed.',
+            'debug_log' => (array) ($mapped['debug_log'] ?? []),
+            'unmatched_count' => count($unmatched),
+        ];
     }
 
     public function get_quote(int $quote_id): ?WP_Post
@@ -226,9 +233,12 @@ final class ADO_Quote_Integration
                 'adq_door_id' => (string) ($line['door_id'] ?? ''),
                 'adq_door_number' => (string) ($line['door_number'] ?? ''),
                 'adq_door_label' => (string) ($line['door_label'] ?? ''),
-                'adq_model' => (string) ($line['model'] ?? ''),
-                'adq_source_desc' => (string) ($line['description'] ?? ''),
+                'adq_model' => (string) ($line['source_model'] ?? ($line['model'] ?? '')),
+                'adq_source_model' => (string) ($line['source_model'] ?? ($line['model'] ?? '')),
+                'adq_source_desc' => (string) ($line['source_desc'] ?? ($line['description'] ?? '')),
                 'adq_source_raw' => (string) ($line['raw_line'] ?? ''),
+                'adq_match_method' => (string) ($line['match_method'] ?? ''),
+                'adq_match_confidence' => (int) ($line['match_confidence'] ?? 0),
             ];
             $key = WC()->cart->add_to_cart($pid, $qty, 0, [], $meta);
             if ($key) {
@@ -336,8 +346,11 @@ final class ADO_Quote_Integration
             'adq_door_number' => '_adq_door_number',
             'adq_door_label' => '_adq_door_label',
             'adq_model' => '_adq_model',
+            'adq_source_model' => '_adq_source_model',
             'adq_source_desc' => '_adq_source_desc',
             'adq_source_raw' => '_adq_source_raw',
+            'adq_match_method' => '_adq_match_method',
+            'adq_match_confidence' => '_adq_match_confidence',
         ] as $k => $meta_key) {
             if (!empty($values[$k])) {
                 $item->add_meta_data($meta_key, (string) $values[$k], true);
@@ -493,66 +506,132 @@ final class ADO_Quote_Integration
         $line_map = [];
         $unmatched = [];
         $debug_log = [];
+        $index = ado_qm_get_index();
 
         foreach ($doors_raw as $idx => $door_raw) {
             if (!is_array($door_raw)) {
                 continue;
             }
             foreach ($this->expand_door_record($door_raw, (int) $idx, $debug_log, $debug) as $door) {
-                $doors[] = $this->door_meta_from_scope($door);
-                foreach ((array) ($door['items'] ?? []) as $item) {
+                $door_meta = $this->door_meta_from_scope($door);
+                $doors[] = $door_meta;
+                foreach ((array) ($door['items'] ?? []) as $item_index => $item) {
                     if (!is_array($item)) {
                         continue;
                     }
-                    $qty = isset($item['qty']) && is_numeric($item['qty']) ? (int) $item['qty'] : 1;
-                    if ($qty <= 0) {
-                        $qty = 1;
-                    }
-                    $attempt_log = [];
-                    $match = $this->match_item_to_product($item, $attempt_log);
-                    $pid = (int) ($match['product_id'] ?? 0);
+                    foreach (ado_qm_match_item_segments($item, $index) as $segment_index => $match) {
+                        if (!is_array($match)) {
+                            continue;
+                        }
 
-                    if ($debug) {
-                        $debug_log[] = [
-                            'door_number' => (string) ($door['door_number'] ?? ''),
-                            'raw_line' => (string) ($item['raw'] ?? ''),
-                            'attempts' => $attempt_log,
-                            'matched_product_id' => $pid,
-                            'matched_by' => (string) ($match['matched_by'] ?? 'none'),
-                        ];
-                    }
+                        $qty = max(1, (int) ($match['qty'] ?? 0));
+                        $raw_line = (string) ($match['raw_line'] ?? ($item['raw'] ?? ''));
+                        $source_model = (string) ($match['source_model'] ?? ($item['catalog'] ?? ''));
+                        $source_desc = (string) ($match['source_desc'] ?? ($item['desc'] ?? ''));
+                        $normalized_model = (string) ($match['normalized_model'] ?? '');
+                        $candidate_products = array_values((array) ($match['candidate_products'] ?? []));
+                        $decision_key = (string) ($match['decision_key'] ?? '');
+                        $reason_code = (string) ($match['reason_code'] ?? '');
+                        $pid = (int) ($match['product_id'] ?? 0);
 
-                    if ($pid <= 0) {
-                        $unmatched[] = [
-                            'door_id' => (string) ($door['door_id'] ?? ''),
-                            'door_number' => (string) ($door['door_number'] ?? ''),
-                            'raw_line' => (string) ($item['raw'] ?? ''),
-                            'model' => (string) ($item['catalog'] ?? ''),
-                            'description' => (string) ($item['desc'] ?? ''),
+                        $line_key = $this->build_line_key([
+                            'door_id' => (string) ($door_meta['door_id'] ?? ''),
+                            'raw_line' => $raw_line,
+                            'source_model' => $source_model,
+                            'normalized_model' => $normalized_model,
+                            'reason_code' => $reason_code,
+                            'item_index' => (int) $item_index,
+                            'segment_index' => (int) $segment_index,
+                        ]);
+
+                        $debug_entry = [
+                            'line_key' => $line_key,
+                            'door_id' => (string) ($door_meta['door_id'] ?? ''),
+                            'door_number' => (string) ($door_meta['door_number'] ?? ''),
+                            'raw_line' => $raw_line,
+                            'model' => $source_model,
+                            'description' => $source_desc,
                             'qty' => $qty,
+                            'matched_product_id' => $pid,
+                            'matched_by' => (string) ($match['match_method'] ?? 'none'),
+                            'confidence' => (int) ($match['confidence'] ?? 0),
+                            'reason_code' => $reason_code,
+                            'decision_key' => $decision_key,
+                            'normalized_model' => $normalized_model,
+                            'attempts' => array_values((array) ($match['trace'] ?? [])),
+                            'candidate_scores' => $candidate_products,
                         ];
-                        continue;
-                    }
+                        if ($debug) {
+                            $debug_log[] = $debug_entry;
+                        }
 
-                    $key = (string) ($door['door_id'] ?? '') . '|' . $pid;
-                    if (!isset($line_map[$key])) {
-                        $line_map[$key] = [
+                        if ($pid <= 0) {
+                            $unmatched[] = [
+                                'line_key' => $line_key,
+                                'door_id' => (string) ($door_meta['door_id'] ?? ''),
+                                'door_number' => (string) ($door_meta['door_number'] ?? ''),
+                                'raw_line' => $raw_line,
+                                'model' => $source_model,
+                                'description' => $source_desc,
+                                'qty' => $qty,
+                                'reason_code' => $reason_code !== '' ? $reason_code : 'NO_CANDIDATES',
+                                'decision_key' => $decision_key,
+                                'normalized_model' => $normalized_model,
+                                'candidate_products' => $candidate_products,
+                            ];
+                            continue;
+                        }
+
+                        $line = [
+                            'line_key' => $line_key,
                             'product_id' => $pid,
-                            'qty' => 0,
-                            'door_id' => (string) ($door['door_id'] ?? ''),
-                            'door_number' => (string) ($door['door_number'] ?? ''),
-                            'door_label' => (string) ($door['door_label'] ?? ''),
-                            'model' => (string) ($item['catalog'] ?? ''),
-                            'description' => (string) ($item['desc'] ?? ''),
-                            'raw_line' => (string) ($item['raw'] ?? ''),
+                            'qty' => $qty,
+                            'door_id' => (string) ($door_meta['door_id'] ?? ''),
+                            'door_number' => (string) ($door_meta['door_number'] ?? ''),
+                            'door_label' => (string) ($door_meta['door_label'] ?? ''),
+                            'model' => $source_model,
+                            'description' => $source_desc,
+                            'source_model' => $source_model,
+                            'source_desc' => $source_desc,
+                            'raw_line' => $raw_line,
+                            'match_method' => (string) ($match['match_method'] ?? ''),
+                            'match_confidence' => (int) ($match['confidence'] ?? 0),
                         ];
+                        $key = $this->build_group_key($line);
+                        if (!isset($line_map[$key])) {
+                            $line_map[$key] = $line;
+                        } else {
+                            $line_map[$key]['qty'] += $qty;
+                        }
                     }
-                    $line_map[$key]['qty'] += $qty;
                 }
             }
         }
 
         return ['doors' => array_values($doors), 'lines' => array_values($line_map), 'unmatched' => $unmatched, 'debug_log' => $debug_log];
+    }
+
+    private function build_group_key(array $line): string
+    {
+        return implode('|', [
+            (string) ($line['door_id'] ?? ''),
+            (string) ((int) ($line['product_id'] ?? 0)),
+            ado_qm_compact((string) ($line['raw_line'] ?? '')),
+            ado_qm_compact((string) ($line['source_model'] ?? ($line['model'] ?? ''))),
+        ]);
+    }
+
+    private function build_line_key(array $row): string
+    {
+        return md5((string) wp_json_encode([
+            'door_id' => (string) ($row['door_id'] ?? ''),
+            'raw_line' => (string) ($row['raw_line'] ?? ''),
+            'source_model' => (string) ($row['source_model'] ?? ''),
+            'normalized_model' => (string) ($row['normalized_model'] ?? ''),
+            'reason_code' => (string) ($row['reason_code'] ?? ''),
+            'item_index' => (int) ($row['item_index'] ?? 0),
+            'segment_index' => (int) ($row['segment_index'] ?? 0),
+        ]));
     }
 
     private function door_meta_from_scope(array $door): array

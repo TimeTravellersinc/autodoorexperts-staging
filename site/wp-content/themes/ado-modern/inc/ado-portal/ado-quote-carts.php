@@ -245,6 +245,103 @@ function ado_render_quote_unmatched_banner(int $user_id, int $quote_id): string
     return (string) ob_get_clean();
 }
 
+function ado_render_quote_review_actions_html(array $row, int $quote_id): string
+{
+    $candidates = array_values((array) ($row['candidate_products'] ?? []));
+    $line_key = (string) ($row['line_key'] ?? '');
+    if ($quote_id <= 0 || $line_key === '' || !$candidates) {
+        return '';
+    }
+
+    ob_start();
+    echo '<div class="ado-match-review">';
+    foreach ($candidates as $candidate) {
+        if (!is_array($candidate)) {
+            continue;
+        }
+        $product_id = (int) ($candidate['product_id'] ?? 0);
+        if ($product_id <= 0) {
+            continue;
+        }
+        $label = trim((string) ($candidate['sku'] ?? ''));
+        if ($label === '') {
+            $label = 'Product #' . $product_id;
+        }
+        echo '<div style="margin-bottom:8px;">';
+        echo '<button type="button" class="button button-small ado-match-review-choice" data-quote-id="' . esc_attr((string) $quote_id) . '" data-line-key="' . esc_attr($line_key) . '" data-product-id="' . esc_attr((string) $product_id) . '">' . esc_html($label) . '</button>';
+        echo '<div class="ado-muted" style="margin-top:4px;">' . esc_html((string) ($candidate['title'] ?? '')) . ' [' . esc_html((string) ($candidate['score'] ?? 0)) . ']</div>';
+        echo '</div>';
+    }
+    echo '<button type="button" class="button ado-match-review-reject" data-quote-id="' . esc_attr((string) $quote_id) . '" data-line-key="' . esc_attr($line_key) . '">None of these</button>';
+    echo '</div>';
+    return (string) ob_get_clean();
+}
+
+function ado_render_quote_match_review(int $quote_id): string
+{
+    $unmatched = get_post_meta($quote_id, '_adq_unmatched_items', true);
+    $unmatched = is_array($unmatched) ? $unmatched : [];
+    if (!$unmatched) {
+        return '';
+    }
+
+    $show_review = false;
+    foreach ($unmatched as $row) {
+        if (is_array($row) && !empty($row['candidate_products'])) {
+            $show_review = true;
+            break;
+        }
+    }
+    if (!$show_review) {
+        return '';
+    }
+
+    ob_start();
+    echo '<div class="ado-card" style="border-color:#f59e0b;background:#fffdf7;"><h3 style="margin-top:0;">Match Review</h3>';
+    echo '<p class="ado-muted">Choose the correct WooCommerce product for ambiguous lines. Your choice is saved and reused on future quote builds.</p>';
+    echo '<table class="ado-table"><thead><tr><th>Door</th><th>Model</th><th>Description</th><th>Qty</th><th>Reason</th><th>Review</th></tr></thead><tbody>';
+    foreach ($unmatched as $row) {
+        if (!is_array($row) || empty($row['candidate_products'])) {
+            continue;
+        }
+        echo '<tr>';
+        echo '<td>' . esc_html((string) ($row['door_number'] ?? '')) . '</td>';
+        echo '<td>' . esc_html((string) ($row['model'] ?? '')) . '</td>';
+        echo '<td>' . esc_html((string) ($row['description'] ?? '')) . '</td>';
+        echo '<td>' . esc_html((string) ($row['qty'] ?? '')) . '</td>';
+        echo '<td>' . esc_html((string) ($row['reason_code'] ?? '')) . '</td>';
+        echo '<td>' . ado_render_quote_review_actions_html($row, $quote_id) . '</td>';
+        echo '</tr>';
+    }
+    echo '</tbody></table></div>';
+    return (string) ob_get_clean();
+}
+
+function ado_render_quote_debug_log(int $quote_id): string
+{
+    if (!current_user_can('manage_woocommerce')) {
+        return '';
+    }
+    $debug_log = get_post_meta($quote_id, '_adq_match_log', true);
+    $debug_log = is_array($debug_log) ? $debug_log : [];
+    if (!$debug_log) {
+        return '';
+    }
+
+    ob_start();
+    echo '<div class="ado-card"><h3 style="margin-top:0;">Match Debug</h3>';
+    foreach ($debug_log as $entry) {
+        if (!is_array($entry)) {
+            continue;
+        }
+        echo '<details style="margin-bottom:10px;"><summary><strong>' . esc_html((string) ($entry['door_number'] ?? '')) . '</strong> | ' . esc_html((string) ($entry['raw_line'] ?? '')) . '</summary>';
+        echo '<pre style="max-height:220px;overflow:auto;background:#0f172a;color:#e2e8f0;padding:10px;border-radius:8px;">' . esc_html(wp_json_encode($entry, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES)) . '</pre>';
+        echo '</details>';
+    }
+    echo '</div>';
+    return (string) ob_get_clean();
+}
+
 function ado_render_quote_detail(int $user_id, int $quote_id): string
 {
     $quote = ado_quote_integration()->get_quote($quote_id);
@@ -275,6 +372,8 @@ function ado_render_quote_detail(int $user_id, int $quote_id): string
     echo '</div>';
 
     echo ado_render_quote_unmatched_banner($user_id, $quote_id);
+    echo ado_render_quote_match_review($quote_id);
+    echo ado_render_quote_debug_log($quote_id);
 
     if (!$groups) {
         echo '<div class="ado-card"><p class="ado-muted">No grouped items are available for this quote.</p></div>';
@@ -425,6 +524,71 @@ add_action('wp_ajax_ado_rerun_quote_matching', static function (): void {
     ]);
 });
 
+add_action('wp_ajax_ado_resolve_quote_match_review', static function (): void {
+    $uid = ado_assert_client_ajax();
+    $quote_id = (int) ($_POST['quote_id'] ?? 0);
+    $line_key = sanitize_text_field((string) ($_POST['line_key'] ?? ''));
+    $product_id = isset($_POST['product_id']) ? (int) $_POST['product_id'] : 0;
+    if ($quote_id <= 0 || $line_key === '') {
+        wp_send_json_error(['message' => 'Quote and line key are required.'], 400);
+    }
+    if (!ado_quote_integration()->quote_belongs_to_user($quote_id, $uid) && !current_user_can('manage_woocommerce')) {
+        wp_send_json_error(['message' => 'Quote access denied.'], 403);
+    }
+
+    $unmatched = get_post_meta($quote_id, '_adq_unmatched_items', true);
+    $unmatched = is_array($unmatched) ? $unmatched : [];
+    $review_row = null;
+    foreach ($unmatched as $row) {
+        if (is_array($row) && (string) ($row['line_key'] ?? '') === $line_key) {
+            $review_row = $row;
+            break;
+        }
+    }
+    if (!$review_row) {
+        wp_send_json_error(['message' => 'Match review row not found.'], 404);
+    }
+
+    $decision_key = (string) ($review_row['decision_key'] ?? '');
+    $normalized_model = (string) ($review_row['normalized_model'] ?? '');
+    $candidates = array_values((array) ($review_row['candidate_products'] ?? []));
+    if (!$candidates) {
+        wp_send_json_error(['message' => 'This row has no review candidates.'], 400);
+    }
+
+    if ($product_id > 0) {
+        $selected = null;
+        foreach ($candidates as $candidate) {
+            if ((int) ($candidate['product_id'] ?? 0) === $product_id) {
+                $selected = $candidate;
+                break;
+            }
+        }
+        if (!$selected) {
+            wp_send_json_error(['message' => 'Selected product is not valid for this row.'], 400);
+        }
+        ado_qm_save_override_choice($decision_key, $normalized_model, (string) ($selected['brand'] ?? ''), $product_id);
+        $message = 'Match saved and quote rebuilt.';
+    } else {
+        ado_qm_save_rejection($decision_key, array_map(static fn(array $row): int => (int) ($row['product_id'] ?? 0), $candidates));
+        $message = 'Candidates rejected and quote rebuilt.';
+    }
+
+    $debug = current_user_can('manage_woocommerce');
+    $rerun = ado_quote_integration()->rerun_matching($quote_id, $debug);
+    if (empty($rerun['ok'])) {
+        wp_send_json_error(['message' => (string) ($rerun['message'] ?? 'Failed to rebuild quote.')], 400);
+    }
+    $new_unmatched = get_post_meta($quote_id, '_adq_unmatched_items', true);
+    $new_unmatched = is_array($new_unmatched) ? $new_unmatched : [];
+    ado_set_quote_unmatched_flash($uid, $quote_id, $new_unmatched);
+    wp_send_json_success([
+        'message' => $message,
+        'quote_url' => ado_quote_url($quote_id),
+        'unmatched_count' => count($new_unmatched),
+    ]);
+});
+
 add_shortcode('ado_quote_workspace', static function (): string {
     if (!is_user_logged_in()) {
         return '<p>Please sign in to create quotes.</p>';
@@ -502,6 +666,30 @@ add_shortcode('ado_quote_workspace', static function (): string {
       $(document).on('click', '.ado-rerun-match', function(){
         var id = $(this).data('id');
         post('ado_rerun_quote_matching', {quote_id: id}, function(res){
+          if (!res.success) { status(res.data && res.data.message ? res.data.message : 'Failed', true); return; }
+          if (res.data && res.data.quote_url) { window.location.href = res.data.quote_url; return; }
+          window.location.reload();
+        });
+      });
+
+      $(document).on('click', '.ado-match-review-choice', function(){
+        post('ado_resolve_quote_match_review', {
+          quote_id: $(this).data('quote-id'),
+          line_key: $(this).data('line-key'),
+          product_id: $(this).data('product-id')
+        }, function(res){
+          if (!res.success) { status(res.data && res.data.message ? res.data.message : 'Failed', true); return; }
+          if (res.data && res.data.quote_url) { window.location.href = res.data.quote_url; return; }
+          window.location.reload();
+        });
+      });
+
+      $(document).on('click', '.ado-match-review-reject', function(){
+        post('ado_resolve_quote_match_review', {
+          quote_id: $(this).data('quote-id'),
+          line_key: $(this).data('line-key'),
+          product_id: 0
+        }, function(res){
           if (!res.success) { status(res.data && res.data.message ? res.data.message : 'Failed', true); return; }
           if (res.data && res.data.quote_url) { window.location.href = res.data.quote_url; return; }
           window.location.reload();
