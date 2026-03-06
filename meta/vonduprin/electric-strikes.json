@@ -1,0 +1,65 @@
+﻿{
+  "source_url": "https://www.vonduprin.com/en/products/electric-strikes.html",
+  "products": [
+    {
+      "sku": "VON-4200-SERIES",
+      "brand": "Von Duprin",
+      "category": "Strikes",
+      "source_url": "https://www.vonduprin.com/en/products/electric-strikes/4200-series.html",
+      "title": "4200 Series Electric Strike",
+      "description": "A traffic control solution for internal doors. It features a shallow back box, low current draw, field selectable voltage and fail safe/fail secure conversion without disassembly.",
+      "image_url": "https://www.vonduprin.com/content/dam/von-duprin/product-images/electric-strikes/VD_4200_Sq_Faceplate_630_1000x1000_SL.png",
+      "price": 329.99
+    },
+    {
+      "sku": "VON-5100-SERIES",
+      "brand": "Von Duprin",
+      "category": "Strikes",
+      "source_url": "https://www.vonduprin.com/en/products/electric-strikes/5100-series.html",
+      "title": "5100 Series Electric Strike",
+      "description": "The 5100 Series is a medium-duty electric strike designed for versatility with multiple faceplates and hardware included. It offers an all-in-one boxed solution for convenience and installation speed in the field.",
+      "image_url": "https://www.vonduprin.com/content/dam/von-duprin/product-images/electric-strikes/VD_5100_689_1000x1000_SR.png",
+      "price": 389.99
+    },
+    {
+      "sku": "VON-6100-SERIES",
+      "brand": "Von Duprin",
+      "category": "Strikes",
+      "source_url": "https://www.vonduprin.com/en/products/electric-strikes/6100-series.html",
+      "title": "6100 Series Electric Strike",
+      "description": "The 6100 Series are heavy-duty stainless steel construction rim exit strikes. They are ideal for drop-in replacement or new construction with five models providing coverage for many single or double door applications, including fire-rated doors.",
+      "image_url": "https://www.vonduprin.com/content/dam/von-duprin/product-images/electric-strikes/VD_6111_6114_630_1000x1000_SR.png",
+      "price": 539.99
+    },
+    {
+      "sku": "VON-6200-SERIES",
+      "brand": "Von Duprin",
+      "category": "Strikes",
+      "source_url": "https://www.vonduprin.com/en/products/electric-strikes/6200-series.html",
+      "title": "6200 Series Electric Strike",
+      "description": "The 6200 Series includes 17 models of heavy-duty electric strikes. Integrated faceplate, stainless steel construction, and proven reliability make them ideal for new construction.",
+      "image_url": "https://www.vonduprin.com/content/dam/von-duprin/product-images/options-&-accessories/VD_6211_630_1000x1000_SR.png",
+      "price": 579.99
+    },
+    {
+      "sku": "VON-6300-SERIES",
+      "brand": "Von Duprin",
+      "category": "Strikes",
+      "source_url": "https://www.vonduprin.com/en/products/electric-strikes/6300-series.html",
+      "title": "6300 Series Electric Strike",
+      "description": "The 6300 is a fire-rated, no-cut surface mounted strike designed for installation speed and convenience.",
+      "image_url": "https://www.vonduprin.com/content/dam/von-duprin/product-images/electric-strikes/VD_6300_630_1000x1000_SR.png",
+      "price": 559.99
+    },
+    {
+      "sku": "VON-6400-SERIES",
+      "brand": "Von Duprin",
+      "category": "Strikes",
+      "source_url": "https://www.vonduprin.com/en/products/electric-strikes/6400-series.html",
+      "title": "6400 Series Electric Strike",
+      "description": "The 6400 Series is a modular, fire rated strike that lets the user move, or even remove, the keeper, ramp or plug. Offered with both centerline and offset faceplates, it is the ultimate all-in-one strike.",
+      "image_url": "https://www.vonduprin.com/content/dam/von-duprin/product-images/electric-strikes/VD_6400_630_1000x1000_SR.png",
+      "price": 629.99
+    }
+  ]
+}
