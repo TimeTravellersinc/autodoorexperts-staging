@@ -170,20 +170,20 @@ function ado_camden_extract_model_image_urls(string $html, array $models): array
     return $images;
 }
 
-function ado_camden_attach_image(int $product_id, string $image_url): void {
+function ado_camden_attach_image(int $product_id, string $image_url): bool {
     if ($image_url === '') {
-        return;
+        return false;
     }
 
     $existing_id = attachment_url_to_postid($image_url);
     if ($existing_id > 0) {
         set_post_thumbnail($product_id, $existing_id);
-        return;
+        return true;
     }
 
     $tmp_file = download_url($image_url, 60);
     if (is_wp_error($tmp_file)) {
-        return;
+        return false;
     }
 
     $file = [
@@ -194,10 +194,11 @@ function ado_camden_attach_image(int $product_id, string $image_url): void {
     $attachment_id = media_handle_sideload($file, $product_id);
     if (is_wp_error($attachment_id)) {
         @unlink($tmp_file);
-        return;
+        return false;
     }
 
     set_post_thumbnail($product_id, $attachment_id);
+    return true;
 }
 
 function ado_camden_find_term_id(string $taxonomy, string $name): int {
@@ -380,6 +381,11 @@ foreach ($models as $model) {
     if ($sku === '') {
         continue;
     }
+    $image_url = (string) ($image_urls[(string) ($model['uid'] ?? '')] ?? '');
+    if ($image_url === '') {
+        echo 'SKIPPED|NO_IMAGE|' . $sku . PHP_EOL;
+        continue;
+    }
 
     $product_id = (int) wc_get_product_id_by_sku($sku);
     $is_new = $product_id <= 0;
@@ -426,6 +432,14 @@ foreach ($models as $model) {
         throw new RuntimeException('Failed to save product for ' . $sku);
     }
 
+    if (!ado_camden_attach_image($saved_id, $image_url)) {
+        if ($is_new) {
+            wp_delete_post($saved_id, true);
+        }
+        echo 'SKIPPED|IMAGE_ATTACH_FAILED|' . $sku . PHP_EOL;
+        continue;
+    }
+
     $category_term_ids = [$category_term_id];
     if ($category_slug === 'keyswitches' && !str_contains($sku, 'CYL') && str_contains(strtoupper($variant_title), 'PUSH PLATE')) {
         $category_term_ids[] = $actuator_term_id;
@@ -445,11 +459,7 @@ foreach ($models as $model) {
     update_post_meta($saved_id, '_ado_camden_series_subtitle', $series_subtitle);
     update_post_meta($saved_id, '_ado_camden_subsection', $subsection);
 
-    $image_url = (string) ($image_urls[(string) ($model['uid'] ?? '')] ?? '');
-    if ($image_url !== '') {
-        update_post_meta($saved_id, '_ado_camden_image_url', $image_url);
-        ado_camden_attach_image($saved_id, $image_url);
-    }
+    update_post_meta($saved_id, '_ado_camden_image_url', $image_url);
 
     echo ($is_new ? 'CREATED' : 'UPDATED') . '|' . $saved_id . '|' . $sku . '|' . $regular_price . PHP_EOL;
     $imported_skus[] = $sku;
