@@ -506,6 +506,84 @@ function ado_quote_review_summary(int $quote_id): array
     return $summary;
 }
 
+function ado_quote_flag_class(string $state): string
+{
+    if ($state === 'manual' || $state === 'none') {
+        return 'danger';
+    }
+    if ($state === 'fuzzy') {
+        return 'warn';
+    }
+    return 'neutral';
+}
+
+function ado_quote_flag_label(string $state): string
+{
+    if ($state === 'manual') {
+        return 'Manual pricing';
+    }
+    if ($state === 'none') {
+        return 'Unknown model';
+    }
+    if ($state === 'fuzzy') {
+        return 'Fuzzy match';
+    }
+    if ($state === 'out-of-scope') {
+        return 'Out of scope';
+    }
+    return 'Matched';
+}
+
+function ado_render_quote_inline_review(array $row, int $quote_id, array $adjustment = []): string
+{
+    if (!is_array($row)) {
+        return '';
+    }
+
+    $line_key = (string) ($row['line_key'] ?? '');
+    if ($line_key === '') {
+        return '';
+    }
+
+    $candidates = array_values((array) ($row['candidate_products'] ?? []));
+    $corrected_model = (string) ($adjustment['corrected_model'] ?? '');
+    $manual_description = (string) ($adjustment['manual_description'] ?? ($row['description'] ?? ''));
+    $manual_sku = (string) ($adjustment['manual_sku'] ?? '');
+    $manual_price = isset($adjustment['manual_unit_price']) && $adjustment['manual_unit_price'] !== null ? number_format((float) $adjustment['manual_unit_price'], 2, '.', '') : '';
+
+    ob_start();
+    ?>
+    <div class="qr-inline-review qr-inline-review-<?php echo esc_attr(strtolower((string) ($row['reason_code'] ?? 'review'))); ?>">
+      <div class="qr-inline-copy">
+        <strong><?php echo esc_html((string) ($row['model'] ?? 'Unknown model')); ?></strong>
+        <span><?php echo esc_html((string) ($row['description'] ?? $row['raw_line'] ?? '')); ?></span>
+      </div>
+      <?php if ($candidates) : ?>
+        <div class="qr-inline-candidates">
+          <?php foreach ($candidates as $candidate) :
+              if (!is_array($candidate) || (int) ($candidate['product_id'] ?? 0) <= 0) {
+                  continue;
+              }
+          ?>
+            <button type="button" class="qr-mini-btn ado-match-review-choice" data-quote-id="<?php echo esc_attr((string) $quote_id); ?>" data-line-key="<?php echo esc_attr($line_key); ?>" data-product-id="<?php echo esc_attr((string) ((int) ($candidate['product_id'] ?? 0))); ?>">
+              <?php echo esc_html((string) ($candidate['sku'] ?? ('Product #' . (int) ($candidate['product_id'] ?? 0)))); ?>
+            </button>
+          <?php endforeach; ?>
+          <button type="button" class="qr-mini-btn secondary ado-match-review-reject" data-quote-id="<?php echo esc_attr((string) $quote_id); ?>" data-line-key="<?php echo esc_attr($line_key); ?>">None match</button>
+        </div>
+      <?php endif; ?>
+      <div class="qr-inline-manual">
+        <input class="qr-input qr-adjust-model" type="text" placeholder="Corrected model" value="<?php echo esc_attr($corrected_model); ?>">
+        <input class="qr-input qr-adjust-desc" type="text" placeholder="Manual description" value="<?php echo esc_attr($manual_description); ?>">
+        <input class="qr-input qr-adjust-sku" type="text" placeholder="Manual SKU" value="<?php echo esc_attr($manual_sku); ?>">
+        <input class="qr-input qr-adjust-price" type="text" placeholder="Manual unit price" value="<?php echo esc_attr($manual_price); ?>">
+        <button type="button" class="qr-mini-btn primary ado-save-line-adjustment" data-quote-id="<?php echo esc_attr((string) $quote_id); ?>" data-line-key="<?php echo esc_attr($line_key); ?>">Save</button>
+      </div>
+    </div>
+    <?php
+    return (string) ob_get_clean();
+}
+
 function ado_render_quote_detail(int $user_id, int $quote_id): string
 {
     $quote = ado_quote_integration()->get_quote($quote_id);
@@ -520,325 +598,99 @@ function ado_render_quote_detail(int $user_id, int $quote_id): string
     $groups = ado_quote_grouped_lines($quote_id);
     $can_rerun = current_user_can('manage_woocommerce') || (ado_is_client($user_id) && $row['status'] !== 'ordered');
     $flash_banner = ado_render_quote_unmatched_banner($user_id, $quote_id);
-    $match_review = ado_render_quote_match_review($quote_id);
     $debug_log = ado_render_quote_debug_log($quote_id);
     $unmatched_by_door = ado_quote_unmatched_by_door($quote_id);
+    $summary = ado_quote_review_summary($quote_id);
     $scope_file = wp_basename((string) ($row['scope_url'] ?? ''));
     $status = strtolower((string) ($row['status'] ?? 'draft'));
+    $door_notes = ado_quote_door_notes($quote_id);
+    $line_adjustments = ado_quote_line_adjustments($quote_id);
+    $nonce = wp_create_nonce('ado_quote_nonce');
 
     ob_start();
     ?>
     <style>
-      .ado-quote-review{--ado-bg:#f3f4f6;--ado-surface:#fff;--ado-surface-2:#f8fafc;--ado-border:#e5e7eb;--ado-border-light:#eef2f7;--ado-text:#0f172a;--ado-muted:#64748b;--ado-accent:#1d4ed8;--ado-accent-soft:#eff6ff;--ado-green:#059669;--ado-green-soft:#ecfdf5;--ado-green-border:#a7f3d0;--ado-warn:#d97706;--ado-warn-soft:#fffbeb;--ado-warn-border:#fcd34d;--ado-danger:#dc2626;--ado-danger-soft:#fef2f2;--ado-danger-border:#fca5a5;}
-      .ado-quote-review{margin-top:24px;color:var(--ado-text);}
-      .ado-quote-review *{box-sizing:border-box;}
-      .ado-quote-review .qr-hero{margin-bottom:18px;}
-      .ado-quote-review .qr-title{font-size:28px;line-height:1.1;font-weight:800;letter-spacing:-0.03em;margin:0 0 6px;}
-      .ado-quote-review .qr-subtitle{margin:0;color:var(--ado-muted);font-size:14px;}
-      .ado-quote-review .qr-chip-row{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px;}
-      .ado-quote-review .qr-chip{display:inline-flex;align-items:center;gap:6px;padding:7px 12px;border-radius:999px;background:var(--ado-surface);border:1px solid var(--ado-border);font-size:12px;font-weight:700;color:var(--ado-text);}
-      .ado-quote-review .qr-chip.status-draft{background:var(--ado-accent-soft);border-color:#bfdbfe;color:var(--ado-accent);}
-      .ado-quote-review .qr-chip.status-submitted,
-      .ado-quote-review .qr-chip.status-ordered{background:var(--ado-green-soft);border-color:var(--ado-green-border);color:var(--ado-green);}
-      .ado-quote-review .qr-banner{display:flex;align-items:flex-start;justify-content:space-between;gap:18px;padding:18px 20px;border-radius:16px;background:linear-gradient(135deg,var(--ado-green-soft),#f8fffb);border:1px solid var(--ado-green-border);margin-bottom:22px;}
-      .ado-quote-review .qr-banner-title{margin:0 0 4px;font-size:15px;font-weight:800;color:#065f46;}
-      .ado-quote-review .qr-banner-copy{margin:0;color:#047857;font-size:13px;}
-      .ado-quote-review .qr-banner-stats{display:flex;gap:10px;flex-wrap:wrap;}
-      .ado-quote-review .qr-stat{min-width:86px;padding:8px 12px;border-radius:12px;background:#fff;border:1px solid var(--ado-green-border);text-align:center;}
-      .ado-quote-review .qr-stat-value{display:block;font-size:18px;font-weight:800;color:var(--ado-text);}
-      .ado-quote-review .qr-stat-label{display:block;font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--ado-muted);margin-top:2px;}
-      .ado-quote-review .qr-layout{display:grid;grid-template-columns:minmax(0,1fr) 320px;gap:22px;align-items:start;}
-      .ado-quote-review .qr-main{min-width:0;}
-      .ado-quote-review .qr-sidebar{position:sticky;top:96px;display:flex;flex-direction:column;gap:16px;}
-      .ado-quote-review .qr-card{background:var(--ado-surface);border:1px solid var(--ado-border);border-radius:16px;overflow:hidden;box-shadow:0 2px 10px rgba(15,23,42,.05);}
-      .ado-quote-review .qr-card-header{padding:16px 18px;border-bottom:1px solid var(--ado-border);display:flex;align-items:center;justify-content:space-between;gap:12px;}
-      .ado-quote-review .qr-card-title{margin:0;font-size:15px;font-weight:800;}
-      .ado-quote-review .qr-card-body{padding:16px 18px;}
-      .ado-quote-review .qr-actions{display:flex;flex-direction:column;gap:10px;}
-      .ado-quote-review .qr-button,.ado-quote-review .qr-button:visited{display:inline-flex;align-items:center;justify-content:center;gap:8px;padding:12px 14px;border-radius:10px;border:1px solid var(--ado-border);background:#fff;color:var(--ado-text);font-weight:700;text-decoration:none;cursor:pointer;}
-      .ado-quote-review .qr-button.primary{background:var(--ado-accent);border-color:var(--ado-accent);color:#fff;}
-      .ado-quote-review .qr-button.secondary{background:var(--ado-surface-2);}
-      .ado-quote-review .qr-summary-list{display:flex;flex-direction:column;gap:12px;}
-      .ado-quote-review .qr-summary-row{display:flex;justify-content:space-between;gap:12px;font-size:13px;color:var(--ado-muted);}
-      .ado-quote-review .qr-summary-row strong{color:var(--ado-text);}
-      .ado-quote-review .qr-summary-total{margin-top:12px;padding-top:14px;border-top:1px solid var(--ado-border);display:flex;justify-content:space-between;align-items:baseline;}
-      .ado-quote-review .qr-summary-total strong{font-size:28px;line-height:1;font-weight:800;}
-      .ado-quote-review .qr-flags{display:flex;flex-direction:column;gap:8px;}
-      .ado-quote-review .qr-flag{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 12px;border-radius:12px;font-size:12px;font-weight:700;}
-      .ado-quote-review .qr-flag.warn{background:var(--ado-warn-soft);border:1px solid var(--ado-warn-border);color:#92400e;}
-      .ado-quote-review .qr-flag.neutral{background:var(--ado-surface-2);border:1px solid var(--ado-border);color:var(--ado-muted);}
-      .ado-quote-review .qr-door-tabs{display:flex;gap:10px;overflow:auto;padding:4px 2px 14px;margin-bottom:0;}
-      .ado-quote-review .qr-door-tab{min-width:170px;padding:12px 14px;border-radius:14px;border:1px solid var(--ado-border);background:var(--ado-surface);text-align:left;cursor:pointer;transition:.15s ease;}
-      .ado-quote-review .qr-door-tab:hover{transform:translateY(-1px);box-shadow:0 4px 14px rgba(15,23,42,.06);}
-      .ado-quote-review .qr-door-tab.active{border-color:#93c5fd;background:var(--ado-accent-soft);box-shadow:0 0 0 2px rgba(29,78,216,.08);}
-      .ado-quote-review .qr-door-tab.match-full{border-left:4px solid var(--ado-green);}
-      .ado-quote-review .qr-door-tab.match-fuzzy{border-left:4px solid var(--ado-warn);}
-      .ado-quote-review .qr-door-tab.match-none{border-left:4px solid var(--ado-danger);}
-      .ado-quote-review .qr-door-tab.match-empty{border-left:4px solid #94a3b8;}
-      .ado-quote-review .qr-door-tab-top{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:6px;}
-      .ado-quote-review .qr-door-num{font-size:14px;font-weight:800;color:var(--ado-text);}
-      .ado-quote-review .qr-door-status{font-size:10px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:var(--ado-muted);}
-      .ado-quote-review .qr-door-tab-label{font-size:12px;color:var(--ado-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
-      .ado-quote-review .qr-door-tab-meta{margin-top:8px;font-size:11px;color:var(--ado-muted);display:flex;justify-content:space-between;gap:8px;}
-      .ado-quote-review .qr-panels{display:block;}
-      .ado-quote-review .qr-panel{display:none;}
-      .ado-quote-review .qr-panel.active{display:block;}
-      .ado-quote-review .qr-panel-head{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;padding:18px;border-bottom:1px solid var(--ado-border);}
-      .ado-quote-review .qr-panel-title{margin:0 0 4px;font-size:20px;font-weight:800;}
-      .ado-quote-review .qr-panel-copy{margin:0;color:var(--ado-muted);font-size:13px;}
-      .ado-quote-review .qr-panel-metrics{display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end;}
-      .ado-quote-review .qr-metric{padding:8px 10px;border-radius:12px;background:var(--ado-surface-2);border:1px solid var(--ado-border);text-align:center;min-width:88px;}
-      .ado-quote-review .qr-metric strong{display:block;font-size:15px;}
-      .ado-quote-review .qr-metric span{display:block;font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--ado-muted);margin-top:2px;}
-      .ado-quote-review .qr-table-wrap{padding:18px;}
-      .ado-quote-review table.qr-table{width:100%;border-collapse:collapse;}
-      .ado-quote-review .qr-table th{padding:0 0 10px;font-size:10px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:var(--ado-muted);text-align:left;border-bottom:1px solid var(--ado-border);}
-      .ado-quote-review .qr-table td{padding:12px 0;border-bottom:1px solid var(--ado-border-light);vertical-align:top;}
-      .ado-quote-review .qr-table tr:last-child td{border-bottom:none;}
-      .ado-quote-review .qr-product{font-weight:700;color:var(--ado-text);}
-      .ado-quote-review .qr-product-sub{display:block;margin-top:4px;font-size:12px;color:var(--ado-muted);}
-      .ado-quote-review .qr-pill{display:inline-flex;align-items:center;padding:4px 8px;border-radius:999px;background:var(--ado-surface-2);border:1px solid var(--ado-border);font-size:11px;font-weight:700;color:var(--ado-text);}
-      .ado-quote-review .qr-pill.model{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;}
-      .ado-quote-review .qr-pill.fuzzy{background:var(--ado-warn-soft);border-color:var(--ado-warn-border);color:#92400e;}
-      .ado-quote-review .qr-pill.none{background:var(--ado-danger-soft);border-color:var(--ado-danger-border);color:#991b1b;}
-      .ado-quote-review .qr-empty{padding:24px 18px;color:var(--ado-muted);}
-      .ado-quote-review .ado-card{margin-top:18px;}
-      @media (max-width: 1100px){.ado-quote-review .qr-layout{grid-template-columns:1fr;}.ado-quote-review .qr-sidebar{position:static;}}
-      @media (max-width: 700px){.ado-quote-review .qr-panel-head{flex-direction:column;}.ado-quote-review .qr-door-tabs{padding-bottom:10px;}.ado-quote-review .qr-table-wrap{overflow:auto;}.ado-quote-review .qr-title{font-size:24px;}}
+      .ado-quote-review{--ado-surface:#fff;--ado-surface-2:#f7f8fa;--ado-border:#e2e5ea;--ado-border-light:#eef0f3;--ado-accent:#1a56db;--ado-accent-soft:#eff4ff;--ado-accent-glow:rgba(26,86,219,.15);--ado-green:#059669;--ado-green-soft:#ecfdf5;--ado-green-border:#a7f3d0;--ado-warn:#d97706;--ado-warn-soft:#fffbeb;--ado-warn-border:#fcd34d;--ado-danger:#dc2626;--ado-danger-soft:#fef2f2;--ado-danger-border:#fca5a5;--ado-text:#0f172a;--ado-muted:#94a3b8;--ado-secondary:#475569;--ado-radius:12px;--ado-radius-sm:7px;}
+      .ado-quote-review{margin-top:24px;color:var(--ado-text);} .ado-quote-review *{box-sizing:border-box;}
+      .ado-quote-review .qr-hero{margin-bottom:18px;} .ado-quote-review .qr-title{font-size:22px;font-weight:800;letter-spacing:-.5px;margin:0 0 3px;} .ado-quote-review .qr-subtitle{font-size:13px;color:var(--ado-muted);margin:0;}
+      .ado-quote-review .qr-chip-row{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;} .ado-quote-review .qr-chip{display:inline-flex;align-items:center;gap:5px;background:var(--ado-surface);border:1px solid var(--ado-border);border-radius:5px;padding:4px 10px;font-size:11px;font-weight:700;color:var(--ado-secondary);} .ado-quote-review .qr-chip.status-draft{background:var(--ado-accent-soft);border-color:#bfdbfe;color:var(--ado-accent);} .ado-quote-review .qr-chip.status-submitted,.ado-quote-review .qr-chip.status-ordered{background:var(--ado-green-soft);border-color:var(--ado-green-border);color:var(--ado-green);}
+      .ado-quote-review .qr-banner{background:linear-gradient(135deg,var(--ado-green-soft),#f0fdf4);border:1px solid var(--ado-green-border);border-radius:var(--ado-radius);padding:14px 18px;display:flex;align-items:center;gap:14px;margin-bottom:22px;} .ado-quote-review .qr-banner-main{flex:1;} .ado-quote-review .qr-banner-title{font-weight:700;color:#065f46;font-size:14px;margin:0 0 2px;} .ado-quote-review .qr-banner-copy{font-size:12px;color:#047857;margin:0;} .ado-quote-review .qr-banner-stats{display:flex;gap:14px;flex-shrink:0;} .ado-quote-review .qr-stat{text-align:center;padding:6px 14px;background:#fff;border:1px solid var(--ado-green-border);border-radius:6px;} .ado-quote-review .qr-stat strong{display:block;font-size:17px;font-weight:800;} .ado-quote-review .qr-stat span{display:block;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--ado-muted);margin-top:1px;}
+      .ado-quote-review .qr-layout{display:grid;grid-template-columns:1fr 310px;gap:20px;align-items:flex-start;} .ado-quote-review .qr-sidebar{position:sticky;top:74px;display:flex;flex-direction:column;gap:14px;}
+      .ado-quote-review .qr-sidecard{background:var(--ado-surface);border:1px solid var(--ado-border);border-radius:var(--ado-radius);overflow:hidden;box-shadow:0 1px 2px rgba(0,0,0,.05);} .ado-quote-review .qr-sidehead{padding:14px 18px 12px;border-bottom:1px solid var(--ado-border);display:flex;align-items:center;justify-content:space-between;} .ado-quote-review .qr-sidetitle{font-size:14px;font-weight:700;margin:0;} .ado-quote-review .qr-sidebody{padding:14px 18px;} .ado-quote-review .qr-siderow{display:flex;justify-content:space-between;gap:10px;padding:8px 0;border-bottom:1px solid var(--ado-border-light);font-size:13px;} .ado-quote-review .qr-siderow:last-child{border-bottom:none;} .ado-quote-review .qr-total{display:flex;justify-content:space-between;align-items:center;padding:14px 18px;background:var(--ado-text);margin-top:2px;} .ado-quote-review .qr-total span{font-size:13px;font-weight:700;color:rgba(255,255,255,.7);text-transform:uppercase;letter-spacing:.06em;} .ado-quote-review .qr-total strong{font-size:24px;font-weight:800;color:#fff;}
+      .ado-quote-review .qr-flag-list{display:flex;flex-direction:column;gap:6px;} .ado-quote-review .qr-flag-item{display:flex;align-items:center;gap:8px;padding:8px 10px;border-radius:6px;font-size:12px;cursor:pointer;border:1px solid transparent;} .ado-quote-review .qr-flag-item.warn{background:var(--ado-warn-soft);border-color:var(--ado-warn-border);color:#92400e;} .ado-quote-review .qr-flag-item.danger{background:var(--ado-danger-soft);border-color:var(--ado-danger-border);color:#991b1b;} .ado-quote-review .qr-flag-item.neutral{background:var(--ado-surface-2);border-color:var(--ado-border);color:var(--ado-secondary);} .ado-quote-review .qr-flag-item strong{margin-left:auto;}
+      .ado-quote-review .qr-btn,.ado-quote-review .qr-btn:visited{display:inline-flex;align-items:center;justify-content:center;width:100%;padding:12px;border-radius:var(--ado-radius-sm);text-decoration:none;font-weight:700;border:1px solid var(--ado-border);background:var(--ado-surface);color:var(--ado-text);cursor:pointer;} .ado-quote-review .qr-btn.primary{background:var(--ado-accent);color:#fff;border-color:var(--ado-accent);} .ado-quote-review .qr-btn+.qr-btn{margin-top:8px;}
+      .ado-quote-review .qr-door-list{display:flex;flex-direction:column;gap:10px;} .ado-quote-review .qr-door-card{background:var(--ado-surface);border:1px solid var(--ado-border);border-radius:var(--ado-radius);overflow:hidden;transition:box-shadow .18s ease;} .ado-quote-review .qr-door-card:hover{box-shadow:0 4px 12px rgba(0,0,0,.08);} .ado-quote-review .qr-door-card.match-full{border-left:3px solid var(--ado-green);} .ado-quote-review .qr-door-card.match-fuzzy{border-left:3px solid var(--ado-warn);} .ado-quote-review .qr-door-card.match-manual,.ado-quote-review .qr-door-card.match-none{border-left:3px solid var(--ado-danger);} .ado-quote-review .qr-door-card.match-out-of-scope,.ado-quote-review .qr-door-card.match-empty{border-left:3px solid var(--ado-muted);opacity:.85;}
+      .ado-quote-review .qr-door-header{display:flex;align-items:center;gap:12px;padding:12px 16px;cursor:pointer;user-select:none;background:var(--ado-surface);} .ado-quote-review .qr-door-num{width:36px;height:36px;border-radius:8px;font-size:13px;font-weight:800;display:flex;align-items:center;justify-content:center;flex-shrink:0;} .ado-quote-review .qr-door-card.match-full .qr-door-num{background:var(--ado-green-soft);color:var(--ado-green);} .ado-quote-review .qr-door-card.match-fuzzy .qr-door-num{background:var(--ado-warn-soft);color:var(--ado-warn);} .ado-quote-review .qr-door-card.match-manual .qr-door-num,.ado-quote-review .qr-door-card.match-none .qr-door-num{background:var(--ado-danger-soft);color:var(--ado-danger);} .ado-quote-review .qr-door-card.match-out-of-scope .qr-door-num,.ado-quote-review .qr-door-card.match-empty .qr-door-num{background:#f0f1f3;color:var(--ado-muted);} .ado-quote-review .qr-door-title{flex:1;} .ado-quote-review .qr-door-title strong{display:block;font-size:13.5px;} .ado-quote-review .qr-door-title span{display:block;font-size:11.5px;color:var(--ado-muted);margin-top:1px;}
+      .ado-quote-review .qr-door-tag{font-size:10.5px;font-weight:600;padding:2px 7px;border-radius:20px;background:var(--ado-accent-soft);color:var(--ado-accent);} .ado-quote-review .qr-door-tag.out-scope{background:#f0f1f3;color:var(--ado-muted);border:1px solid var(--ado-border);} .ado-quote-review .qr-door-badge{font-size:10.5px;font-weight:700;letter-spacing:.05em;padding:3px 9px;border-radius:20px;display:flex;align-items:center;gap:4px;} .ado-quote-review .qr-door-card.match-full .qr-door-badge{background:var(--ado-green-soft);color:var(--ado-green);border:1px solid var(--ado-green-border);} .ado-quote-review .qr-door-card.match-fuzzy .qr-door-badge{background:var(--ado-warn-soft);color:var(--ado-warn);border:1px solid var(--ado-warn-border);} .ado-quote-review .qr-door-card.match-manual .qr-door-badge,.ado-quote-review .qr-door-card.match-none .qr-door-badge{background:var(--ado-danger-soft);color:var(--ado-danger);border:1px solid var(--ado-danger-border);} .ado-quote-review .qr-door-card.match-out-of-scope .qr-door-badge,.ado-quote-review .qr-door-card.match-empty .qr-door-badge{background:#f0f1f3;color:var(--ado-muted);border:1px solid var(--ado-border);} .ado-quote-review .qr-door-total{font-size:14px;font-weight:800;min-width:90px;text-align:right;} .ado-quote-review .qr-door-chevron{color:var(--ado-muted);transition:transform .2s ease;} .ado-quote-review .qr-door-card.open .qr-door-chevron{transform:rotate(90deg);} .ado-quote-review .qr-door-body{border-top:1px solid var(--ado-border);padding:14px 16px;display:none;flex-direction:column;gap:10px;background:var(--ado-surface-2);} .ado-quote-review .qr-door-card.open .qr-door-body{display:flex;}
+      .ado-quote-review .qr-table{width:100%;border-collapse:collapse;font-size:12.5px;} .ado-quote-review .qr-table th{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--ado-muted);padding:0 0 7px;text-align:left;border-bottom:1px solid var(--ado-border);} .ado-quote-review .qr-table td{padding:8px 0;border-bottom:1px solid var(--ado-border-light);vertical-align:top;} .ado-quote-review .qr-table tr:last-child td{border-bottom:none;} .ado-quote-review .qr-model{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11.5px;background:var(--ado-surface);border:1px solid var(--ado-border);border-radius:5px;padding:3px 8px;color:var(--ado-secondary);display:inline-block;} .ado-quote-review .qr-model.fuzzy{background:var(--ado-warn-soft);border-color:var(--ado-warn-border);color:var(--ado-warn);} .ado-quote-review .qr-model.none{background:var(--ado-danger-soft);border-color:var(--ado-danger-border);color:var(--ado-danger);} .ado-quote-review .qr-desc{font-weight:500;color:var(--ado-text);} .ado-quote-review .qr-desc.subtle{color:var(--ado-muted);}
+      .ado-quote-review .qr-inline-review{padding:10px 12px;border-radius:6px;display:flex;flex-direction:column;gap:10px;} .ado-quote-review .qr-inline-review-no_candidates,.ado-quote-review .qr-inline-review-manual_price{background:var(--ado-danger-soft);border:1px solid var(--ado-danger-border);} .ado-quote-review .qr-inline-review-ambiguous,.ado-quote-review .qr-inline-review-low_confidence{background:var(--ado-warn-soft);border:1px solid var(--ado-warn-border);} .ado-quote-review .qr-inline-copy{display:flex;flex-direction:column;gap:4px;font-size:12px;} .ado-quote-review .qr-inline-copy span{color:var(--ado-secondary);} .ado-quote-review .qr-inline-candidates,.ado-quote-review .qr-inline-manual{display:flex;gap:8px;flex-wrap:wrap;} .ado-quote-review .qr-mini-btn{background:var(--ado-surface);border:1px solid var(--ado-border);border-radius:4px;padding:6px 10px;font-size:11px;font-weight:700;cursor:pointer;} .ado-quote-review .qr-mini-btn.primary{background:var(--ado-accent);border-color:var(--ado-accent);color:#fff;} .ado-quote-review .qr-mini-btn.secondary{background:transparent;} .ado-quote-review .qr-input{background:#fff;border:1px solid var(--ado-border);border-radius:5px;padding:7px 9px;font-size:12px;min-width:150px;outline:none;} .ado-quote-review .qr-input:focus,.ado-quote-review .qr-notes:focus,.ado-quote-review .qr-po-input:focus{border-color:var(--ado-accent);box-shadow:0 0 0 3px var(--ado-accent-glow);} .ado-quote-review .qr-notes-row{display:flex;gap:10px;align-items:flex-start;padding-top:8px;border-top:1px solid var(--ado-border-light);} .ado-quote-review .qr-notes-label{font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.07em;color:var(--ado-muted);width:90px;flex-shrink:0;padding-top:8px;} .ado-quote-review .qr-notes-wrap{flex:1;} .ado-quote-review .qr-notes{width:100%;background:#fff;border:1px solid var(--ado-border);border-radius:6px;padding:7px 10px;font-size:12.5px;color:var(--ado-secondary);resize:vertical;min-height:56px;} .ado-quote-review .qr-po-label{font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.07em;color:var(--ado-muted);margin-bottom:5px;} .ado-quote-review .qr-po-input{background:var(--ado-surface);border:1px solid var(--ado-border);border-radius:var(--ado-radius-sm);font-size:13.5px;padding:9px 12px;outline:none;width:100%;margin-bottom:8px;} .ado-quote-review .qr-note{font-size:11.5px;color:var(--ado-secondary);line-height:1.5;padding:8px 10px;background:var(--ado-warn-soft);border:1px solid var(--ado-warn-border);border-radius:6px;margin-bottom:8px;} .ado-quote-review .ado-card{margin-top:18px;}
+      @media (max-width:1100px){.ado-quote-review .qr-layout{grid-template-columns:1fr;}.ado-quote-review .qr-sidebar{position:static;}} @media (max-width:700px){.ado-quote-review .qr-banner{flex-direction:column;align-items:flex-start;}.ado-quote-review .qr-door-header{flex-wrap:wrap;}.ado-quote-review .qr-inline-manual{flex-direction:column;}.ado-quote-review .qr-input{min-width:100%;}}
     </style>
     <div class="ado-quote-review" data-quote-id="<?php echo esc_attr((string) $quote_id); ?>">
       <div class="qr-hero">
-        <h2 class="qr-title"><?php echo esc_html((string) $row['name']); ?></h2>
-        <p class="qr-subtitle">Review the extracted quote by door, verify hardware, and then submit the quote to checkout. Each tab below represents one project door with its own hardware grouping.</p>
+        <h2 class="qr-title">Review Extracted Schedule</h2>
+        <p class="qr-subtitle">AI extracted <strong><?php echo esc_html((string) count($groups)); ?> doors</strong> from your hardware schedule. Review each one, fix flagged items, then submit the quote.</p>
         <div class="qr-chip-row">
           <span class="qr-chip status-<?php echo esc_attr($status); ?>"><?php echo esc_html(ucfirst((string) $row['status'])); ?></span>
-          <span class="qr-chip"><?php echo esc_html((string) count($groups)); ?> doors</span>
-          <span class="qr-chip"><?php echo esc_html((string) $row['total_items']); ?> items</span>
-          <?php if ($scope_file !== '') : ?>
-            <span class="qr-chip"><?php echo esc_html($scope_file); ?></span>
-          <?php endif; ?>
+          <span class="qr-chip"><?php echo esc_html((string) $row['name']); ?></span>
+          <?php if ($scope_file !== '') : ?><span class="qr-chip"><?php echo esc_html($scope_file); ?></span><?php endif; ?>
         </div>
       </div>
-
-      <div class="qr-banner">
-        <div>
-          <h3 class="qr-banner-title">Scoped quote extracted and grouped by door</h3>
-          <p class="qr-banner-copy">Use the tabs to inspect each door separately. Any unmatched or uncertain hardware stays visible in review until it is corrected.</p>
-        </div>
-        <div class="qr-banner-stats">
-          <div class="qr-stat"><span class="qr-stat-value"><?php echo esc_html((string) count($groups)); ?></span><span class="qr-stat-label">Doors</span></div>
-          <div class="qr-stat"><span class="qr-stat-value"><?php echo esc_html((string) $row['total_items']); ?></span><span class="qr-stat-label">Items</span></div>
-          <div class="qr-stat"><span class="qr-stat-value"><?php echo esc_html((string) ($row['unmatched_count'] ?? 0)); ?></span><span class="qr-stat-label">Unmatched</span></div>
-        </div>
-      </div>
-
+      <div class="qr-banner"><div class="qr-banner-main"><div class="qr-banner-title">Extraction review is ready</div><div class="qr-banner-copy">Matched doors can be submitted as-is. Fuzzy, manual, or unknown doors should be reviewed before approval.</div></div><div class="qr-banner-stats"><div class="qr-stat"><strong><?php echo esc_html((string) $summary['matched_doors']); ?></strong><span>Matched</span></div><div class="qr-stat"><strong><?php echo esc_html((string) ($summary['fuzzy_doors'] + $summary['manual_doors'])); ?></strong><span>Needs Review</span></div><div class="qr-stat"><strong><?php echo esc_html((string) $summary['out_of_scope_doors']); ?></strong><span>Out of Scope</span></div></div></div>
       <div class="qr-layout">
         <div class="qr-main">
-          <?php if ($groups) : ?>
-            <div class="qr-door-tabs" role="tablist" aria-label="Quote doors">
-              <?php foreach ($groups as $index => $group) :
-                  $door = (array) ($group['door'] ?? []);
-                  $totals = ado_quote_group_totals($group);
-                  $state = ado_quote_group_match_state($group, $unmatched_by_door);
-                  $door_id = (string) ($door['door_id'] ?? ('door-' . $index));
-                  $door_number = (string) ($door['door_number'] ?? ('Door ' . ($index + 1)));
-                  $door_label = (string) ($door['door_label'] ?? ('Door ' . $door_number));
-                  $unmatched_rows = $unmatched_by_door[$door_id] ?? $unmatched_by_door['door-number:' . $door_number] ?? [];
-              ?>
-                <button type="button" class="qr-door-tab match-<?php echo esc_attr($state); ?><?php echo $index === 0 ? ' active' : ''; ?>" data-door-tab="<?php echo esc_attr($door_id); ?>" role="tab" aria-selected="<?php echo $index === 0 ? 'true' : 'false'; ?>">
-                  <div class="qr-door-tab-top">
-                    <span class="qr-door-num"><?php echo esc_html($door_number); ?></span>
-                    <span class="qr-door-status"><?php echo esc_html(ado_quote_group_match_label($state, count($unmatched_rows))); ?></span>
-                  </div>
-                  <div class="qr-door-tab-label"><?php echo esc_html($door_label); ?></div>
-                  <div class="qr-door-tab-meta">
-                    <span><?php echo esc_html((string) $totals['count']); ?> lines</span>
-                    <span><?php echo wp_kses_post(ado_quote_totals_html(['subtotal' => (float) $totals['subtotal']])); ?></span>
-                  </div>
-                </button>
-              <?php endforeach; ?>
-            </div>
-
-            <div class="qr-panels">
-              <?php foreach ($groups as $index => $group) :
-                  $door = (array) ($group['door'] ?? []);
-                  $lines = array_values((array) ($group['lines'] ?? []));
-                  $totals = ado_quote_group_totals($group);
-                  $state = ado_quote_group_match_state($group, $unmatched_by_door);
-                  $door_id = (string) ($door['door_id'] ?? ('door-' . $index));
-                  $door_number = (string) ($door['door_number'] ?? ('Door ' . ($index + 1)));
-                  $door_label = (string) ($door['door_label'] ?? ('Door ' . $door_number));
-                  $unmatched_rows = $unmatched_by_door[$door_id] ?? $unmatched_by_door['door-number:' . $door_number] ?? [];
-              ?>
-                <section class="qr-card qr-panel<?php echo $index === 0 ? ' active' : ''; ?>" data-door-panel="<?php echo esc_attr($door_id); ?>" role="tabpanel">
-                  <div class="qr-panel-head">
-                    <div>
-                      <h3 class="qr-panel-title"><?php echo esc_html($door_label); ?></h3>
-                      <p class="qr-panel-copy">
-                        <?php
-                        $panel_meta = [];
-                        if (!empty($door['location'])) {
-                            $panel_meta[] = 'Location: ' . (string) $door['location'];
-                        }
-                        if (!empty($door['desc'])) {
-                            $panel_meta[] = (string) $door['desc'];
-                        }
-                        if (!empty($door['has_operator'])) {
-                            $panel_meta[] = 'Operator scope';
-                        }
-                        echo esc_html($panel_meta ? implode(' | ', $panel_meta) : 'Door-specific hardware extracted from the uploaded schedule.');
-                        ?>
-                      </p>
-                    </div>
-                    <div class="qr-panel-metrics">
-                      <div class="qr-metric"><strong><?php echo esc_html((string) $totals['count']); ?></strong><span>Lines</span></div>
-                      <div class="qr-metric"><strong><?php echo esc_html((string) $totals['qty']); ?></strong><span>Total Qty</span></div>
-                      <div class="qr-metric"><strong><?php echo esc_html((string) count($unmatched_rows)); ?></strong><span>Needs Review</span></div>
-                    </div>
-                  </div>
-                  <div class="qr-table-wrap">
-                    <?php if ($lines) : ?>
-                      <table class="qr-table">
-                        <thead>
-                          <tr>
-                            <th>Hardware</th>
-                            <th>SKU</th>
-                            <th>Model</th>
-                            <th>Qty</th>
-                            <th>Unit</th>
-                            <th>Line Total</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          <?php foreach ($lines as $line) :
-                              $match_method = strtolower((string) ($line['match_method'] ?? ''));
-                              $confidence = (float) ($line['match_confidence'] ?? 0);
-                              $pill_class = ($match_method === 'title_contains' || $match_method === 'fuzzy' || ($confidence > 0 && $confidence < 95)) ? ' fuzzy' : '';
-                              $unit_price = max(0.0, (float) ($line['line_total'] ?? 0) / max(1, (int) ($line['qty'] ?? 1)));
-                          ?>
-                            <tr>
-                              <td>
-                                <span class="qr-product"><?php echo esc_html((string) ($line['product_name'] ?? '')); ?></span>
-                                <?php if (!empty($line['description']) || !empty($line['raw_line'])) : ?>
-                                  <span class="qr-product-sub"><?php echo esc_html((string) ($line['description'] ?? $line['raw_line'] ?? '')); ?></span>
-                                <?php endif; ?>
-                              </td>
-                              <td><span class="qr-pill model<?php echo esc_attr($pill_class); ?>"><?php echo esc_html((string) ($line['sku'] ?? '')); ?></span></td>
-                              <td><span class="qr-pill model<?php echo esc_attr($pill_class); ?>"><?php echo esc_html((string) ($line['model'] ?? $line['source_model'] ?? '')); ?></span></td>
-                              <td><?php echo esc_html((string) ((int) ($line['qty'] ?? 0))); ?></td>
-                              <td><?php echo wp_kses_post(ado_quote_totals_html(['subtotal' => $unit_price])); ?></td>
-                              <td><?php echo wp_kses_post(ado_quote_totals_html(['subtotal' => (float) ($line['line_total'] ?? 0)])); ?></td>
-                            </tr>
-                          <?php endforeach; ?>
-                        </tbody>
-                      </table>
-                    <?php else : ?>
-                      <div class="qr-empty">No matched hardware lines are available for this door yet.</div>
-                    <?php endif; ?>
-                  </div>
-                </section>
-              <?php endforeach; ?>
-            </div>
-          <?php else : ?>
-            <div class="qr-card">
-              <div class="qr-card-body">
-                <p class="qr-empty">No grouped items are available for this quote.</p>
+          <div class="qr-door-list">
+            <?php foreach ($groups as $index => $group) :
+                $door = (array) ($group['door'] ?? []);
+                $lines = array_values((array) ($group['lines'] ?? []));
+                $totals = ado_quote_group_totals($group);
+                $state = ado_quote_group_match_state($group, $unmatched_by_door);
+                $door_id = (string) ($door['door_id'] ?? ('door-' . $index));
+                $door_number = (string) ($door['door_number'] ?? ('Door ' . ($index + 1)));
+                $door_label = (string) ($door['door_label'] ?? ('Door ' . $door_number));
+                $unmatched_rows = $unmatched_by_door[$door_id] ?? $unmatched_by_door['door-number:' . $door_number] ?? [];
+                $note = (string) ($door_notes[$door_id] ?? ($door['notes'] ?? ''));
+                $open = in_array($state, ['fuzzy', 'manual', 'none'], true) || $index === 0;
+            ?>
+            <div class="qr-door-card match-<?php echo esc_attr($state); ?><?php echo $open ? ' open' : ''; ?>" id="qr-door-<?php echo esc_attr($door_id); ?>" data-door-id="<?php echo esc_attr($door_id); ?>">
+              <div class="qr-door-header">
+                <div class="qr-door-num"><?php echo esc_html($door_number); ?></div>
+                <div class="qr-door-title"><strong><?php echo esc_html($door_label); ?></strong><span><?php echo esc_html(trim(implode(' | ', array_filter([(string) ($door['location'] ?? ''), (string) ($door['desc'] ?? '')])))); ?></span></div>
+                <span class="qr-door-tag<?php echo empty($door['has_operator']) ? ' out-scope' : ''; ?>"><?php echo esc_html(!empty($door['door_type']) ? (string) $door['door_type'] : (!empty($door['has_operator']) ? 'Operator scope' : 'No Operator')); ?></span>
+                <span class="qr-door-badge"><?php echo esc_html(ado_quote_group_match_label($state, count($unmatched_rows))); ?></span>
+                <div class="qr-door-total"><?php echo $state === 'out-of-scope' ? '&mdash;' : wp_kses_post(ado_quote_totals_html(['subtotal' => (float) $totals['subtotal']])); ?></div>
+                <svg class="qr-door-chevron" width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path fill-rule="evenodd" d="M4.646 1.646a.5.5 0 01.708 0l6 6a.5.5 0 010 .708l-6 6a.5.5 0 01-.708-.708L10.293 8 4.646 2.354a.5.5 0 010-.708z" clip-rule="evenodd"/></svg>
+              </div>
+              <div class="qr-door-body">
+                <?php if ($lines) : ?><table class="qr-table"><thead><tr><th>Model</th><th>Description</th><th style="text-align:center">Qty</th><th>Unit Price</th><th>Line Total</th></tr></thead><tbody><?php foreach ($lines as $line) : $line_state = ((string) ($line['line_type'] ?? '') === 'manual') ? 'none' : ((((float) ($line['match_confidence'] ?? 0)) > 0 && ((float) ($line['match_confidence'] ?? 0)) < 95) ? 'fuzzy' : ''); ?><tr><td><span class="qr-model<?php echo $line_state ? ' ' . esc_attr($line_state) : ''; ?>"><?php echo esc_html((string) ($line['model'] ?? $line['source_model'] ?? '')); ?></span></td><td><span class="qr-desc"><?php echo esc_html((string) ($line['description'] ?? $line['product_name'] ?? '')); ?></span><?php if (!empty($line['line_type']) && $line['line_type'] === 'manual') : ?><span class="qr-desc subtle"><br>Manual pricing line</span><?php endif; ?></td><td style="text-align:center"><?php echo esc_html((string) ((int) ($line['qty'] ?? 0))); ?></td><td><?php echo wp_kses_post(ado_quote_totals_html(['subtotal' => (float) ($line['unit_price'] ?? 0)])); ?></td><td><?php echo wp_kses_post(ado_quote_totals_html(['subtotal' => (float) ($line['line_total'] ?? 0)])); ?></td></tr><?php endforeach; ?></tbody></table><?php endif; ?>
+                <?php foreach ($unmatched_rows as $row_unmatched) : $line_key = (string) ($row_unmatched['line_key'] ?? ''); $adjustment = is_array($line_adjustments[$line_key] ?? null) ? $line_adjustments[$line_key] : []; echo ado_render_quote_inline_review($row_unmatched, $quote_id, $adjustment); endforeach; ?>
+                <?php if ($state === 'out-of-scope') : ?><div class="qr-inline-review" style="background:#f0f1f3;border:1px solid var(--ado-border);"><div class="qr-inline-copy"><strong>This door is out of scope</strong><span>Hardware schedule shows no operator hardware for this door. It is visible for completeness but not priced.</span></div></div><?php endif; ?>
+                <div class="qr-notes-row"><div class="qr-notes-label">Notes</div><div class="qr-notes-wrap"><textarea class="qr-notes" data-quote-id="<?php echo esc_attr((string) $quote_id); ?>" data-door-id="<?php echo esc_attr($door_id); ?>" placeholder="Add install notes, special conditions, or clarification for this door."><?php echo esc_textarea($note); ?></textarea><button type="button" class="qr-mini-btn primary ado-save-door-note" data-quote-id="<?php echo esc_attr((string) $quote_id); ?>" data-door-id="<?php echo esc_attr($door_id); ?>" style="margin-top:8px;">Save note</button></div></div>
               </div>
             </div>
-          <?php endif; ?>
-
+            <?php endforeach; ?>
+          </div>
           <?php echo $flash_banner; ?>
-          <?php echo $match_review; ?>
           <?php echo $debug_log; ?>
         </div>
-
         <aside class="qr-sidebar">
-          <div class="qr-card">
-            <div class="qr-card-header">
-              <h3 class="qr-card-title">Quote Summary</h3>
-            </div>
-            <div class="qr-card-body">
-              <div class="qr-summary-list">
-                <div class="qr-summary-row"><span>Quote status</span><strong><?php echo esc_html(ucfirst((string) $row['status'])); ?></strong></div>
-                <div class="qr-summary-row"><span>Doors scoped</span><strong><?php echo esc_html((string) count($groups)); ?></strong></div>
-                <div class="qr-summary-row"><span>Hardware quantity</span><strong><?php echo esc_html((string) $row['total_items']); ?></strong></div>
-                <div class="qr-summary-row"><span>Unmatched lines</span><strong><?php echo esc_html((string) ($row['unmatched_count'] ?? 0)); ?></strong></div>
-              </div>
-              <div class="qr-summary-total">
-                <span>Subtotal</span>
-                <strong><?php echo wp_kses_post((string) $row['subtotal_html']); ?></strong>
-              </div>
-            </div>
-          </div>
-
-          <div class="qr-card">
-            <div class="qr-card-header">
-              <h3 class="qr-card-title">Actions</h3>
-            </div>
-            <div class="qr-card-body">
-              <div class="qr-actions">
-                <?php if ((string) $row['status'] !== 'ordered') : ?>
-                  <a class="qr-button primary" href="<?php echo esc_url(ado_quote_checkout_url($quote_id)); ?>">Checkout This Quote</a>
-                <?php elseif ((int) $row['order_id'] > 0) : ?>
-                  <a class="qr-button primary" href="<?php echo esc_url(wc_get_endpoint_url('view-order', (string) ((int) $row['order_id']), wc_get_page_permalink('myaccount'))); ?>">Open Project Order #<?php echo esc_html((string) ((int) $row['order_id'])); ?></a>
-                <?php endif; ?>
-                <?php if ($can_rerun) : ?>
-                  <button class="qr-button secondary ado-rerun-match" type="button" data-id="<?php echo esc_attr((string) $quote_id); ?>">Re-run Matching</button>
-                <?php endif; ?>
-                <a class="qr-button secondary" href="<?php echo esc_url(home_url('/portal/quotes/')); ?>">Back to My Quotes</a>
-              </div>
-            </div>
-          </div>
-
-          <div class="qr-card">
-            <div class="qr-card-header">
-              <h3 class="qr-card-title">Review Flags</h3>
-            </div>
-            <div class="qr-card-body">
-              <div class="qr-flags">
-                <div class="qr-flag <?php echo !empty($row['unmatched_count']) ? 'warn' : 'neutral'; ?>">
-                  <span>Unmatched hardware lines</span>
-                  <span><?php echo esc_html((string) ($row['unmatched_count'] ?? 0)); ?></span>
-                </div>
-                <div class="qr-flag neutral">
-                  <span>Grouped door tabs</span>
-                  <span><?php echo esc_html((string) count($groups)); ?></span>
-                </div>
-                <div class="qr-flag neutral">
-                  <span>Quote source</span>
-                  <span><?php echo esc_html($scope_file !== '' ? $scope_file : 'Scoped JSON'); ?></span>
-                </div>
-              </div>
-            </div>
-          </div>
+          <div class="qr-sidecard"><div class="qr-sidehead"><div class="qr-sidetitle">Quote Summary</div><span style="font-size:11px;color:var(--ado-muted)">Live review</span></div><div class="qr-sidebody"><div class="qr-siderow"><span>Project</span><strong><?php echo esc_html((string) $row['name']); ?></strong></div><div class="qr-siderow"><span>Doors in scope</span><strong><?php echo esc_html((string) $summary['doors_in_scope']); ?> of <?php echo esc_html((string) $summary['doors_total']); ?></strong></div><div class="qr-siderow"><span>Matched doors</span><strong><?php echo esc_html((string) $summary['matched_doors']); ?></strong></div><div class="qr-siderow"><span>Manual / TBD</span><strong><?php echo esc_html((string) ($summary['manual_doors'] + $summary['unknown_doors'])); ?></strong></div><div class="qr-siderow"><span>Hardware quantity</span><strong><?php echo esc_html((string) $row['total_items']); ?></strong></div></div><div class="qr-total"><span>Est. Total</span><strong><?php echo wp_kses_post((string) $row['subtotal_html']); ?></strong></div></div>
+          <div class="qr-sidecard"><div class="qr-sidehead"><div class="qr-sidetitle">Items Needing Review</div></div><div class="qr-sidebody"><div class="qr-flag-list"><?php $has_flags = false; foreach ($groups as $group) { $door = (array) ($group['door'] ?? []); $door_id = (string) ($door['door_id'] ?? ''); $door_number = (string) ($door['door_number'] ?? ''); $state = ado_quote_group_match_state($group, $unmatched_by_door); if (!in_array($state, ['fuzzy', 'manual', 'none'], true)) { continue; } $has_flags = true; echo '<div class="qr-flag-item ' . esc_attr(ado_quote_flag_class($state)) . '" data-scroll-door="' . esc_attr($door_id) . '"><span>' . esc_html($door_number . ' - ' . ado_quote_flag_label($state)) . '</span><strong>' . esc_html((string) count((array) ($unmatched_by_door[$door_id] ?? []))) . '</strong></div>'; } if (!$has_flags) { echo '<div class="qr-flag-item neutral"><span>No review flags remain.</span><strong>0</strong></div>'; } ?></div><div style="font-size:11.5px;color:var(--ado-muted);margin-top:10px;line-height:1.5;">You can proceed with checkout after reviewing any flagged doors. Manual-priced lines remain visible for follow-up.</div></div></div>
+          <div class="qr-sidecard"><div class="qr-sidehead"><div class="qr-sidetitle">Submit &amp; Approve</div></div><div class="qr-sidebody"><div class="qr-po-label">Purchase Order Number</div><input class="qr-po-input" type="text" placeholder="e.g. PO-2026-0041" disabled><div class="qr-note">Submitting locks in the current quote structure. Manual-priced or unresolved items can still be followed up separately.</div><?php if ((string) $row['status'] !== 'ordered') : ?><a class="qr-btn primary" href="<?php echo esc_url(ado_quote_checkout_url($quote_id)); ?>">Checkout This Quote</a><?php elseif ((int) $row['order_id'] > 0) : ?><a class="qr-btn primary" href="<?php echo esc_url(wc_get_endpoint_url('view-order', (string) ((int) $row['order_id']), wc_get_page_permalink('myaccount'))); ?>">Open Project Order #<?php echo esc_html((string) ((int) $row['order_id'])); ?></a><?php endif; ?><?php if ($can_rerun) : ?><button class="qr-btn ado-rerun-match" type="button" data-id="<?php echo esc_attr((string) $quote_id); ?>">Re-run Matching</button><?php endif; ?><a class="qr-btn" href="<?php echo esc_url(home_url('/portal/quotes/')); ?>">Back to My Quotes</a></div></div>
         </aside>
       </div>
     </div>
     <script>
-      (function(){
-        var root = document.querySelector('.ado-quote-review[data-quote-id="<?php echo esc_js((string) $quote_id); ?>"]');
-        if (!root) { return; }
-        var tabs = root.querySelectorAll('[data-door-tab]');
-        var panels = root.querySelectorAll('[data-door-panel]');
-        function activate(doorId){
-          tabs.forEach(function(tab){
-            var active = tab.getAttribute('data-door-tab') === doorId;
-            tab.classList.toggle('active', active);
-            tab.setAttribute('aria-selected', active ? 'true' : 'false');
-          });
-          panels.forEach(function(panel){
-            panel.classList.toggle('active', panel.getAttribute('data-door-panel') === doorId);
-          });
-        }
-        tabs.forEach(function(tab){
-          tab.addEventListener('click', function(){
-            activate(tab.getAttribute('data-door-tab'));
-          });
-        });
-        if (tabs.length && !root.querySelector('.qr-door-tab.active')) {
-          activate(tabs[0].getAttribute('data-door-tab'));
-        }
-      })();
+      (function($){
+        var root = $('.ado-quote-review[data-quote-id="<?php echo esc_js((string) $quote_id); ?>"]');
+        if (!root.length) { return; }
+        var ajaxUrl = <?php echo wp_json_encode(admin_url('admin-ajax.php')); ?>;
+        var nonce = <?php echo wp_json_encode($nonce); ?>;
+        root.on('click', '.qr-door-header', function(){ $(this).closest('.qr-door-card').toggleClass('open'); });
+        root.on('click', '[data-scroll-door]', function(){ var id = $(this).data('scroll-door'); var card = $('#qr-door-' + id); if (!card.length) { return; } card.addClass('open'); card[0].scrollIntoView({behavior:'smooth', block:'center'}); });
+        root.on('click', '.ado-save-door-note', function(){ var button = $(this); var doorId = button.data('door-id'); var note = root.find('.qr-notes[data-door-id="' + doorId + '"]').val() || ''; $.post(ajaxUrl, {action:'ado_save_quote_door_note', nonce:nonce, quote_id:button.data('quote-id'), door_id:doorId, note:note}).done(function(res){ if (!res || !res.success) { window.alert((res && res.data && res.data.message) ? res.data.message : 'Failed to save note.'); return; } button.text('Saved'); setTimeout(function(){ button.text('Save note'); }, 1200); }).fail(function(){ window.alert('Failed to save note.'); }); });
+        root.on('click', '.ado-save-line-adjustment', function(){ var button = $(this); var wrap = button.closest('.qr-inline-review'); $.post(ajaxUrl, {action:'ado_save_quote_line_adjustment', nonce:nonce, quote_id:button.data('quote-id'), line_key:button.data('line-key'), corrected_model:wrap.find('.qr-adjust-model').val() || '', manual_description:wrap.find('.qr-adjust-desc').val() || '', manual_sku:wrap.find('.qr-adjust-sku').val() || '', manual_unit_price:wrap.find('.qr-adjust-price').val() || ''}).done(function(res){ if (!res || !res.success) { window.alert((res && res.data && res.data.message) ? res.data.message : 'Failed to save line adjustment.'); return; } if (res.data && res.data.quote_url) { window.location.href = res.data.quote_url; return; } window.location.reload(); }).fail(function(){ window.alert('Failed to save line adjustment.'); }); });
+      })(jQuery);
     </script>
     <?php
 
