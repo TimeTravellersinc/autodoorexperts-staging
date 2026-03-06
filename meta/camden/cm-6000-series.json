@@ -1,0 +1,13 @@
+{
+  "source_url": "https://www.camdencontrols.com/category/activation/Mushroom%20Push%20Buttons/products/CM_6000_Series",
+  "brand": "Camden",
+  "category": "Actuators",
+  "secondary_category": "Keyswitches",
+  "series_title": "CM-6000 Series",
+  "series_subtitle": "Locking Push Buttons",
+  "models": [
+    { "sku": "CM-6030", "price": 99.99 },
+    { "sku": "CM-6040", "price": 99.99 },
+    { "sku": "CM-6050", "price": 104.99 }
+  ]
+}

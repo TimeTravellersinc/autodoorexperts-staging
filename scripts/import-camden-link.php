@@ -378,8 +378,15 @@ function ado_camden_price_for_model(string $category_slug, array $model, array $
         return round($base, 2);
     }
 
-    if (preg_match('/^CM-[345]/i', $sku) || str_contains($text, 'PUSHBUTTON') || str_contains($text, 'PUSH/PULL') || str_contains($text, 'FACEPLATE')) {
+    if (preg_match('/^CM-[3456]/i', $sku) || str_contains($text, 'PUSHBUTTON') || str_contains($text, 'PUSH/PULL') || str_contains($text, 'FACEPLATE')) {
         $price = 34.99;
+        if (preg_match('/^CM-6/i', $sku) || str_contains($text, 'KEY TO RELEASE')) {
+            $price = 99.99;
+            if (str_contains($text, 'N/O AND N/C') || str_contains($text, 'N/O \\& N/C')) {
+                $price += 5.00;
+            }
+            return round($price, 2);
+        }
         if (str_contains($text, 'NARROW') || str_ends_with($sku, 'N')) {
             $price = 39.99;
         }
@@ -548,6 +555,16 @@ foreach ($models as $model) {
     }
 
     $category_term_ids = [$category_term_id];
+    if (
+        ($category_slug === 'keyswitches' && !str_contains($sku, 'CYL') && str_contains(strtoupper($variant_title), 'PUSH PLATE'))
+        || ($category_slug === 'actuators' && str_contains(strtoupper($variant_title), 'KEY TO RELEASE'))
+    ) {
+        $keyswitch_term_id = ado_camden_find_term_id('product_cat', 'Keyswitches');
+        if ($keyswitch_term_id > 0) {
+            $category_term_ids[] = $keyswitch_term_id;
+        }
+    }
+
     if ($category_slug === 'keyswitches' && !str_contains($sku, 'CYL') && str_contains(strtoupper($variant_title), 'PUSH PLATE')) {
         $category_term_ids[] = $actuator_term_id;
     }
