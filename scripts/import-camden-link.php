@@ -378,7 +378,7 @@ function ado_camden_price_for_model(string $category_slug, array $model, array $
         return round($base, 2);
     }
 
-    if (preg_match('/^CM-[34]/i', $sku) || str_contains($text, 'PUSHBUTTON') || str_contains($text, 'PUSH/PULL') || str_contains($text, 'FACEPLATE')) {
+    if (preg_match('/^CM-[345]/i', $sku) || str_contains($text, 'PUSHBUTTON') || str_contains($text, 'PUSH/PULL') || str_contains($text, 'FACEPLATE')) {
         $price = 34.99;
         if (str_contains($text, 'NARROW') || str_ends_with($sku, 'N')) {
             $price = 39.99;
@@ -389,11 +389,17 @@ function ado_camden_price_for_model(string $category_slug, array $model, array $
         if (str_contains($text, 'ILLUMINATED') || preg_match('/^CM-3/i', $sku)) {
             $price += 8.00;
         }
+        if (preg_match('/^CM-5/i', $sku)) {
+            $price += 5.00;
+        }
         if (str_contains($text, 'N/O AND N/C') || str_contains($text, 'N/O \\& N/C')) {
             $price += 5.00;
         }
         if (str_contains($text, 'MAINTAINED')) {
             $price += 8.00;
+        }
+        if (str_contains($text, 'TURN TO RELEASE')) {
+            $price += 10.00;
         }
         if (str_contains($text, 'PNEUMATIC') || str_contains($text, 'TIME DELAY') || str_contains($text, 'TIMER')) {
             $price += 10.00;

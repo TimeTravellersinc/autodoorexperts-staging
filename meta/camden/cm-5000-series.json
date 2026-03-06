@@ -1,0 +1,21 @@
+{
+  "source_url": "https://www.camdencontrols.com/category/activation/Mushroom%20Push%20Buttons/products/CM_5000_Series",
+  "brand": "Camden",
+  "category": "Actuators",
+  "series_title": "CM-5000 Series",
+  "series_subtitle": "2-3/8\" Pushbutton, Aluminum Faceplate",
+  "models": [
+    { "sku": "CM-5000", "price": 39.99 },
+    { "sku": "CM-5010", "price": 39.99 },
+    { "sku": "CM-5020", "price": 44.99 },
+    { "sku": "CM-5085", "price": 49.99 },
+    { "sku": "CM-5085RPTE", "price": 53.99 },
+    { "sku": "CM-5085GPTE", "price": 49.99 },
+    { "sku": "CM-5030", "price": 47.99 },
+    { "sku": "CM-5040", "price": 47.99 },
+    { "sku": "CM-5050", "price": 52.99 },
+    { "sku": "CM-5060", "price": 57.99 },
+    { "sku": "CM-5070", "price": 57.99 },
+    { "sku": "CM-5080", "price": 62.99 }
+  ]
+}
