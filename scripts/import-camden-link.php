@@ -417,6 +417,32 @@ function ado_camden_price_for_model(string $category_slug, array $model, array $
         return $wec_prices[$sku];
     }
 
+    $strike_prices = [
+        'CX-ED1689L' => 159.99,
+        'CX-ED1799L' => 189.99,
+        'CX-ED1689L-4' => 199.99,
+        'CX-ED1689L-4-BK' => 209.99,
+        'CX-ED1799L-8' => 239.99,
+        'CX-ED1799L-8-BK' => 249.99,
+        'CX-STR-TMPKIT' => 39.99,
+    ];
+    if (isset($strike_prices[$sku])) {
+        return $strike_prices[$sku];
+    }
+    if (preg_match('/^CX-EMP-/i', $sku)) {
+        $price = 24.99;
+        if (str_contains($sku, 'W')) {
+            $price += 3.00;
+        }
+        if (str_contains($sku, '-BK')) {
+            $price += 2.00;
+        }
+        if (preg_match('/-(110|210|310|410)/', $sku)) {
+            $price += 2.00;
+        }
+        return round($price, 2);
+    }
+
     if (preg_match('/^CX-247/i', $sku)) {
         $price = 89.99;
         if (str_contains($sku, 'H-')) {
@@ -934,6 +960,9 @@ foreach ($models as $model) {
         continue;
     }
     $variant_title = trim((string) ($model['title'] ?? ''));
+    if ($variant_title === '\\') {
+        $variant_title = '';
+    }
     if (str_contains(strtoupper($variant_title), 'DISCONTINUED')) {
         echo 'SKIPPED|DISCONTINUED|' . $sku . PHP_EOL;
         continue;
@@ -953,8 +982,9 @@ foreach ($models as $model) {
     }
 
     $subsection = trim((string) ($model['subsection'] ?? ''));
-    $display_name = trim('Camden ' . $sku . ' - ' . ($variant_title !== '' ? $variant_title : $series_subtitle));
-    $short_description = trim($variant_title);
+    $title_for_display = $variant_title !== '' ? $variant_title : ($subsection !== '' ? $subsection : $series_subtitle);
+    $display_name = trim('Camden ' . $sku . ' - ' . $title_for_display);
+    $short_description = trim($title_for_display);
 
     $description_parts = [];
     if ($series_title !== '') {
