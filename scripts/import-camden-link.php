@@ -119,8 +119,16 @@ function ado_camden_extract_models(string $html): array {
     return $models;
 }
 
-function ado_camden_extract_model_image_urls(string $html): array {
+function ado_camden_extract_model_image_urls(string $html, array $models): array {
     $images = [];
+    $models_by_uid = [];
+    foreach ($models as $model) {
+        $uid = (string) ($model['uid'] ?? '');
+        if ($uid === '') {
+            continue;
+        }
+        $models_by_uid[$uid] = strtoupper((string) ($model['model_number'] ?? ''));
+    }
     if (!preg_match_all('/<tbody\s+id="eModel-~(?<uid>\d+)"[^>]*>(?<body>.*?)<\/tbody>/is', $html, $matches, PREG_SET_ORDER)) {
         return $images;
     }
@@ -128,12 +136,30 @@ function ado_camden_extract_model_image_urls(string $html): array {
     foreach ($matches as $match) {
         $uid = (string) ($match['uid'] ?? '');
         $body = (string) ($match['body'] ?? '');
-        if (!preg_match_all('/src="(?<src>\/pipelines\/resource\/[^"]+\.(?:png|jpg|jpeg|webp))"/i', $body, $img_matches)) {
+        $model_number = (string) ($models_by_uid[$uid] ?? '');
+        if ($model_number === '') {
             continue;
         }
-        foreach ((array) ($img_matches['src'] ?? []) as $src) {
-            $src = trim((string) $src);
+        if (!preg_match_all('/<img[^>]+src="(?<src>\/pipelines\/resource\/[^"]+\.(?:png|jpg|jpeg|webp))"[^>]*>/i', $body, $img_matches, PREG_SET_ORDER)) {
+            continue;
+        }
+        foreach ($img_matches as $img_match) {
+            $tag = (string) ($img_match[0] ?? '');
+            $src = trim((string) ($img_match['src'] ?? ''));
             if ($src === '' || str_ends_with($src, 'blank.gif')) {
+                continue;
+            }
+            $tag_upper = strtoupper(html_entity_decode(strip_tags($tag), ENT_QUOTES | ENT_HTML5, 'UTF-8'));
+            $alt_match = '';
+            if (preg_match('/alt="([^"]*)"/i', $tag, $alt)) {
+                $alt_match = strtoupper(ado_camden_decode((string) ($alt[1] ?? '')));
+            }
+            $title_match = '';
+            if (preg_match('/title="([^"]*)"/i', $tag, $title)) {
+                $title_match = strtoupper(ado_camden_decode((string) ($title[1] ?? '')));
+            }
+            $context = $alt_match . ' ' . $title_match . ' ' . strtoupper(ado_camden_decode(strip_tags($body)));
+            if (strpos($context, $model_number) === false) {
                 continue;
             }
             $images[$uid] = 'https://www.camdencontrols.com' . $src;
@@ -331,7 +357,7 @@ $titles = ado_camden_title_parts($html);
 $series_title = $titles[0] ?? '';
 $series_subtitle = $titles[1] ?? '';
 $models = ado_camden_extract_models($html);
-$image_urls = ado_camden_extract_model_image_urls($html);
+$image_urls = ado_camden_extract_model_image_urls($html, $models);
 
 if (!$models) {
     fwrite(STDERR, "No models found on page.\n");
