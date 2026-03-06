@@ -228,10 +228,10 @@ function ado_camden_price_for_model(string $category_slug, array $model, array $
             return round($price, 2);
         }
         if (str_contains($text, 'VESTIBULE')) {
-            return 74.99;
+            return 104.99;
         }
-        if (str_contains($text, 'KEY SWITCH')) {
-            return 69.99;
+        if (str_contains($text, 'KEY SWITCH') || str_contains($text, 'PUSH PLATE')) {
+            return 99.99;
         }
         $base = $stats['median'] > 0 ? $stats['median'] : 59.99;
         return round($base, 2);
@@ -331,6 +331,7 @@ if (!$models) {
 
 $category_slug = sanitize_title($category_name);
 $category_term_id = ado_camden_find_term_id('product_cat', $category_name);
+$actuator_term_id = ado_camden_find_term_id('product_cat', 'Actuators');
 $brand_term_id = ado_camden_find_term_id('product_brand', 'Camden');
 $brand_attr_term_id = ado_camden_find_term_id('pa_brand', 'Camden');
 $price_stats = ado_camden_category_price_stats($category_slug);
@@ -390,7 +391,11 @@ foreach ($models as $model) {
         throw new RuntimeException('Failed to save product for ' . $sku);
     }
 
-    wp_set_object_terms($saved_id, [$category_term_id], 'product_cat', false);
+    $category_term_ids = [$category_term_id];
+    if ($category_slug === 'keyswitches' && !str_contains($sku, 'CYL') && str_contains(strtoupper($variant_title), 'PUSH PLATE')) {
+        $category_term_ids[] = $actuator_term_id;
+    }
+    wp_set_object_terms($saved_id, array_values(array_unique($category_term_ids)), 'product_cat', false);
     wp_set_object_terms($saved_id, [$brand_term_id], 'product_brand', false);
     wp_set_object_terms($saved_id, [$brand_attr_term_id], 'pa_brand', false);
 
