@@ -42,6 +42,8 @@ function ado_quote_post_row(WP_Post $post): array
     $snapshot = is_array($snapshot) ? $snapshot : [];
     $unmatched = get_post_meta($id, '_adq_unmatched_items', true);
     $unmatched = is_array($unmatched) ? $unmatched : [];
+    $excluded = get_post_meta($id, '_adq_excluded_items', true);
+    $excluded = is_array($excluded) ? $excluded : [];
     $created = (string) get_post_meta($id, '_adq_created_at', true);
     if ($created === '') {
         $created = (string) $post->post_date;
@@ -60,7 +62,7 @@ function ado_quote_post_row(WP_Post $post): array
         'subtotal' => (float) ($totals['subtotal'] ?? 0),
         'subtotal_html' => ado_quote_totals_html($totals),
         'total_items' => $items_total,
-        'unmatched_count' => count($unmatched),
+        'unmatched_count' => count($unmatched) + count($excluded),
         'door_count' => count((array) get_post_meta($id, '_adq_doors', true)),
         'scope_url' => (string) get_post_meta($id, '_adq_scope_url', true),
         'order_id' => (int) get_post_meta($id, '_adq_order_id', true),
@@ -329,6 +331,9 @@ function ado_render_quote_review_actions_html(array $row, int $quote_id): string
 
 function ado_render_quote_match_review(int $quote_id): string
 {
+    if (!current_user_can('manage_woocommerce')) {
+        return '';
+    }
     $unmatched = get_post_meta($quote_id, '_adq_unmatched_items', true);
     $unmatched = is_array($unmatched) ? $unmatched : [];
     if (!$unmatched) {
@@ -361,6 +366,39 @@ function ado_render_quote_match_review(int $quote_id): string
         echo '<td>' . esc_html((string) ($row['qty'] ?? '')) . '</td>';
         echo '<td>' . esc_html((string) ($row['reason_code'] ?? '')) . '</td>';
         echo '<td>' . ado_render_quote_review_actions_html($row, $quote_id) . '</td>';
+        echo '</tr>';
+    }
+    echo '</tbody></table></div>';
+    return (string) ob_get_clean();
+}
+
+function ado_render_quote_dropped_log(int $quote_id): string
+{
+    if (!current_user_can('manage_woocommerce')) {
+        return '';
+    }
+    $unmatched = get_post_meta($quote_id, '_adq_unmatched_items', true);
+    $excluded = get_post_meta($quote_id, '_adq_excluded_items', true);
+    $rows = array_merge(is_array($unmatched) ? $unmatched : [], is_array($excluded) ? $excluded : []);
+    if (!$rows) {
+        return '';
+    }
+
+    ob_start();
+    echo '<div class="ado-card"><h3 style="margin-top:0;">Dropped Items Log</h3>';
+    echo '<p class="ado-muted">These scoped rows were not included in the quote because they did not resolve to a WooCommerce product.</p>';
+    echo '<table class="ado-table"><thead><tr><th>Door</th><th>Model</th><th>Description</th><th>Qty</th><th>Reason</th><th>Raw Line</th></tr></thead><tbody>';
+    foreach ($rows as $row) {
+        if (!is_array($row)) {
+            continue;
+        }
+        echo '<tr>';
+        echo '<td>' . esc_html((string) ($row['door_number'] ?? '')) . '</td>';
+        echo '<td>' . esc_html((string) ($row['model'] ?? '')) . '</td>';
+        echo '<td>' . esc_html((string) ($row['description'] ?? '')) . '</td>';
+        echo '<td>' . esc_html((string) ($row['qty'] ?? '')) . '</td>';
+        echo '<td>' . esc_html((string) ($row['excluded_reason'] ?? $row['reason_code'] ?? '')) . '</td>';
+        echo '<td>' . esc_html((string) ($row['raw_line'] ?? '')) . '</td>';
         echo '</tr>';
     }
     echo '</tbody></table></div>';
@@ -516,37 +554,29 @@ function ado_quote_review_summary(int $quote_id): array
         'doors_total' => count($groups),
         'doors_in_scope' => count($groups),
         'matched_doors' => 0,
-        'fuzzy_doors' => 0,
-        'unknown_doors' => 0,
-        'manual_doors' => 0,
-        'review_items' => 0,
+        'empty_doors' => 0,
         'manual_lines' => 0,
-        'excluded_rows' => 0,
+        'dropped_rows' => 0,
     ];
 
     foreach ($groups as $group) {
-        $state = ado_quote_group_match_state($group, $unmatched_by_door);
-        if ($state === 'full') {
+        $lines = array_values((array) ($group['lines'] ?? []));
+        if ($lines) {
             $summary['matched_doors']++;
-        } elseif ($state === 'fuzzy') {
-            $summary['fuzzy_doors']++;
-        } elseif ($state === 'none') {
-            $summary['unknown_doors']++;
-        } elseif ($state === 'manual') {
-            $summary['manual_doors']++;
+        } else {
+            $summary['empty_doors']++;
         }
         $door = (array) ($group['door'] ?? []);
         $door_id = (string) ($door['door_id'] ?? '');
         $door_number = (string) ($door['door_number'] ?? '');
-        $summary['excluded_rows'] += count((array) ($excluded_by_door[$door_id] ?? $excluded_by_door['door-number:' . $door_number] ?? []));
-        foreach ((array) ($group['lines'] ?? []) as $line) {
+        $summary['dropped_rows'] += count((array) ($unmatched_by_door[$door_id] ?? $unmatched_by_door['door-number:' . $door_number] ?? []));
+        $summary['dropped_rows'] += count((array) ($excluded_by_door[$door_id] ?? $excluded_by_door['door-number:' . $door_number] ?? []));
+        foreach ($lines as $line) {
             if (is_array($line) && (string) ($line['line_type'] ?? '') === 'manual') {
                 $summary['manual_lines']++;
             }
         }
     }
-
-    $summary['review_items'] = $summary['fuzzy_doors'] + $summary['unknown_doors'] + $summary['manual_doors'];
     return $summary;
 }
 
@@ -677,7 +707,7 @@ function ado_render_quote_detail(int $user_id, int $quote_id): string
           <?php if ($scope_file !== '') : ?><span class="qr-chip"><?php echo esc_html($scope_file); ?></span><?php endif; ?>
         </div>
       </div>
-      <div class="qr-banner"><div class="qr-banner-main"><div class="qr-banner-title">Extraction review is ready</div><div class="qr-banner-copy">Every door shown here came from the scoped JSON, so it remains in scope. Review only the hardware lines that still need a WooCommerce match or manual pricing.</div></div><div class="qr-banner-stats"><div class="qr-stat"><strong><?php echo esc_html((string) $summary['matched_doors']); ?></strong><span>Matched</span></div><div class="qr-stat"><strong><?php echo esc_html((string) $summary['review_items']); ?></strong><span>Needs Review</span></div><div class="qr-stat"><strong><?php echo esc_html((string) $summary['excluded_rows']); ?></strong><span>Excluded refs</span></div></div></div>
+      <div class="qr-banner"><div class="qr-banner-main"><div class="qr-banner-title">Quote is built from WooCommerce matches only</div><div class="qr-banner-copy">Only scoped items that resolved to a WooCommerce product are included below. Everything else is dropped from the quote and stored in a separate internal log.</div></div><div class="qr-banner-stats"><div class="qr-stat"><strong><?php echo esc_html((string) $summary['matched_doors']); ?></strong><span>With Matches</span></div><div class="qr-stat"><strong><?php echo esc_html((string) $summary['empty_doors']); ?></strong><span>No Matches</span></div><div class="qr-stat"><strong><?php echo esc_html((string) $summary['dropped_rows']); ?></strong><span>Dropped</span></div></div></div>
       <div class="qr-layout">
         <div class="qr-main">
           <div class="qr-door-list">
@@ -689,22 +719,20 @@ function ado_render_quote_detail(int $user_id, int $quote_id): string
                 $door_id = (string) ($door['door_id'] ?? ('door-' . $index));
                 $door_number = (string) ($door['door_number'] ?? ('Door ' . ($index + 1)));
                 $door_label = (string) ($door['door_label'] ?? ('Door ' . $door_number));
-                $unmatched_rows = $unmatched_by_door[$door_id] ?? $unmatched_by_door['door-number:' . $door_number] ?? [];
                 $note = (string) ($door_notes[$door_id] ?? ($door['notes'] ?? ''));
-                $open = in_array($state, ['fuzzy', 'manual', 'none'], true) || $index === 0;
+                $open = $index === 0;
             ?>
             <div class="qr-door-card match-<?php echo esc_attr($state); ?><?php echo $open ? ' open' : ''; ?>" id="qr-door-<?php echo esc_attr($door_id); ?>" data-door-id="<?php echo esc_attr($door_id); ?>">
               <div class="qr-door-header">
                 <div class="qr-door-num"><?php echo esc_html($door_number); ?></div>
                 <div class="qr-door-title"><strong><?php echo esc_html($door_label); ?></strong><span><?php echo esc_html(trim(implode(' | ', array_filter([(string) ($door['location'] ?? ''), (string) ($door['desc'] ?? '')])))); ?></span></div>
                 <span class="qr-door-tag"><?php echo esc_html(!empty($door['door_type']) ? (string) $door['door_type'] : 'Scoped door'); ?></span>
-                <span class="qr-door-badge"><?php echo esc_html(ado_quote_group_match_label($state, count($unmatched_rows))); ?></span>
+                <span class="qr-door-badge"><?php echo esc_html($lines ? 'Matched' : 'No matched items'); ?></span>
                 <div class="qr-door-total"><?php echo wp_kses_post(ado_quote_totals_html(['subtotal' => (float) $totals['subtotal']])); ?></div>
                 <svg class="qr-door-chevron" width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path fill-rule="evenodd" d="M4.646 1.646a.5.5 0 01.708 0l6 6a.5.5 0 010 .708l-6 6a.5.5 0 01-.708-.708L10.293 8 4.646 2.354a.5.5 0 010-.708z" clip-rule="evenodd"/></svg>
               </div>
               <div class="qr-door-body">
                 <?php if ($lines) : ?><table class="qr-table"><thead><tr><th>Model</th><th>Description</th><th style="text-align:center">Qty</th><th>Unit Price</th><th>Line Total</th></tr></thead><tbody><?php foreach ($lines as $line) : $line_state = ((string) ($line['line_type'] ?? '') === 'manual') ? 'none' : ((((float) ($line['match_confidence'] ?? 0)) > 0 && ((float) ($line['match_confidence'] ?? 0)) < 95) ? 'fuzzy' : ''); ?><tr><td><span class="qr-model<?php echo $line_state ? ' ' . esc_attr($line_state) : ''; ?>"><?php echo esc_html((string) ($line['display_model'] ?? $line['sku'] ?? $line['model'] ?? $line['source_model'] ?? '')); ?></span></td><td><span class="qr-desc"><?php echo esc_html((string) ($line['display_description'] ?? $line['product_name'] ?? $line['description'] ?? '')); ?></span><?php if (!empty($line['line_type']) && $line['line_type'] === 'manual') : ?><span class="qr-desc subtle"><br>Manual pricing line</span><?php endif; ?></td><td style="text-align:center"><?php echo esc_html((string) ((int) ($line['qty'] ?? 0))); ?></td><td><?php echo wp_kses_post(ado_quote_totals_html(['subtotal' => (float) ($line['unit_price'] ?? 0)])); ?></td><td><?php echo wp_kses_post(ado_quote_totals_html(['subtotal' => (float) ($line['line_total'] ?? 0)])); ?></td></tr><?php endforeach; ?></tbody></table><?php endif; ?>
-                <?php foreach ($unmatched_rows as $row_unmatched) : $line_key = (string) ($row_unmatched['line_key'] ?? ''); $adjustment = is_array($line_adjustments[$line_key] ?? null) ? $line_adjustments[$line_key] : []; echo ado_render_quote_inline_review($row_unmatched, $quote_id, $adjustment); endforeach; ?>
                 <div class="qr-notes-row"><div class="qr-notes-label">Notes</div><div class="qr-notes-wrap"><textarea class="qr-notes" data-quote-id="<?php echo esc_attr((string) $quote_id); ?>" data-door-id="<?php echo esc_attr($door_id); ?>" placeholder="Add install notes, special conditions, or clarification for this door."><?php echo esc_textarea($note); ?></textarea><button type="button" class="qr-mini-btn primary ado-save-door-note" data-quote-id="<?php echo esc_attr((string) $quote_id); ?>" data-door-id="<?php echo esc_attr($door_id); ?>" style="margin-top:8px;">Save note</button></div></div>
               </div>
             </div>
@@ -712,10 +740,10 @@ function ado_render_quote_detail(int $user_id, int $quote_id): string
           </div>
           <?php echo $flash_banner; ?>
           <?php echo $debug_log; ?>
+          <?php echo ado_render_quote_dropped_log($quote_id); ?>
         </div>
         <aside class="qr-sidebar">
-          <div class="qr-sidecard"><div class="qr-sidehead"><div class="qr-sidetitle">Quote Summary</div><span style="font-size:11px;color:var(--ado-muted)">Live review</span></div><div class="qr-sidebody"><div class="qr-siderow"><span>Project</span><strong><?php echo esc_html((string) $row['name']); ?></strong></div><div class="qr-siderow"><span>Scoped doors</span><strong><?php echo esc_html((string) $summary['doors_in_scope']); ?></strong></div><div class="qr-siderow"><span>Matched doors</span><strong><?php echo esc_html((string) $summary['matched_doors']); ?></strong></div><div class="qr-siderow"><span>Manual / TBD</span><strong><?php echo esc_html((string) ($summary['manual_doors'] + $summary['unknown_doors'])); ?></strong></div><div class="qr-siderow"><span>Excluded references</span><strong><?php echo esc_html((string) $summary['excluded_rows']); ?></strong></div><div class="qr-siderow"><span>Hardware quantity</span><strong><?php echo esc_html((string) $row['total_items']); ?></strong></div></div><div class="qr-total"><span>Est. Total</span><strong><?php echo wp_kses_post((string) $row['subtotal_html']); ?></strong></div></div>
-          <div class="qr-sidecard"><div class="qr-sidehead"><div class="qr-sidetitle">Items Needing Review</div></div><div class="qr-sidebody"><div class="qr-flag-list"><?php $has_flags = false; foreach ($groups as $group) { $door = (array) ($group['door'] ?? []); $door_id = (string) ($door['door_id'] ?? ''); $door_number = (string) ($door['door_number'] ?? ''); $state = ado_quote_group_match_state($group, $unmatched_by_door); if (!in_array($state, ['fuzzy', 'manual', 'none'], true)) { continue; } $has_flags = true; echo '<div class="qr-flag-item ' . esc_attr(ado_quote_flag_class($state)) . '" data-scroll-door="' . esc_attr($door_id) . '"><span>' . esc_html($door_number . ' - ' . ado_quote_flag_label($state)) . '</span><strong>' . esc_html((string) count((array) ($unmatched_by_door[$door_id] ?? []))) . '</strong></div>'; } if (!$has_flags) { echo '<div class="qr-flag-item neutral"><span>No review flags remain.</span><strong>0</strong></div>'; } ?></div><div style="font-size:11.5px;color:var(--ado-muted);margin-top:10px;line-height:1.5;">You can proceed with checkout after reviewing any flagged doors. Manual-priced lines remain visible for follow-up.</div></div></div>
+          <div class="qr-sidecard"><div class="qr-sidehead"><div class="qr-sidetitle">Quote Summary</div><span style="font-size:11px;color:var(--ado-muted)">Matched products only</span></div><div class="qr-sidebody"><div class="qr-siderow"><span>Project</span><strong><?php echo esc_html((string) $row['name']); ?></strong></div><div class="qr-siderow"><span>Scoped doors</span><strong><?php echo esc_html((string) $summary['doors_in_scope']); ?></strong></div><div class="qr-siderow"><span>Doors with matches</span><strong><?php echo esc_html((string) $summary['matched_doors']); ?></strong></div><div class="qr-siderow"><span>Doors without matches</span><strong><?php echo esc_html((string) $summary['empty_doors']); ?></strong></div><div class="qr-siderow"><span>Dropped items</span><strong><?php echo esc_html((string) $summary['dropped_rows']); ?></strong></div><div class="qr-siderow"><span>Hardware quantity</span><strong><?php echo esc_html((string) $row['total_items']); ?></strong></div></div><div class="qr-total"><span>Est. Total</span><strong><?php echo wp_kses_post((string) $row['subtotal_html']); ?></strong></div></div>
           <div class="qr-sidecard"><div class="qr-sidehead"><div class="qr-sidetitle">Submit &amp; Approve</div></div><div class="qr-sidebody"><div class="qr-po-label">Purchase Order Number</div><input class="qr-po-input" type="text" placeholder="e.g. PO-2026-0041" disabled><div class="qr-note">Submitting locks in the current quote structure. Manual-priced or unresolved items can still be followed up separately.</div><?php if ((string) $row['status'] !== 'ordered') : ?><a class="qr-btn primary" href="<?php echo esc_url(ado_quote_checkout_url($quote_id)); ?>">Checkout This Quote</a><?php elseif ((int) $row['order_id'] > 0) : ?><a class="qr-btn primary" href="<?php echo esc_url(wc_get_endpoint_url('view-order', (string) ((int) $row['order_id']), wc_get_page_permalink('myaccount'))); ?>">Open Project Order #<?php echo esc_html((string) ((int) $row['order_id'])); ?></a><?php endif; ?><?php if ($can_rerun) : ?><button class="qr-btn ado-rerun-match" type="button" data-id="<?php echo esc_attr((string) $quote_id); ?>">Re-run Matching</button><?php endif; ?><a class="qr-btn" href="<?php echo esc_url(home_url('/portal/quotes/')); ?>">Back to My Quotes</a></div></div>
         </aside>
       </div>

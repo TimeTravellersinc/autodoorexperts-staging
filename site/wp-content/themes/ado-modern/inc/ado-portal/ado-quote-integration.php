@@ -94,11 +94,12 @@ final class ADO_Quote_Integration
         $lines = (array) ($mapped['lines'] ?? []);
         $unmatched = array_values((array) ($mapped['unmatched'] ?? []));
         $excluded = array_values((array) ($mapped['excluded'] ?? []));
-        if (!$lines && !$unmatched) {
+        if (!$lines) {
             return [
                 'ok' => false,
                 'message' => 'No products matched scoped JSON.',
                 'unmatched' => $unmatched,
+                'excluded' => $excluded,
                 'debug_log' => array_values((array) ($mapped['debug_log'] ?? [])),
             ];
         }
@@ -139,6 +140,7 @@ final class ADO_Quote_Integration
             'quote_id' => $quote_id,
             'message' => $lines ? 'Quote created from scoped JSON.' : 'Quote created for match review.',
             'unmatched_count' => count($unmatched),
+            'dropped_count' => count($unmatched) + count($excluded),
             'debug_log' => array_values((array) ($mapped['debug_log'] ?? [])),
         ];
     }
@@ -157,7 +159,7 @@ final class ADO_Quote_Integration
         $lines = (array) ($mapped['lines'] ?? []);
         $unmatched = array_values((array) ($mapped['unmatched'] ?? []));
         $excluded = array_values((array) ($mapped['excluded'] ?? []));
-        if (!$lines && !$unmatched) {
+        if (!$lines) {
             return ['ok' => false, 'message' => 'No products matched after rerun.'];
         }
         update_post_meta($quote_id, '_adq_cart_snapshot', array_values($lines));
@@ -172,6 +174,7 @@ final class ADO_Quote_Integration
             'message' => $lines ? 'Matching rerun completed.' : 'Review candidates refreshed.',
             'debug_log' => (array) ($mapped['debug_log'] ?? []),
             'unmatched_count' => count($unmatched),
+            'dropped_count' => count($unmatched) + count($excluded),
         ];
     }
 
@@ -963,10 +966,6 @@ final class ADO_Quote_Integration
             return true;
         }
 
-        if ($description !== '' && strlen($description) >= 4 && preg_match('/\b(?:OPERATOR|ACTUATOR|SWITCH|HARNESS|EXIT DEVICE|PUSH PLATE|POWER SUPPLY|LOCK|LATCH|BOX|SENSOR)\b/i', $description)) {
-            return true;
-        }
-
         return false;
     }
 
@@ -1003,7 +1002,7 @@ final class ADO_Quote_Integration
         if (function_exists('ado_qm_is_external_scope_line') && ado_qm_is_external_scope_line($normalized)) {
             return true;
         }
-        return (bool) preg_match('/\b(?:BY\s+DIV\.?\s*\d+|BY\s+DIVISION\s*\d+|DIV\.?\s*28|ACCESS\s+CONTROL|CARD\s+READER|NURSE\s+CALL\s+SYSTEM|INTERCOM)\b/', $normalized);
+        return (bool) preg_match('/\b(?:BY\s+DIV\.?\s*\d+|BY\s+DIVISION\s*\d+|BY\s+OWNERS?|DIV\.?\s*28|ACCESS\s+CONTROL|CARD\s+READER|NURSE\s+CALL\s+SYSTEM|INTERCOM)\b/', $normalized);
     }
 
     private function door_has_operator(array $items): bool
