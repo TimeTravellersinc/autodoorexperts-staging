@@ -148,12 +148,19 @@ final class ADO_Quote_Integration
     public function rerun_matching(int $quote_id, bool $debug = false): array
     {
         $snapshot_json = (string) get_post_meta($quote_id, '_adq_scoped_json_snapshot', true);
-        if ($snapshot_json === '') {
-            return ['ok' => false, 'message' => 'Quote has no scoped snapshot.'];
-        }
-        $payload = json_decode($snapshot_json, true);
+        $payload = $snapshot_json !== '' ? json_decode($snapshot_json, true) : null;
         if (!is_array($payload)) {
-            return ['ok' => false, 'message' => 'Quote scoped snapshot is invalid.'];
+            $scope_path = (string) get_post_meta($quote_id, '_adq_scope_path', true);
+            if ($scope_path !== '' && file_exists($scope_path)) {
+                $payload = json_decode((string) file_get_contents($scope_path), true);
+                if (is_array($payload)) {
+                    $snapshot_json = wp_json_encode($payload, JSON_UNESCAPED_SLASHES);
+                    update_post_meta($quote_id, '_adq_scoped_json_snapshot', is_string($snapshot_json) ? $snapshot_json : '');
+                }
+            }
+        }
+        if (!is_array($payload)) {
+            return ['ok' => false, 'message' => $snapshot_json === '' ? 'Quote has no scoped snapshot.' : 'Quote scoped snapshot is invalid.'];
         }
         $mapped = $this->map_payload($payload, $debug, $quote_id);
         $lines = (array) ($mapped['lines'] ?? []);

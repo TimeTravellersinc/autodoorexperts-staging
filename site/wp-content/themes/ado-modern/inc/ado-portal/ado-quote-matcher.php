@@ -87,6 +87,9 @@ function ado_qm_is_model_like_fragment(string $value): bool {
     if ($norm === '' || $compact === '' || !preg_match('/\d/', $norm)) { return false; }
     if (ado_qm_is_finish_token($norm) || ado_qm_is_dimension_fragment($norm)) { return false; }
     if (preg_match('/^\d{1,3}$/', $compact)) { return false; }
+    if (preg_match('/^(?:19|20)\d{2}$/', $compact)) { return false; }
+    if (preg_match('/^(?:19|20)\d{6}$/', $compact)) { return false; }
+    if (preg_match('/^\d{5,}$/', $compact) && preg_match('/^\d+$/', $norm)) { return false; }
     if (in_array($compact, array_map('ado_qm_compact', ado_qm_text_stop_words()), true)) { return false; }
     return (bool) preg_match('/(?:[A-Z]|-|\d)/', $norm);
 }
@@ -110,6 +113,7 @@ function ado_qm_extract_fragments_from_text(string $value): array {
     if ($norm === '') { return []; }
     $matches = [];
     foreach ([
+        '/\b\d{3,5}(?:[-\/][A-Z0-9]{1,8})+\b/u',
         '/\b[A-Z0-9]+(?:[-\/][A-Z0-9]+)+\b/u',
         '/\b(?:[A-Z]{1,8}\d[A-Z0-9]*|\d{4,6}[A-Z]{1,8}[A-Z0-9]*)\b/u',
         '/\b\d{4,5}\b/u',
@@ -151,6 +155,13 @@ function ado_qm_model_variants(string $value): array {
     $slash_trim = trim((string) preg_replace('/\/\d+\b/u', '', $norm));
     if ($slash_trim !== '' && $slash_trim !== $norm) {
         $ordered[] = preg_replace('/\s+/', ' ', $slash_trim) ?: $slash_trim;
+    }
+    $compact = ado_qm_compact($norm);
+    if (preg_match('/^(\d{4,5})(?:[A-Z]{1,6})(?:[-\/][A-Z0-9]+)*$/', $compact, $m)) {
+        $ordered[] = $m[1];
+    }
+    if (preg_match('/^([A-Z]+[-\/]?\d{4,5})(?:[-\/][A-Z0-9]+)*$/', $compact, $m)) {
+        $ordered[] = $m[1];
     }
     $seen = [];
     $out = [];
@@ -465,7 +476,9 @@ function ado_qm_segment_qty(string $segment, int $fallback): int {
 
 function ado_qm_extract_candidates(array $item, string $segment, array $index): array {
     $ordered = [];
-    foreach (array_filter([(string) ($item['catalog'] ?? ''), $segment, (string) ($item['desc'] ?? '')], 'strlen') as $source) {
+    $strong_sources = array_filter([(string) ($item['catalog'] ?? ''), $segment], 'strlen');
+    $strong_found = false;
+    foreach ($strong_sources as $source) {
         foreach (ado_qm_extract_fragments_from_text((string) $source) as $fragment) {
             $normalized = ado_qm_compact($fragment);
             if ($normalized === '') { continue; }
@@ -484,6 +497,30 @@ function ado_qm_extract_candidates(array $item, string $segment, array $index): 
                 'anchor' => $anchor,
                 'brand_hints' => array_values(array_unique($brand_hints)),
             ];
+            $strong_found = true;
+        }
+    }
+    if (!$strong_found) {
+        foreach (array_filter([(string) ($item['desc'] ?? '')], 'strlen') as $source) {
+            foreach (ado_qm_extract_fragments_from_text((string) $source) as $fragment) {
+                $normalized = ado_qm_compact($fragment);
+                if ($normalized === '') { continue; }
+                $variants = ado_qm_model_variants($fragment);
+                $signature = ado_qm_model_signature($fragment);
+                $brand_hints = [];
+                $anchor = ado_qm_alpha_prefix($fragment);
+                if ($anchor !== '' && isset($index['anchors'][$anchor])) {
+                    $brand_hints[] = (string) $index['anchors'][$anchor];
+                }
+                $ordered[] = [
+                    'fragment' => $fragment,
+                    'normalized' => $normalized,
+                    'variants' => $variants ?: [$normalized],
+                    'signature' => $signature,
+                    'anchor' => $anchor,
+                    'brand_hints' => array_values(array_unique($brand_hints)),
+                ];
+            }
         }
     }
     $seen = [];
@@ -504,6 +541,106 @@ function ado_qm_extract_candidates(array $item, string $segment, array $index): 
         $out[] = $candidate;
     }
     return $out;
+}
+
+function ado_qm_is_operator_accessory_segment(string $segment): bool {
+    $norm = ado_qm_normalize_text($segment);
+    if ($norm === '') { return false; }
+    if (strpos($norm, 'MOUNTING PLATE') !== false) { return true; }
+    if ((bool) preg_match('/\b(?:TB X|CONCEALED IN HEADER|ON\/OFF\/HO SWITCH|PUSH SIDE MTG|PULL SIDE MTG)\b/', $norm) && strpos($norm, 'AUTO OPENER') === false && strpos($norm, 'OPERATOR') === false) {
+        return true;
+    }
+    return false;
+}
+
+function ado_qm_override_is_safe(string $segment, array $candidate, int $override_id, array $index): bool {
+    if ($override_id <= 0 || empty($index['products'][$override_id])) {
+        return false;
+    }
+    $product = (array) $index['products'][$override_id];
+    $title = strtoupper((string) ($product['title'] ?? ''));
+    if ($title === '') {
+        return false;
+    }
+    if (strpos($title, '9500 SERIES') !== false) {
+        return false;
+    }
+    return true;
+}
+
+function ado_qm_find_product_by_model_hint(array $index, string $model_hint): int {
+    $model_hint = ado_qm_compact($model_hint);
+    if ($model_hint === '') { return 0; }
+    $ids = array_values(array_unique(array_map('intval', (array) ($index['global_models'][$model_hint] ?? []))));
+    return count($ids) === 1 ? (int) $ids[0] : 0;
+}
+
+function ado_qm_resolve_iq_operator_family(array $candidate, string $segment, array $index): array {
+    $normalized = (string) ($candidate['normalized'] ?? '');
+    if ($normalized === '') {
+        return [];
+    }
+    $compact = ado_qm_compact($normalized);
+    if (!preg_match('/^(95[3456])\d{1,3}$/', $compact, $m)) {
+        return [];
+    }
+
+    $family_map = [
+        '953' => '9530IQ',
+        '954' => '9540IQ',
+        '955' => '9550IQ',
+        '956' => '9560IQ',
+    ];
+    $family_model = (string) ($family_map[$m[1]] ?? '');
+    if ($family_model === '') {
+        return [];
+    }
+
+    $segment_norm = ado_qm_normalize_text($segment);
+    $plate = strpos($segment_norm, 'MOUNTING PLATE') !== false || str_ends_with($compact, '18');
+    $target_model = $plate ? ($family_model . '-18') : $family_model;
+    $product_id = ado_qm_find_product_by_model_hint($index, $target_model);
+    if ($product_id <= 0) {
+        return [];
+    }
+
+    return [
+        'product_id' => $product_id,
+        'match_method' => $plate ? 'family_plate_model' : 'family_operator_model',
+        'normalized_model' => ado_qm_compact($family_model),
+    ];
+}
+
+function ado_qm_resolve_9500_family(array $candidate, string $segment, array $index): array {
+    $normalized = ado_qm_compact((string) ($candidate['normalized'] ?? ''));
+    if ($normalized !== '9500') {
+        return [];
+    }
+    $segment_norm = ado_qm_normalize_text($segment);
+    $target_model = '';
+    $method = '';
+    if (strpos($segment_norm, 'MOUNTING PLATE') !== false) {
+        $target_model = '9500-18';
+        $method = 'family_plate_model';
+    } elseif (strpos($segment_norm, 'ELECTRIC STRIKE') !== false) {
+        $target_model = 'HES-9500-SERIES';
+        $method = 'family_strike_model';
+    } elseif (strpos($segment_norm, 'AUTO OPENER') !== false || strpos($segment_norm, 'OPERATOR') !== false) {
+        $target_model = '9500';
+        $method = 'family_operator_model';
+    }
+    if ($target_model === '') {
+        return [];
+    }
+    $product_id = ado_qm_find_product_by_model_hint($index, $target_model);
+    if ($product_id <= 0) {
+        return [];
+    }
+    return [
+        'product_id' => $product_id,
+        'match_method' => $method,
+        'normalized_model' => ado_qm_compact($target_model),
+    ];
 }
 
 function ado_qm_exact_product_rows(array $product_ids, array $index, string $method, int $score): array {
@@ -637,9 +774,43 @@ function ado_qm_match_segment(array $item, string $segment, array $index): array
     foreach ($candidates as $candidate) {
         $normalized = (string) ($candidate['normalized'] ?? '');
         if ($normalized === '') { continue; }
+        $family_match = ado_qm_resolve_iq_operator_family($candidate, $clean_segment, $index);
+        if (!empty($family_match['product_id'])) {
+            return [
+                'product_id' => (int) $family_match['product_id'],
+                'qty' => $qty,
+                'raw_line' => $clean_segment,
+                'source_model' => (string) ($item['catalog'] ?? ''),
+                'source_desc' => (string) ($item['desc'] ?? ''),
+                'match_method' => (string) ($family_match['match_method'] ?? 'family_operator_model'),
+                'confidence' => 96,
+                'reason_code' => '',
+                'candidate_products' => [],
+                'decision_key' => '*|' . (string) ($family_match['normalized_model'] ?? $normalized),
+                'normalized_model' => (string) ($family_match['normalized_model'] ?? $normalized),
+                'trace' => array_merge($trace, ['family_resolve=' . $normalized . '->' . (int) $family_match['product_id']]),
+            ];
+        }
+        $family_match = ado_qm_resolve_9500_family($candidate, $clean_segment, $index);
+        if (!empty($family_match['product_id'])) {
+            return [
+                'product_id' => (int) $family_match['product_id'],
+                'qty' => $qty,
+                'raw_line' => $clean_segment,
+                'source_model' => (string) ($item['catalog'] ?? ''),
+                'source_desc' => (string) ($item['desc'] ?? ''),
+                'match_method' => (string) ($family_match['match_method'] ?? 'family_operator_model'),
+                'confidence' => 96,
+                'reason_code' => '',
+                'candidate_products' => [],
+                'decision_key' => '*|' . (string) ($family_match['normalized_model'] ?? $normalized),
+                'normalized_model' => (string) ($family_match['normalized_model'] ?? $normalized),
+                'trace' => array_merge($trace, ['family_resolve=' . $normalized . '->' . (int) $family_match['product_id']]),
+            ];
+        }
         foreach ((array) ($candidate['decision_keys'] ?? []) as $decision_key) {
             $override_id = ado_qm_override_lookup((string) $decision_key);
-            if ($override_id > 0) {
+            if ($override_id > 0 && ado_qm_override_is_safe($clean_segment, $candidate, $override_id, $index)) {
                 return [
                     'product_id' => $override_id,
                     'qty' => $qty,
@@ -654,6 +825,8 @@ function ado_qm_match_segment(array $item, string $segment, array $index): array
                     'normalized_model' => $normalized,
                     'trace' => array_merge($trace, ['override=' . $decision_key . '->' . $override_id]),
                 ];
+            } elseif ($override_id > 0) {
+                $trace[] = 'override_blocked=' . $decision_key . '->' . $override_id;
             }
         }
 
