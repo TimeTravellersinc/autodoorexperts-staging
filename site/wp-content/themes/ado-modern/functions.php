@@ -15,6 +15,7 @@ require_once get_stylesheet_directory() . '/inc/ado-portal/ado-core-access.php';
 require_once get_stylesheet_directory() . '/inc/ado-portal/ado-quote-matcher.php';
 require_once get_stylesheet_directory() . '/inc/ado-portal/ado-quote-integration.php';
 require_once get_stylesheet_directory() . '/inc/ado-portal/ado-quote-carts.php';
+require_once get_stylesheet_directory() . '/inc/ado-portal/ado-pdf-quote-beta.php';
 require_once get_stylesheet_directory() . '/inc/ado-portal/ado-project-dashboards.php';
 require_once get_stylesheet_directory() . '/inc/ado-portal/ado-client-dashboard-app.php';
 require_once get_stylesheet_directory() . '/inc/ado-portal/ado-technician-portal-app.php';

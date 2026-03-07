@@ -18,5 +18,12 @@ require_once ADX_PARSER_PATH . 'includes/class-adx-extract.php';
 require_once ADX_PARSER_PATH . 'includes/class-adx-parse.php';
 require_once ADX_PARSER_PATH . 'includes/class-adx-scope.php';
 require_once ADX_PARSER_PATH . 'includes/class-autodoor-pdf-debug-hostinger.php';
+require_once ADX_PARSER_PATH . 'includes/beta/class-ado-pdf-beta-artifact-store.php';
+require_once ADX_PARSER_PATH . 'includes/beta/class-ado-pdf-beta-pipeline.php';
+require_once ADX_PARSER_PATH . 'includes/beta/class-ado-pdf-beta-csv-importer.php';
+require_once ADX_PARSER_PATH . 'includes/beta/class-ado-pdf-beta-manager.php';
 
 new AutoDoorPDFDebug_Hostinger();
+$GLOBALS['ado_pdf_beta_manager'] = new ADO_PDF_Beta_Manager();
+
+register_activation_hook(__FILE__, ['ADO_PDF_Beta_Manager', 'activate']);
