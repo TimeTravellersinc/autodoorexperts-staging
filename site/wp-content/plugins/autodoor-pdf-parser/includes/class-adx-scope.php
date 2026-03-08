@@ -388,6 +388,25 @@ class ADX_Scope {
         return [$hits, $checks];
     }
 
+    private function structured_operator_hits(string $raw): array {
+        $rawU = strtoupper(trim($raw));
+        if ($rawU === '') return [];
+        if (strpos($rawU, 'BY OTHERS') !== false) return [];
+
+        $hits = [];
+        $hasOperatorText = (bool) preg_match('/\b(?:AUTO\s+OPENER|AUTO\s+OPERATOR|AUTOMATIC\s+DOOR\s+OPER|AUTOMATIC\s+DOOR\s+OPERATOR|LOW\s+ENERGY\s+OPER|POWER\s+OPERATOR|BF\s+OPERATOR|DOOR\s+OPERATOR)\b/i', $rawU);
+
+        if ((bool) preg_match('/\b(?:SW|HA|ED)[-\s]?\d{1,4}[A-Z0-9-]*\b/i', $rawU, $m)) {
+            $hits[] = 'structured_operator_model(' . strtoupper((string) ($m[0] ?? '')) . ')';
+        }
+
+        if ($hasOperatorText && (bool) preg_match('/\b9(?:1|5)\d{2}\b/i', $rawU, $m)) {
+            $hits[] = 'structured_operator_family(' . strtoupper((string) ($m[0] ?? '')) . ')';
+        }
+
+        return $this->uniq($hits);
+    }
+
     /**
      * PASS 1: determine if door has operator evidence.
      * Returns [bool hasOp, signalsHit[], hitExamples[]]
@@ -411,6 +430,7 @@ class ADX_Scope {
             }
 
             list($hits, $checks) = $this->find_signal_hits($raw, $this->cache['op_raw']);
+            $hits = $this->uniq(array_merge($hits, $this->structured_operator_hits($raw)));
 
             if ($loggedItemsThisDoor < $this->LOG_PASS1_LINES_PER_DOOR && $loggedItemsTotal < $this->LOG_LIMIT_ITEMS) {
                 if (!empty($hits)) {
