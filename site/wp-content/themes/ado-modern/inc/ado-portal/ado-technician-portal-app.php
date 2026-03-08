@@ -77,8 +77,49 @@ function ado_tp_scope_payload(WC_Order $order): array
 
 function ado_tp_door_rows(WC_Order $order): array
 {
-    $payload = ado_tp_scope_payload($order);
     $rows = [];
+    $project_doors = $order->get_meta('_ado_project_doors');
+    if (is_array($project_doors) && $project_doors) {
+        foreach ($project_doors as $door) {
+            if (!is_array($door)) {
+                continue;
+            }
+            $door_id = trim((string) ($door['door_number'] ?? ($door['door_id'] ?? '')));
+            if ($door_id === '') {
+                continue;
+            }
+            $model = '';
+            if (!empty($door['signals']) && is_array($door['signals'])) {
+                $model = trim((string) reset($door['signals']));
+            }
+            $rows[] = ['door_id' => $door_id, 'model' => $model !== '' ? $model : 'Model pending'];
+        }
+        if ($rows) {
+            return $rows;
+        }
+    }
+
+    $item_seen = [];
+    foreach ($order->get_items() as $item) {
+        if (!($item instanceof WC_Order_Item_Product)) {
+            continue;
+        }
+        $door_id = trim((string) $item->get_meta('_adq_door_number'));
+        if ($door_id === '') {
+            $door_id = trim((string) $item->get_meta('_adq_door_id'));
+        }
+        if ($door_id === '' || isset($item_seen[$door_id])) {
+            continue;
+        }
+        $item_seen[$door_id] = true;
+        $model = trim((string) $item->get_meta('_adq_model'));
+        $rows[] = ['door_id' => $door_id, 'model' => $model !== '' ? $model : 'Model pending'];
+    }
+    if ($rows) {
+        return $rows;
+    }
+
+    $payload = ado_tp_scope_payload($order);
     foreach ((array) ($payload['result']['doors'] ?? []) as $door) {
         if (!is_array($door)) {
             continue;

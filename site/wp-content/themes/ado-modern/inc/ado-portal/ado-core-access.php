@@ -58,7 +58,6 @@ add_filter('redirect_canonical', static function ($redirect_url, $requested_url)
 
 add_action('template_redirect', static function (): void {
     $request_path = trim((string) parse_url((string) ($_SERVER['REQUEST_URI'] ?? ''), PHP_URL_PATH), '/');
-
     if (preg_match('#^portal(?:/|$)#', $request_path)) {
         if (!is_user_logged_in()) {
             wp_safe_redirect(wp_login_url(home_url('/' . $request_path . '/')));
@@ -71,9 +70,10 @@ add_action('template_redirect', static function (): void {
 
         $portal_route = trim((string) substr($request_path, strlen('portal')), '/');
         $target_args = ['view' => 'dashboard'];
-
         if ($portal_route === '' || $portal_route === 'dashboard') {
             $target_args = ['view' => 'dashboard'];
+        } elseif (preg_match('#^quotes/(\d+)$#', $portal_route, $m)) {
+            $target_args = ['view' => 'quotes', 'quote_id' => (int) $m[1]];
         } elseif ($portal_route === 'new-quote') {
             $target_args = ['view' => 'new-quote'];
         } elseif (in_array($portal_route, ['quotes', 'client-quotes'], true)) {

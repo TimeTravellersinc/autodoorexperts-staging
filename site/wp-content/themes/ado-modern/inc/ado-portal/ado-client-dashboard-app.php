@@ -7,7 +7,7 @@ function ado_cd_view_url(string $view): string {
     $map = [
         'dashboard' => home_url('/portal/'),
         'new-quote' => home_url('/portal/new-quote/'),
-        'quotes' => home_url('/portal/client-quotes/'),
+        'quotes' => home_url('/portal/quotes/'),
         'projects' => home_url('/portal/client-projects/'),
         'schedule' => home_url('/portal/client-schedule/'),
         'site-docs' => home_url('/portal/site-docs/'),
@@ -49,8 +49,8 @@ function ado_cd_counts(int $user_id): array {
 }
 
 function ado_cd_render_quotes_queue(int $user_id): string {
-    if (!function_exists('ado_get_quote_drafts')) {
-        return '<div class="ado-empty">Quote drafts are unavailable.</div>';
+    if (!function_exists('ado_render_quote_drafts_html')) {
+        return '<div class="ado-empty">Quotes module is unavailable.</div>';
     }
     $orders_by_draft = ado_cd_orders_by_quote_draft_id($user_id);
     $drafts = array_values(array_filter(ado_cd_quote_drafts($user_id), static function (array $draft) use ($orders_by_draft): bool {
@@ -1349,9 +1349,9 @@ function ado_cd_render_site_docs_workspace(int $user_id): string {
 function ado_cd_render_view_content(string $view, int $user_id): string {
     switch ($view) {
         case 'new-quote':
-            return ado_cd_render_quote_workspace_panel($user_id);
+            return do_shortcode('[ado_quote_workspace]');
         case 'quotes':
-            return ado_cd_render_quotes_workspace($user_id);
+            return do_shortcode('[ado_quote_workspace]');
         case 'projects':
             return ado_cd_render_projects_workspace($user_id);
         case 'schedule':
@@ -1402,7 +1402,6 @@ add_shortcode('ado_client_dashboard_app', static function (): string {
     } elseif ($view === 'invoices') {
         $primary_action = ['label' => 'Contact Billing', 'href' => 'mailto:' . ado_cd_support_email()];
     }
-
     ob_start();
     ?>
     <style>

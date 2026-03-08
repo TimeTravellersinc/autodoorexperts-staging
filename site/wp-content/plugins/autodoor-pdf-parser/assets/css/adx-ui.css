@@ -1,0 +1,190 @@
+﻿.adx-wrap {
+  font-family: "Segoe UI", Arial, sans-serif;
+  background: #ffffff;
+  border: 1px solid #dbe5f1;
+  border-radius: 16px;
+  box-shadow: 0 12px 28px rgba(18, 38, 63, 0.08);
+  padding: 20px;
+}
+
+.adx-head h2 {
+  margin: 0;
+  color: #13263b;
+}
+
+.adx-meta {
+  margin: 10px 0 0;
+  color: #51637a;
+}
+
+.adx-dev-note {
+  margin: 10px 0 0;
+  font-size: 13px;
+  color: #35506f;
+}
+
+.adx-form {
+  margin-top: 16px;
+  display: grid;
+  gap: 10px;
+}
+
+.adx-file-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: #1f3348;
+}
+
+.adx-file-input {
+  border: 1px solid #c8d4e2;
+  border-radius: 10px;
+  padding: 8px;
+  background: #f8fbff;
+}
+
+#adx-submit {
+  justify-self: start;
+  min-height: 40px;
+  padding: 0 16px;
+  border: 1px solid #0f7b8f;
+  border-radius: 10px;
+  background: #0f7b8f;
+  color: #f7fcff;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+#adx-submit:disabled {
+  opacity: 0.65;
+  cursor: default;
+}
+
+#adx-submit:hover:not(:disabled),
+#adx-submit:focus-visible:not(:disabled) {
+  background: #1f9ab0;
+  border-color: #1f9ab0;
+}
+
+.adx-status {
+  margin-top: 12px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: #f3f8ff;
+  color: #1b3a5a;
+}
+
+.adx-status.adx-error {
+  background: #fff2f2;
+  color: #942323;
+  font-weight: 600;
+}
+
+.adx-output-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 10px;
+}
+
+.adx-output-panel {
+  border: 1px solid #d7e2ef;
+  border-radius: 12px;
+  background: #f9fcff;
+  overflow: hidden;
+}
+
+.adx-output-title {
+  margin: 0;
+  padding: 10px 12px;
+  font-weight: 700;
+  color: #13263b;
+  border-bottom: 1px solid #e3edf7;
+  background: #f2f7fd;
+}
+
+.adx-output-copy {
+  margin: 10px 12px 0;
+  color: #4e6179;
+  font-size: 13px;
+}
+
+.adx-output-panel p {
+  margin: 10px 12px;
+}
+
+.adx-output-panel a {
+  color: #0f7b8f;
+  font-weight: 600;
+}
+
+.adx-quote-notice {
+  min-height: 18px;
+  color: #35506f;
+}
+
+.adx-preview {
+  margin: 10px 12px 12px;
+  padding: 12px;
+  border-radius: 10px;
+  background: #0f172a;
+  color: #d6e4ff;
+  min-height: 72px;
+  max-height: 360px;
+  overflow: auto;
+  font-size: 12px;
+  line-height: 1.4;
+  white-space: pre-wrap;
+}
+
+.adx-wrap:not(.is-debug) #adx-preview-parser,
+.adx-wrap:not(.is-debug) #adx-preview-scope {
+  display: none;
+}
+
+.adx-wrap:not(.is-debug) #adx-download-quote-debug {
+  display: none !important;
+}
+
+.adx-debug-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin-top: 12px;
+}
+
+.adx-debug-panel {
+  border: 1px solid #ccd8e5;
+  border-radius: 10px;
+  overflow: hidden;
+  background: #ffffff;
+}
+
+.adx-debug-title {
+  padding: 8px 10px;
+  font-weight: 700;
+  border-bottom: 1px solid #e5edf5;
+  background: #f4f8fc;
+}
+
+.adx-debug {
+  margin: 0;
+  padding: 10px;
+  background: #111827;
+  color: #e5ecf8;
+  min-height: 220px;
+  max-height: 420px;
+  overflow: auto;
+  font-size: 12px;
+  line-height: 1.35;
+  white-space: pre-wrap;
+}
+
+@media (max-width: 980px) {
+  .adx-output-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .adx-debug-grid {
+    grid-template-columns: 1fr;
+  }
+}
