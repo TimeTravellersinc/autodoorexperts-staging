@@ -1228,6 +1228,7 @@ private function split_by_door_blocks($text) {
             $finish = $this->scrub_page_markers($finish);
             $category = $this->extract_category_phrase_from_raw_row($raw);
             if ($this->should_promote_category_phrase($desc, $category)) $desc = $category;
+            list($desc, $catalog) = $this->repair_model_bearing_fields($desc, $catalog, $raw, $category);
 
             $items[] = [
                 'qty' => $r['qty'],
@@ -1428,6 +1429,7 @@ private function split_by_door_blocks($text) {
         if ($this->should_promote_category_phrase($desc, $category)) {
             $desc = $category;
         }
+        list($desc, $catalog) = $this->repair_model_bearing_fields($desc, $catalog, $raw, $category);
 
         return [
             'qty' => $qty,
@@ -1474,14 +1476,152 @@ private function split_by_door_blocks($text) {
         return false;
     }
 
+    private function repair_model_bearing_fields($desc, $catalog, $raw, $category = null) {
+        $desc = trim((string)$desc);
+        $catalog = trim((string)$catalog);
+        $raw = trim((string)$raw);
+        $category = trim((string)$category);
+
+        $body = preg_replace('/^\s*\d+\s+(?:[A-Z]+\s+)?/i', '', $raw);
+        $body = $this->normalize_item_spacing($body);
+        $fragments = $this->extract_model_fragments_from_text($body);
+        $bestFragment = $fragments[0] ?? '';
+
+        if ($category !== '') {
+            $desc = $this->trim_degraded_suffix_from_desc($desc, $category);
+            if ($this->catalog_needs_fragment_repair($catalog, $bestFragment, $category)) {
+                $catalog = $bestFragment;
+            } elseif ($this->looks_like_truncated_category_catalog($catalog, $category)) {
+                $catalog = '';
+            }
+        }
+
+        if ($this->desc_needs_fragment_repair($desc, $bestFragment, $category)) {
+            $desc = $bestFragment;
+        }
+
+        if ($this->catalog_looks_truncated_against_fragment($catalog, $bestFragment)) {
+            $catalog = $bestFragment;
+        }
+
+        if ($desc === '' && $catalog !== '' && $this->is_model_like_fragment($catalog)) {
+            $desc = $this->normalize_model_text($catalog);
+        } elseif ($desc === '' && $bestFragment !== '') {
+            $desc = $bestFragment;
+        }
+
+        if ($catalog === '' && $bestFragment !== '' && $this->should_promote_fragment_to_catalog($desc, $bestFragment, $category)) {
+            $catalog = $bestFragment;
+        }
+
+        return [$desc, $catalog];
+    }
+
+    private function desc_needs_fragment_repair($desc, $fragment, $category) {
+        $desc = trim((string)$desc);
+        $fragment = trim((string)$fragment);
+        $category = trim((string)$category);
+        if ($fragment === '' || !$this->is_model_like_fragment($fragment)) return false;
+        if ($desc === '') return true;
+        if ($category !== '') return false;
+        if (strlen($desc) <= 2) return true;
+        if (preg_match('/^[A-Z0-9]$/i', $desc)) return true;
+
+        $descCompact = $this->compact_model_text($desc);
+        $fragmentCompact = $this->compact_model_text($fragment);
+        if ($descCompact === '' || $fragmentCompact === '') return false;
+        if ($descCompact === $fragmentCompact) return false;
+        if (strlen($descCompact) <= 3 && str_ends_with($fragmentCompact, $descCompact)) return true;
+        return false;
+    }
+
+    private function trim_degraded_suffix_from_desc($desc, $category) {
+        $desc = trim((string)$desc);
+        $category = trim((string)$category);
+        if ($desc === '' || $category === '') return $desc;
+        if (strcasecmp($desc, $category) === 0) return $desc;
+        if (stripos($desc, $category) !== 0) return $desc;
+
+        $suffix = trim(substr($desc, strlen($category)));
+        if ($suffix === '') return $category;
+        if (preg_match('/^[A-Z0-9]$/i', $suffix)) return $category;
+        if ($this->is_model_like_fragment($suffix)) return $desc;
+        if (preg_match('/^[A-Z0-9]{1,3}(?:\s+[A-Z0-9]{1,3})?$/', $suffix)) return $category;
+        return $desc;
+    }
+
+    private function catalog_needs_fragment_repair($catalog, $fragment, $category) {
+        $catalog = trim((string)$catalog);
+        $fragment = trim((string)$fragment);
+        $category = trim((string)$category);
+        if ($fragment === '' || !$this->is_model_like_fragment($fragment)) return false;
+        if ($catalog === '') return false;
+        if (!$this->has_digit($catalog)) return true;
+
+        $catalogCompact = $this->compact_model_text($catalog);
+        $fragmentCompact = $this->compact_model_text($fragment);
+        if ($catalogCompact === '' || $fragmentCompact === '') return false;
+        if ($catalogCompact === $fragmentCompact) return false;
+
+        if (strlen($fragmentCompact) > strlen($catalogCompact) && str_ends_with($fragmentCompact, $catalogCompact)) {
+            return true;
+        }
+
+        return false;
+    }
+
+    private function catalog_looks_truncated_against_fragment($catalog, $fragment) {
+        $catalog = trim((string)$catalog);
+        $fragment = trim((string)$fragment);
+        if ($catalog === '' || $fragment === '') return false;
+        if (!$this->is_model_like_fragment($fragment)) return false;
+
+        $catalogCompact = $this->compact_model_text($catalog);
+        $fragmentCompact = $this->compact_model_text($fragment);
+        if ($catalogCompact === '' || $fragmentCompact === '' || $catalogCompact === $fragmentCompact) return false;
+
+        return strlen($fragmentCompact) > strlen($catalogCompact) && str_ends_with($fragmentCompact, $catalogCompact);
+    }
+
+    private function should_promote_fragment_to_catalog($desc, $fragment, $category) {
+        $desc = trim((string)$desc);
+        $fragment = trim((string)$fragment);
+        $category = trim((string)$category);
+        if ($fragment === '') return false;
+        if (!$this->is_model_like_fragment($fragment)) return false;
+        if ($desc === '') return true;
+        if ($this->normalize_model_text($desc) === $this->normalize_model_text($fragment)) return false;
+        if ($category !== '' && strcasecmp($desc, $category) === 0) return true;
+        if (strlen($desc) <= 3) return true;
+        if ($this->is_model_like_fragment($desc)) return false;
+        return false;
+    }
+
+    private function looks_like_truncated_category_catalog($catalog, $category) {
+        $catalog = trim((string)$catalog);
+        $category = trim((string)$category);
+        if ($catalog === '' || $category === '') return false;
+        if ($this->has_digit($catalog)) return false;
+
+        $catCompact = $this->compact_model_text($category);
+        $catalogCompact = $this->compact_model_text($catalog);
+        if ($catCompact === '' || $catalogCompact === '') return false;
+        if ($catalogCompact === $catCompact) return true;
+        return str_ends_with($catCompact, $catalogCompact);
+    }
+
     private function hardware_category_phrases() {
         return [
             'Auto Opener Mounting Plate',
             'Touchless Actuator',
+            'Electronic Locking Device',
             'Overhead Door Stop',
             'Removable Mullion',
+            'Miscellaneous Hardware',
             'Continuous Hinge',
             'Electric Strike',
+            'Power Transfer',
+            'Removable Core',
             'Surface Closer',
             'Wall Door Stop',
             'Power Supply',
@@ -1495,6 +1635,7 @@ private function split_by_door_blocks($text) {
             'Flush Bolt',
             'Perm Cylinder',
             'Door Pull',
+            'Door Sweep',
             'Kick Plate',
             'Coordinator',
             'Threshold',
@@ -1505,6 +1646,89 @@ private function split_by_door_blocks($text) {
             'Operator',
             'Actuator',
         ];
+    }
+
+    private function normalize_model_text($value) {
+        $value = strtoupper(trim((string)$value));
+        if ($value === '') return '';
+        $value = str_replace(["\xE2\x80\x93", "\xE2\x80\x94", 'â€“', 'â€”'], '-', $value);
+        $value = preg_replace('/["\']+/', '', $value);
+        $value = preg_replace('/[\(\)\[\],:;]+/', ' ', (string)$value);
+        $value = preg_replace('/\s+/', ' ', (string)$value);
+        return trim((string)$value);
+    }
+
+    private function compact_model_text($value) {
+        return preg_replace('/[^A-Z0-9]+/', '', $this->normalize_model_text($value)) ?: '';
+    }
+
+    private function has_digit($value) {
+        return (bool) preg_match('/\d/', (string)$value);
+    }
+
+    private function is_finish_token_like($value) {
+        $compact = $this->compact_model_text($value);
+        if ($compact === '') return false;
+        static $tokens = null;
+        if ($tokens === null) {
+            $tokens = [];
+            foreach (['630', '628', '626', '625', '613', '612', '689', '652', '619', 'C32D', 'C26D', 'US26D', 'US32D', 'AL', 'ANCLR', 'CLR', 'CLEAR'] as $token) {
+                $tokens[$this->compact_model_text($token)] = true;
+            }
+        }
+        return isset($tokens[$compact]);
+    }
+
+    private function is_dimension_like_fragment($value) {
+        return (bool) preg_match('/\b\d+(?:["â€])?\s*X\s*\d+(?:["â€])?(?:\s*X\s*\d+(?:["â€])?)?\b/', $this->normalize_model_text($value));
+    }
+
+    private function is_model_like_fragment($value) {
+        $norm = $this->normalize_model_text($value);
+        $compact = $this->compact_model_text($norm);
+        if ($norm === '' || $compact === '' || !preg_match('/\d/', $norm)) return false;
+        if ($this->is_finish_token_like($norm) || $this->is_dimension_like_fragment($norm)) return false;
+        if (preg_match('/^\d{1,3}$/', $compact)) return false;
+        if (preg_match('/^(?:19|20)\d{2}$/', $compact)) return false;
+        if (preg_match('/^(?:19|20)\d{6}$/', $compact)) return false;
+        if (preg_match('/^\d{5,}$/', $compact) && preg_match('/^\d+$/', $norm)) return false;
+        if (preg_match('/^(?:JOB|PAGE|DOOR|FRAME|OPENING|WIDTH|HEIGHT|HEADER|JAMB|SILL)\d*$/', $compact)) return false;
+        return (bool) preg_match('/(?:[A-Z]|-|\d)/', $norm);
+    }
+
+    private function extract_model_fragments_from_text($value) {
+        $norm = $this->normalize_model_text($value);
+        if ($norm === '') return [];
+
+        $matches = [];
+        foreach ([
+            '/\b\d{3,5}(?:[-\/][A-Z0-9#]{1,12})+\b/u',
+            '/\b[A-Z0-9#]+(?:[-\/][A-Z0-9#]+)+\b/u',
+            '/\b(?:[A-Z]{1,8}\d[A-Z0-9#]*|\d{3,6}[A-Z]{1,8}[A-Z0-9#]*)\b/u',
+            '/\b\d{4,5}\b/u',
+        ] as $pattern) {
+            if (!preg_match_all($pattern, $norm, $m, PREG_OFFSET_CAPTURE)) continue;
+            foreach ((array)$m[0] as $entry) {
+                $fragment = $this->normalize_model_text((string)($entry[0] ?? ''));
+                if (!$this->is_model_like_fragment($fragment)) continue;
+                $matches[] = ['fragment' => $fragment, 'offset' => (int)($entry[1] ?? 0)];
+            }
+        }
+
+        usort($matches, static function($a, $b) {
+            return ($a['offset'] <=> $b['offset']) ?: (strlen($b['fragment']) <=> strlen($a['fragment']));
+        });
+
+        $seen = [];
+        $out = [];
+        foreach ($matches as $match) {
+            $compact = $this->compact_model_text((string)($match['fragment'] ?? ''));
+            if ($compact === '' || isset($seen[$compact])) continue;
+            $seen[$compact] = true;
+            $out[] = (string)$match['fragment'];
+        }
+
+        return $out;
     }
 
     // ===========================
