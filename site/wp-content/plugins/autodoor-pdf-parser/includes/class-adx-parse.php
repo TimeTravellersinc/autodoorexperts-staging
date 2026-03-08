@@ -60,8 +60,24 @@ class ADX_Parser {
         $s = (string)$s;
         $s = preg_replace('/\bPage\s+\d+\s+of\s+\d+\b/i', ' ', $s);
         $s = preg_replace('/(?<!\d)\d+\s+of\s+\d+(?!\d)/i', ' ', $s);
+        $s = $this->strip_trailing_project_footer_metadata($s);
         $s = preg_replace('/\s+/', ' ', $s);
         return trim($s);
+    }
+
+    private function strip_trailing_project_footer_metadata($s) {
+        $s = trim((string)$s);
+        if ($s === '') return '';
+
+        // Strip appended footer/title blocks like "Project Name YOW 2025-07-23"
+        // after a real hardware row has already been recognized.
+        $s = preg_replace(
+            '/\s+(?:[A-Z][A-Za-z]+|[A-Z]{2,6}|&)(?:\s+(?:[A-Z][A-Za-z]+|[A-Z]{2,6}|&)){2,}\s+\d{4}-\d{2}-\d{2}\s*$/',
+            '',
+            $s
+        );
+
+        return trim((string)$s);
     }
 
     // -------------------------------------------------
