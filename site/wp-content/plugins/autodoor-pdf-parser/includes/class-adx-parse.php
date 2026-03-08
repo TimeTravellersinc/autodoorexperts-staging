@@ -1175,7 +1175,10 @@ private function split_by_door_blocks($text) {
             $blob = trim($descFinal . ' ' . $catCol . ' ' . $mfgCol . ' ' . $finCol);
             $blob = $this->normalize_item_spacing($blob);
 
-            $isNew = ($qty !== null) && $this->is_plausible_qty($qty, $uom, $blob);
+            $isNew = ($qty !== null) && (
+                $this->is_plausible_qty($qty, $uom, $blob) ||
+                $this->looks_like_explicit_column_item_start($qty, $qtyCol, $t)
+            );
 
             if ($isNew) {
                 if ($current !== null) $rows[] = $current;
@@ -1193,6 +1196,12 @@ private function split_by_door_blocks($text) {
             }
 
             if ($current !== null) {
+                if (!$this->looks_like_column_continuation($ln, $cols, $t, $descCol, $catCol, $mfgCol, $finCol)) {
+                    $rows[] = $current;
+                    $current = null;
+                    continue;
+                }
+
                 if ($descCol !== '')   $current['desc_parts'][] = $descCol;
                 if ($catCol !== '')    $current['catalog_parts'][] = $catCol;
                 if ($mfgCol !== '')    $current['mfg_parts'][] = $mfgCol;
@@ -1526,6 +1535,51 @@ private function split_by_door_blocks($text) {
             if (preg_match('/^\d{3,5}\b/', $u)) return false;
         }
         return true;
+    }
+
+    private function looks_like_explicit_column_item_start($qty, $qtyCol, $trimmedLine) {
+        if ($qty === null || $qty < 1 || $qty > 200) return false;
+        if ($this->looks_like_column_noise_line($trimmedLine)) return false;
+
+        $label = preg_replace('/^\s*\d+\s*/', '', (string)$qtyCol);
+        $label = trim((string)$label);
+        if ($label === '') return false;
+        if (!preg_match('/[A-Za-z]/', $label)) return false;
+
+        return true;
+    }
+
+    private function looks_like_column_continuation($rawLine, $cols, $trimmedLine, $descCol, $catCol, $mfgCol, $finCol) {
+        if ($this->looks_like_column_noise_line($trimmedLine)) return false;
+
+        $firstContent = strspn((string)$rawLine, " \t");
+        $descStart = isset($cols['description']) ? (int)$cols['description'] : 0;
+        $hasOnlyDesc = trim((string)$descCol) !== ''
+            && trim((string)$catCol) === ''
+            && trim((string)$mfgCol) === ''
+            && trim((string)$finCol) === '';
+        $nonEmptyCols = 0;
+        foreach ([$descCol, $catCol, $mfgCol, $finCol] as $colVal) {
+            if (trim((string)$colVal) !== '') $nonEmptyCols++;
+        }
+
+        if ($hasOnlyDesc) return true;
+        if ($nonEmptyCols === 1) return true;
+
+        return $firstContent <= max($descStart + 6, 40);
+    }
+
+    private function looks_like_column_noise_line($trimmedLine) {
+        if ($trimmedLine === '') return true;
+        if ($this->is_obviously_not_item_row($trimmedLine)) return true;
+
+        if (preg_match('/\bJOB\s+NO\.\b/i', $trimmedLine)) return true;
+        if (preg_match('/\bPAGE\s+\d+\s+OF\s+\d+\b/i', $trimmedLine)) return true;
+        if (preg_match('/^\d{4}-\d{2}-\d{2}\b/', $trimmedLine)) return true;
+        if (preg_match('/^[A-Z][a-z]+(?:\s+[A-Z][a-z]+){1,}$/', $trimmedLine)) return true;
+        if (preg_match('/^[A-Z][a-z]+$/', $trimmedLine)) return true;
+
+        return false;
     }
 
     private function slice_columns_from_line($raw, $cols) {
