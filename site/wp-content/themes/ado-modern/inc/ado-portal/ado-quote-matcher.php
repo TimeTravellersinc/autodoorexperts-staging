@@ -308,10 +308,43 @@ function ado_qm_should_block_plate_context_variant(array $item, string $segment)
     }
 
     $source_model = trim((string) ($item['catalog'] ?? ''));
+    if (ado_qm_is_operator_family_plate_model($source_model)) {
+        return false;
+    }
     $parts = ado_qm_structured_model_parts($source_model);
     if (!$parts) { return false; }
 
     return empty($parts['has_alpha_prefix']);
+}
+
+function ado_qm_is_operator_family_plate_model(string $value): bool {
+    return (bool) preg_match('/^95[3456]0(?:18|36)$/', ado_qm_compact($value));
+}
+
+function ado_qm_is_junk_suffix_source_model(string $source_model, string $segment): bool {
+    $source_norm = ado_qm_compact($source_model);
+    if ($source_norm === '' || !preg_match('/^[A-Z]{1,2}\d{3}$/', $source_norm)) {
+        return false;
+    }
+
+    foreach (ado_qm_extract_fragments_from_text($segment) as $fragment) {
+        $fragment_norm = ado_qm_compact($fragment);
+        if ($fragment_norm === '' || $fragment_norm === $source_norm) {
+            continue;
+        }
+        if (strlen($fragment_norm) <= strlen($source_norm)) {
+            continue;
+        }
+        if (!str_ends_with($fragment_norm, substr($source_norm, -3))) {
+            continue;
+        }
+        if (!preg_match('/^\d{4,}/', $fragment_norm)) {
+            continue;
+        }
+        return true;
+    }
+
+    return false;
 }
 
 function ado_qm_primary_model_from_field(string $value): string {
@@ -912,12 +945,17 @@ function ado_qm_match_segment(array $item, string $segment, array $index): array
     $qty = ado_qm_segment_qty($clean_segment, isset($item['qty']) ? (int) $item['qty'] : 1);
     $context_words = ado_qm_context_words(((string) ($item['desc'] ?? '')) . ' ' . $clean_segment);
     $trace = ['segment=' . $clean_segment];
+    $source_model = (string) ($item['catalog'] ?? '');
+    $junk_source_model = ado_qm_is_junk_suffix_source_model($source_model, $clean_segment);
+    if ($junk_source_model) {
+        $trace[] = 'junk_source_model=' . ado_qm_compact($source_model);
+    }
     if (ado_qm_is_external_scope_line($clean_segment)) {
         return [
             'product_id' => 0,
             'qty' => $qty,
             'raw_line' => $clean_segment,
-            'source_model' => (string) ($item['catalog'] ?? ''),
+            'source_model' => $source_model,
             'source_desc' => (string) ($item['desc'] ?? ''),
             'match_method' => 'excluded',
             'confidence' => 0,
@@ -936,7 +974,7 @@ function ado_qm_match_segment(array $item, string $segment, array $index): array
             'product_id' => 0,
             'qty' => $qty,
             'raw_line' => $clean_segment,
-            'source_model' => (string) ($item['catalog'] ?? ''),
+            'source_model' => $source_model,
             'source_desc' => (string) ($item['desc'] ?? ''),
             'match_method' => 'none',
             'confidence' => 0,
@@ -960,13 +998,14 @@ function ado_qm_match_segment(array $item, string $segment, array $index): array
             if (
                 $override_id > 0
                 && !ado_qm_should_block_plate_context_variant($item, $clean_segment)
+                && !$junk_source_model
                 && ado_qm_override_is_safe($clean_segment, $candidate, $override_id, $index)
             ) {
                 return [
                     'product_id' => $override_id,
                     'qty' => $qty,
                     'raw_line' => $clean_segment,
-                    'source_model' => (string) ($item['catalog'] ?? ''),
+                    'source_model' => $source_model,
                     'source_desc' => (string) ($item['desc'] ?? ''),
                     'match_method' => 'user_override',
                     'confidence' => 100,
@@ -983,13 +1022,12 @@ function ado_qm_match_segment(array $item, string $segment, array $index): array
 
         $exact_rows = [];
         $exact_variant = '';
-        $source_model_variants = ado_qm_model_variants((string) ($item['catalog'] ?? ''));
-        $candidate_auto_variants = (array) ($candidate['auto_variants'] ?? [$normalized]);
+        $source_model_variants = ado_qm_model_variants($source_model);
         $plate_context_blocked = ado_qm_should_block_plate_context_variant($item, $clean_segment);
         foreach ((array) ($candidate['variants'] ?? [$normalized]) as $variant) {
             $exact_ids = array_values(array_unique(array_map('intval', (array) ($index['global_models'][$variant] ?? []))));
             $variant_allowed = !$plate_context_blocked
-                && in_array($variant, $candidate_auto_variants, true)
+                && !$junk_source_model
                 && ado_qm_exact_variant_allowed_for_source($item, $variant, $source_model_variants);
             if (count($exact_ids) === 1) {
                 if (!$variant_allowed) {
@@ -1002,7 +1040,7 @@ function ado_qm_match_segment(array $item, string $segment, array $index): array
                     'product_id' => (int) $exact_ids[0],
                     'qty' => $qty,
                     'raw_line' => $clean_segment,
-                    'source_model' => (string) ($item['catalog'] ?? ''),
+                    'source_model' => $source_model,
                     'source_desc' => (string) ($item['desc'] ?? ''),
                     'match_method' => $variant === $normalized ? 'exact_model' : 'exact_variant',
                     'confidence' => 100,
@@ -1037,13 +1075,30 @@ function ado_qm_match_segment(array $item, string $segment, array $index): array
         }
     }
 
+    if ($junk_source_model) {
+        return [
+            'product_id' => 0,
+            'qty' => $qty,
+            'raw_line' => $clean_segment,
+            'source_model' => $source_model,
+            'source_desc' => (string) ($item['desc'] ?? ''),
+            'match_method' => 'none',
+            'confidence' => 0,
+            'reason_code' => 'NO_CANDIDATES',
+            'candidate_products' => [],
+            'decision_key' => '',
+            'normalized_model' => '',
+            'trace' => array_merge($trace, ['junk_source_suppressed_review']),
+        ];
+    }
+
     if ($review_rows) {
         $reason = count($review_rows) > 1 ? 'MULTIPLE_CANDIDATES' : 'USER_REVIEW';
         return [
             'product_id' => 0,
             'qty' => $qty,
             'raw_line' => $clean_segment,
-            'source_model' => (string) ($item['catalog'] ?? ''),
+            'source_model' => $source_model,
             'source_desc' => (string) ($item['desc'] ?? ''),
             'match_method' => 'review',
             'confidence' => (int) ($review_rows[0]['score'] ?? 0),
@@ -1059,7 +1114,7 @@ function ado_qm_match_segment(array $item, string $segment, array $index): array
         'product_id' => 0,
         'qty' => $qty,
         'raw_line' => $clean_segment,
-        'source_model' => (string) ($item['catalog'] ?? ''),
+        'source_model' => $source_model,
         'source_desc' => (string) ($item['desc'] ?? ''),
         'match_method' => 'none',
         'confidence' => 0,

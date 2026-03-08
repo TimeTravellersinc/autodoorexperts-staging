@@ -460,6 +460,10 @@ class ADX_Scope {
      * Returns [bool keep, string reason, hits[]]
      */
     private function item_decision(string $raw): array {
+        if ($this->is_external_context_line($raw)) {
+            return [false, 'external_context', []];
+        }
+
         list($keepHits, $keepChecks) = $this->find_signal_hits($raw, $this->cache['keep_raw']);
         if (!empty($keepHits)) {
             return [true, "keep_signal(checked={$keepChecks})", $keepHits];
@@ -484,6 +488,19 @@ class ADX_Scope {
         }
 
         return [false, "fallback_drop(discard_checked={$discChecks})", []];
+    }
+
+    private function is_external_context_line(string $raw): bool {
+        $u = strtoupper(trim($raw));
+        if ($u === '') return false;
+
+        if (preg_match('/\bBY\s+DIV\.?\s*\.?\s*\d+\b/i', $u)) return true;
+        if (preg_match('/\bBY\s+OTHERS\b/i', $u)) return true;
+        if (preg_match('/\bBY\s+OWNER\b/i', $u)) return true;
+        if (preg_match('/\bSUPPLIED\s+BY\s+(?:OWNER|OTHERS)\b/i', $u)) return true;
+        if (preg_match('/\bTO\s+BE\s+CENTRALIZED\b/i', $u)) return true;
+
+        return false;
     }
 
     /**
