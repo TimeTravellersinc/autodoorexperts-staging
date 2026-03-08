@@ -1226,6 +1226,8 @@ private function split_by_door_blocks($text) {
             $catalog = $this->scrub_page_markers($catalog);
             $mfg = $this->scrub_page_markers($mfg);
             $finish = $this->scrub_page_markers($finish);
+            $category = $this->extract_category_phrase_from_raw_row($raw);
+            if ($this->should_promote_category_phrase($desc, $category)) $desc = $category;
 
             $items[] = [
                 'qty' => $r['qty'],
@@ -1422,6 +1424,11 @@ private function split_by_door_blocks($text) {
             }
         }
 
+        $category = $this->extract_category_phrase_from_raw_row($raw);
+        if ($this->should_promote_category_phrase($desc, $category)) {
+            $desc = $category;
+        }
+
         return [
             'qty' => $qty,
             'uom' => $uom,
@@ -1430,6 +1437,73 @@ private function split_by_door_blocks($text) {
             'mfg' => $mfg,
             'finish' => $finish,
             'raw' => $raw,
+        ];
+    }
+
+    private function extract_category_phrase_from_raw_row($raw) {
+        $body = trim((string)$raw);
+        if ($body === '') return null;
+
+        $body = preg_replace('/^\s*\d+\s+/', '', $body);
+        $body = preg_replace('/\s+/', ' ', trim((string)$body));
+        if ($body === '') return null;
+
+        foreach ($this->hardware_category_phrases() as $phrase) {
+            if (preg_match('/^' . preg_quote($phrase, '/') . '\b/i', $body)) {
+                return $phrase;
+            }
+        }
+
+        return null;
+    }
+
+    private function should_promote_category_phrase($desc, $category) {
+        $desc = trim((string)$desc);
+        $category = trim((string)$category);
+        if ($category === '') return false;
+        if (strcasecmp($desc, $category) === 0) return false;
+        if ($desc === '') return true;
+        if (strlen($desc) <= 3) return true;
+
+        if (strlen($category) > strlen($desc)) {
+            if (preg_match('/\bOTHERS\b/i', $desc)) return true;
+            if (preg_match('/^[A-Za-z\s]+$/', $desc)) return true;
+            if (preg_match('/^[A-Za-z]\s+[A-Z0-9]/', $desc)) return true;
+        }
+
+        return false;
+    }
+
+    private function hardware_category_phrases() {
+        return [
+            'Auto Opener Mounting Plate',
+            'Touchless Actuator',
+            'Overhead Door Stop',
+            'Removable Mullion',
+            'Continuous Hinge',
+            'Electric Strike',
+            'Surface Closer',
+            'Wall Door Stop',
+            'Power Supply',
+            'Standard Hinge',
+            'Card Reader',
+            'Door Contact',
+            'Touchless',
+            'Exit Device',
+            'Request To Exit',
+            'Auto Opener',
+            'Flush Bolt',
+            'Perm Cylinder',
+            'Door Pull',
+            'Kick Plate',
+            'Coordinator',
+            'Threshold',
+            'Weatherstripping',
+            'Gasketing',
+            'Cylinder',
+            'Lockset',
+            'Operator',
+            'Actuator',
         ];
     }
 
