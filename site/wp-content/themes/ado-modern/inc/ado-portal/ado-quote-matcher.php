@@ -303,6 +303,9 @@ function ado_qm_should_block_plate_context_variant(array $item, string $segment)
     if (!(bool) preg_match('/\b(?:PLATE|MOUNTING\s+PLATE|ADAPTER\s+PLATE|MOUNTING\s+BRACKET|MOUNTING\s+KIT)\b/', $context)) {
         return false;
     }
+    if ((bool) preg_match('/\b(?:AUTO\s+OPENER|AUTO\s+OPERATOR|DOOR\s+OPERATOR|OPERATOR)\b/', $context)) {
+        return false;
+    }
 
     $source_model = trim((string) ($item['catalog'] ?? ''));
     $parts = ado_qm_structured_model_parts($source_model);

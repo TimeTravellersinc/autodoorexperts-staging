@@ -124,7 +124,6 @@ class ADX_Scope {
             'low energy oper',
             'power operator',
             'door operator',
-            'auto door',
         ];
 
         return $s;
@@ -152,7 +151,6 @@ class ADX_Scope {
             'low energy oper',
             'power operator',
             'door operator',
-            'auto door',
 
             // --- Actuator / push plate family ---
             '8310-',
@@ -394,13 +392,13 @@ class ADX_Scope {
         if (strpos($rawU, 'BY OTHERS') !== false) return [];
 
         $hits = [];
-        $hasOperatorText = (bool) preg_match('/\b(?:AUTO\s+OPENER|AUTO\s+OPERATOR|AUTOMATIC\s+DOOR\s+OPER|AUTOMATIC\s+DOOR\s+OPERATOR|LOW\s+ENERGY\s+OPER|POWER\s+OPERATOR|BF\s+OPERATOR|DOOR\s+OPERATOR)\b/i', $rawU);
+        $hasOperatorText = (bool) preg_match('/\b(?:AUTO\s+OPENER|AUTO\s+OPERATOR|AUTOMATIC\s+DOOR\s+OPER|AUTOMATIC\s+DOOR\s+OPERATOR|LOW\s+ENERGY\s+OPER|POWER\s+OPERATOR|BF\s+OPERATOR|DOOR\s+OPERATOR|OPERATOR)\b/i', $rawU);
 
         if ((bool) preg_match('/\b(?:SW|HA|ED)[-\s]?\d{1,4}[A-Z0-9-]*\b/i', $rawU, $m)) {
             $hits[] = 'structured_operator_model(' . strtoupper((string) ($m[0] ?? '')) . ')';
         }
 
-        if ($hasOperatorText && (bool) preg_match('/\b9(?:1|5)\d{2}\b/i', $rawU, $m)) {
+        if ($hasOperatorText && (bool) preg_match('/\b9\d{3}\b(?![-\/](?:18|36)\b)/i', $rawU, $m)) {
             $hits[] = 'structured_operator_family(' . strtoupper((string) ($m[0] ?? '')) . ')';
         }
 
