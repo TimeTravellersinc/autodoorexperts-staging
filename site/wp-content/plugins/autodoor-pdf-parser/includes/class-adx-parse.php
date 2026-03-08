@@ -1154,9 +1154,10 @@ private function split_by_door_blocks($text) {
 
             $qtyCol = trim((string)($slices['qty'] ?? ''));
             $descCol = trim((string)($slices['description'] ?? ''));
-            $catCol  = trim((string)($slices['catalog'] ?? ''));
-            $mfgCol  = trim((string)($slices['mfg'] ?? ''));
-            $finCol  = trim((string)($slices['finish'] ?? ''));
+            $catCol  = $this->sanitize_column_slice($slices['catalog'] ?? '', 'catalog');
+            $mfgCol  = $this->sanitize_column_slice($slices['mfg'] ?? '', 'mfg');
+            $finCol  = $this->sanitize_column_slice($slices['finish'] ?? '', 'finish');
+            $lineRaw = $this->sanitize_column_raw_line($ln, $cols, $slices, $catCol, $mfgCol, $finCol);
 
             if (preg_match('/^\s*\d+\s*\/\s*\d+/', $ln)) {
                 $schema_stats['implicit_fraction_rejects']++;
@@ -1165,7 +1166,7 @@ private function split_by_door_blocks($text) {
                     if ($catCol !== '')  $current['catalog_parts'][] = $catCol;
                     if ($mfgCol !== '')  $current['mfg_parts'][] = $mfgCol;
                     if ($finCol !== '')  $current['finish_parts'][] = $finCol;
-                    $current['raw_lines'][] = $ln;
+                    $current['raw_lines'][] = $lineRaw;
                 }
                 continue;
             }
@@ -1190,7 +1191,7 @@ private function split_by_door_blocks($text) {
                     'catalog_parts' => [$catCol],
                     'mfg_parts' => [$mfgCol],
                     'finish_parts' => [$finCol],
-                    'raw_lines' => [$ln],
+                    'raw_lines' => [$lineRaw],
                 ];
                 continue;
             }
@@ -1206,7 +1207,7 @@ private function split_by_door_blocks($text) {
                 if ($catCol !== '')    $current['catalog_parts'][] = $catCol;
                 if ($mfgCol !== '')    $current['mfg_parts'][] = $mfgCol;
                 if ($finCol !== '')    $current['finish_parts'][] = $finCol;
-                $current['raw_lines'][] = $ln;
+                $current['raw_lines'][] = $lineRaw;
             }
         }
 
@@ -1247,21 +1248,37 @@ private function split_by_door_blocks($text) {
         $out = [];
         $buf = '';
         $pending = '';
+        $skipNarrative = false;
 
         foreach ($lines as $ln) {
             $t = trim($ln);
             $t = $this->scrub_page_markers($t);
+            $startsWithQty = (bool) preg_match('/^\s*\d{1,4}\s+/', $t);
 
             if ($t === '') {
                 if ($buf !== '') { $out[] = trim($buf); $buf = ''; }
                 $pending = '';
+                $skipNarrative = false;
                 continue;
             }
 
             if ($this->should_exclude_line($t)) {
                 if ($buf !== '') { $out[] = trim($buf); $buf = ''; }
                 $pending = '';
+                $skipNarrative = false;
                 continue;
+            }
+
+            if ($this->looks_like_qty_led_annotation_line($t)) {
+                if ($buf !== '') { $out[] = trim($buf); $buf = ''; }
+                $pending = '';
+                $skipNarrative = true;
+                continue;
+            }
+
+            if ($skipNarrative) {
+                if ($startsWithQty) $skipNarrative = false;
+                else continue;
             }
 
             // If a high-number "model fragment" landed on its own line, stash it and attach to the next real item row.
@@ -1284,8 +1301,6 @@ private function split_by_door_blocks($text) {
                 continue;
             }
 
-            $startsWithQty = (bool) preg_match('/^\s*\d{1,4}\s+/', $t);
-
             // Attach catalog/model-ish continuation line
             if (!$startsWithQty && $buf !== '') {
                 if (preg_match('/\b[A-Z]{1,6}[A-Z0-9]*[-\/][A-Z0-9][A-Z0-9\-\/]*\b/i', $t)) {
@@ -1300,10 +1315,9 @@ private function split_by_door_blocks($text) {
                 $rest = $m[2];
 
                 if ($this->looks_like_note_continuation($rest)) {
-                    if ($buf !== '') {
-                        $buf .= ' ' . $t;
-                        $schema_stats['token_note_continuations']++;
-                    }
+                    if ($buf !== '') $out[] = trim($buf);
+                    $buf = '';
+                    $skipNarrative = true;
                     continue;
                 }
 
@@ -1448,6 +1462,11 @@ private function split_by_door_blocks($text) {
         return false;
     }
 
+    private function looks_like_qty_led_annotation_line($trimmedLine) {
+        $trimmedLine = $this->scrub_page_markers($trimmedLine);
+        return (bool) preg_match('/^\s*\d{1,4}\s+(NOTE:|REVISION:|REVISED:|ISSUED:)\s*/i', $trimmedLine);
+    }
+
     private function is_obviously_not_item_row($trimmedLine) {
         $trimmedLine = $this->scrub_page_markers($trimmedLine);
         if (preg_match('/^\d+\s*mm\b/i', $trimmedLine)) return true;
@@ -1477,6 +1496,81 @@ private function split_by_door_blocks($text) {
         if (preg_match('/^(LONG\d|HDR\d|C(10|32)[A-Z0-9]|US26D|C26D|C32D)\b/', $r)) return true;
 
         return false;
+    }
+
+    private function looks_like_narrative_commentary($text) {
+        $t = trim((string)$text);
+        if ($t === '') return false;
+        if (preg_match('/[A-Z0-9]{2,}[-\/][A-Z0-9]/i', $t)) return false;
+        if (preg_match('/^[A-Z0-9\/\.\-\+]+$/', $t)) return false;
+
+        if (preg_match('/\b(CLIENT|INDICATED|PRICING|PLEASE|ISSUE|SUPPLIED|WITHOUT|AFFECTS|DOCUMENT|STANDARDS|PEMKO|SCHLAGE)\b/i', $t)) return true;
+        if (preg_match('/\b(WEATHER\s+STRIPPING|GASKETING\s+ARE|DROP\s+BOTTOM|SEALS\s+SHOULD|PART\s+OF\s+SYSTEM|TO\s+BE)\b/i', $t)) return true;
+        if (preg_match('/[a-z]/', $t) && preg_match('/\b[a-z]{3,}\b.*\b[a-z]{3,}\b/i', $t)) return true;
+
+        return false;
+    }
+
+    private function sanitize_column_slice($rawValue, $columnKey) {
+        $raw = trim((string)$rawValue);
+        if ($raw === '') return '';
+
+        $parts = preg_split('/\s{2,}/', $raw);
+        $parts = array_values(array_filter(array_map('trim', $parts), function($v) { return $v !== ''; }));
+        if (empty($parts)) return '';
+
+        if ($columnKey === 'finish') {
+            for ($i = count($parts) - 1; $i >= 0; $i--) {
+                if ($this->looks_like_finish_value($parts[$i])) return $parts[$i];
+            }
+            return $this->looks_like_narrative_commentary($parts[0]) ? '' : $parts[0];
+        }
+
+        $value = $parts[0];
+        return $value;
+    }
+
+    private function sanitize_column_raw_line($rawLine, $cols, $slices, $catCol, $mfgCol, $finCol) {
+        $catalogStart = isset($cols['catalog']) ? (int)$cols['catalog'] : 0;
+        if ($catalogStart < 20) return trim((string)$rawLine);
+        if (!$this->raw_line_contains_narrative_markers($rawLine)) return trim((string)$rawLine);
+
+        $rawCatalog = trim((string)($slices['catalog'] ?? ''));
+        $rawMfg = trim((string)($slices['mfg'] ?? ''));
+        $rawFinish = trim((string)($slices['finish'] ?? ''));
+        $changed = ($catCol !== $rawCatalog) || ($mfgCol !== $rawMfg) || ($finCol !== $rawFinish);
+        if (!$changed) return trim((string)$rawLine);
+        if (preg_match('/^[a-z0-9]$/i', trim((string)$catCol))) return trim((string)$rawLine);
+
+        $left = substr((string)$rawLine, 0, $catalogStart);
+        $parts = [preg_replace('/\s+/', ' ', trim($left))];
+        foreach ([$catCol, $mfgCol, $finCol] as $part) {
+            $part = trim((string)$part);
+            if ($part !== '') $parts[] = $part;
+        }
+
+        $parts = array_values(array_filter($parts, function($v) { return trim((string)$v) !== ''; }));
+        if (empty($parts)) return trim((string)$rawLine);
+        return trim(implode(' ', $parts));
+    }
+
+    private function raw_line_contains_narrative_markers($text) {
+        return (bool) preg_match('/\b(CLIENT|INDICATED|PRICING|PLEASE|ISSUE|SUPPLIED|WITHOUT|AFFECTS|DOCUMENT|STANDARDS|PEMKO|SCHLAGE|WEATHER\s+STRIPPING|GASKETING\s+ARE|DROP\s+BOTTOM|SEALS\s+SHOULD|PART\s+OF\s+SYSTEM|TO\s+BE)\b/i', (string)$text);
+    }
+
+    private function looks_like_standalone_narrative_line($text) {
+        $t = trim((string)$text);
+        if ($t === '') return false;
+        if (preg_match('/^\s*\d{1,4}\s+/', $t)) return false;
+        if (preg_match('/[a-z]/', $t) && preg_match('/[.,;:]$/', $t)) return true;
+        return $this->looks_like_narrative_commentary($t);
+    }
+
+    private function looks_like_finish_value($value) {
+        $v = trim((string)$value);
+        if ($v === '') return false;
+        if (preg_match('/[a-z]{2,}/', $v)) return false;
+        return (bool) preg_match('/^[A-Z0-9][A-Z0-9\/\.\-]{0,11}$/i', $v);
     }
 
     // ===========================
@@ -1572,6 +1666,7 @@ private function split_by_door_blocks($text) {
     private function looks_like_column_noise_line($trimmedLine) {
         if ($trimmedLine === '') return true;
         if ($this->is_obviously_not_item_row($trimmedLine)) return true;
+        if ($this->looks_like_standalone_narrative_line($trimmedLine)) return true;
 
         if (preg_match('/\bJOB\s+NO\.\b/i', $trimmedLine)) return true;
         if (preg_match('/\bPAGE\s+\d+\s+OF\s+\d+\b/i', $trimmedLine)) return true;
