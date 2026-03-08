@@ -130,10 +130,28 @@ function ado_qm_extract_fragments_from_text(string $value): array {
     $seen = [];
     $out = [];
     foreach ($matches as $match) {
-        $compact = ado_qm_compact((string) ($match['fragment'] ?? ''));
+        $fragment = (string) ($match['fragment'] ?? '');
+        $compact = ado_qm_compact($fragment);
         if ($compact === '' || isset($seen[$compact])) { continue; }
+        $offset = (int) ($match['offset'] ?? 0);
+        $end = $offset + strlen($fragment);
+        $contained = false;
+        foreach ($matches as $other) {
+            $other_fragment = (string) ($other['fragment'] ?? '');
+            if ($other_fragment === '' || $other_fragment === $fragment) { continue; }
+            $other_compact = ado_qm_compact($other_fragment);
+            if ($other_compact === '' || strlen($other_compact) <= strlen($compact)) { continue; }
+            $other_offset = (int) ($other['offset'] ?? 0);
+            $other_end = $other_offset + strlen($other_fragment);
+            if ($offset < $other_offset || $end > $other_end) { continue; }
+            if (strpos($other_fragment, '-') === false && strpos($other_fragment, '/') === false) { continue; }
+            if (strpos($other_compact, $compact) === false) { continue; }
+            $contained = true;
+            break;
+        }
+        if ($contained) { continue; }
         $seen[$compact] = true;
-        $out[] = (string) $match['fragment'];
+        $out[] = $fragment;
     }
     return $out;
 }
@@ -157,10 +175,10 @@ function ado_qm_model_variants(string $value): array {
         $ordered[] = preg_replace('/\s+/', ' ', $slash_trim) ?: $slash_trim;
     }
     $compact = ado_qm_compact($norm);
-    if (preg_match('/^(\d{4,5})(?:[A-Z]{1,6})(?:[-\/][A-Z0-9]+)*$/', $compact, $m)) {
+    if (preg_match('/^([A-Z]+[-\/]?\d{4,5})(?:[-\/][A-Z0-9]+)*$/', $compact, $m)) {
         $ordered[] = $m[1];
     }
-    if (preg_match('/^([A-Z]+[-\/]?\d{4,5})(?:[-\/][A-Z0-9]+)*$/', $compact, $m)) {
+    if (preg_match('/^([A-Z]+[A-Z0-9]*\d)([A-Z])$/', $compact, $m)) {
         $ordered[] = $m[1];
     }
     $seen = [];
@@ -832,9 +850,17 @@ function ado_qm_match_segment(array $item, string $segment, array $index): array
 
         $exact_rows = [];
         $exact_variant = '';
+        $source_model_variants = ado_qm_model_variants((string) ($item['catalog'] ?? ''));
         foreach ((array) ($candidate['variants'] ?? [$normalized]) as $variant) {
             $exact_ids = array_values(array_unique(array_map('intval', (array) ($index['global_models'][$variant] ?? []))));
+            $variant_allowed = ado_qm_exact_variant_allowed_for_source($item, $variant, $source_model_variants);
             if (count($exact_ids) === 1) {
+                if (!$variant_allowed) {
+                    $trace[] = 'exact_blocked=' . $variant;
+                    $exact_rows = array_merge($exact_rows, ado_qm_exact_product_rows($exact_ids, $index, 'exact_blocked', 100));
+                    $exact_variant = $exact_variant ?: $variant;
+                    continue;
+                }
                 return [
                     'product_id' => (int) $exact_ids[0],
                     'qty' => $qty,
@@ -850,9 +876,11 @@ function ado_qm_match_segment(array $item, string $segment, array $index): array
                     'trace' => array_merge($trace, ['exact=' . $variant]),
                 ];
             }
-            if ($exact_ids) {
+            if ($exact_ids && $variant_allowed) {
                 $exact_variant = $exact_variant ?: $variant;
                 $exact_rows = array_merge($exact_rows, ado_qm_exact_product_rows($exact_ids, $index, 'exact_duplicate', 100));
+            } elseif ($exact_ids) {
+                $trace[] = 'exact_blocked=' . $variant;
             }
         }
         $candidate_rows = [];
@@ -904,6 +932,21 @@ function ado_qm_match_segment(array $item, string $segment, array $index): array
         'normalized_model' => '',
         'trace' => $trace,
     ];
+}
+
+function ado_qm_exact_variant_allowed_for_source(array $item, string $variant, array $source_model_variants = []): bool {
+    $variant = ado_qm_compact($variant);
+    if ($variant === '') { return false; }
+
+    $source_model = trim((string) ($item['catalog'] ?? ''));
+    if ($source_model === '') { return true; }
+    if (!ado_qm_is_model_like_fragment($source_model)) { return true; }
+
+    $source_norm = ado_qm_compact($source_model);
+    if ($source_norm === $variant) { return true; }
+
+    $allowed = $source_model_variants ?: ado_qm_model_variants($source_model);
+    return in_array($variant, $allowed, true);
 }
 
 function ado_qm_match_item_segments(array $item, ?array $index = null): array {

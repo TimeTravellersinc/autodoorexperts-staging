@@ -94,7 +94,6 @@ class ADX_Scope {
             // LCN 9100/9500 operator model numbers
             '9131', '9142',
             '9531', '9532', '9533',
-            '9541', '9542', '9543',
             '9551', '9552', '9553',
             '9561', '9562', '9563',
 
@@ -163,7 +162,9 @@ class ADX_Scope {
 
             // --- Push buttons / column actuators ---
             'CM-45/',
+            'CM45/',
             'CM-46/',
+            'CM46/',
             'CM-75',
             'column actuator',
 
