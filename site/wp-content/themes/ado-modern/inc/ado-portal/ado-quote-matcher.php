@@ -297,6 +297,81 @@ function ado_qm_auto_model_variants(string $value): array {
     return $out;
 }
 
+function ado_qm_segment_type_hint(array $item, string $segment): string {
+    $context = ado_qm_normalize_text($segment . ' ' . (string) ($item['desc'] ?? ''));
+    if ($context === '') { return ''; }
+    if (strpos($context, 'ELECTRIC STRIKE') !== false) { return 'strike'; }
+    if ((bool) preg_match('/\b(?:AUTO\s+OPENER|AUTO\s+OPERATOR|DOOR\s+OPERATOR|BF\s+OPERATOR|OPERATOR)\b/', $context)) {
+        return strpos($context, 'PLATE') !== false ? 'operator_plate' : 'operator';
+    }
+    return '';
+}
+
+function ado_qm_family_series_variants(array $item, string $segment): array {
+    $source_model = trim((string) ($item['catalog'] ?? ''));
+    $parts = ado_qm_structured_model_parts($source_model);
+    if (!$parts || !empty($parts['has_alpha_prefix'])) {
+        return [];
+    }
+
+    $family = (string) ($parts['family'] ?? '');
+    $numeric_head = $family;
+    if (preg_match('/^\d{3}$/', $family)) {
+        $suffix_parts = array_values((array) ($parts['suffix_parts'] ?? []));
+        $first_suffix = (string) ($suffix_parts[0] ?? '');
+        if (preg_match('/^\d/', $first_suffix, $m)) {
+            $numeric_head .= $m[0];
+        }
+    }
+    if (!preg_match('/^\d{4}$/', $numeric_head)) {
+        return [];
+    }
+
+    $type = ado_qm_segment_type_hint($item, $segment);
+    $variants = [];
+
+    // LCN operator families commonly collapse to the trailing-zero series product.
+    if (in_array($type, ['operator', 'operator_plate'], true) && preg_match('/^[469]\d{3}$/', $numeric_head)) {
+        $variants[] = substr($numeric_head, 0, 3) . '0';
+    }
+
+    // Von Duprin electric strike families collapse to xx00 series products.
+    if ($type === 'strike' && preg_match('/^6(?:2|3|4)\d{2}$/', $numeric_head)) {
+        $variants[] = substr($numeric_head, 0, 2) . '00';
+    }
+
+    $source_norm = ado_qm_compact($source_model);
+    $out = [];
+    foreach ($variants as $variant) {
+        $compact = ado_qm_compact($variant);
+        if ($compact === '' || $compact === $source_norm) { continue; }
+        $out[$compact] = $compact;
+    }
+
+    return array_values($out);
+}
+
+function ado_qm_resolve_family_series_match(array $item, array $candidate, string $segment, array $index): array {
+    foreach (ado_qm_family_series_variants($item, $segment) as $variant) {
+        $ids = array_values(array_unique(array_map('intval', (array) ($index['global_models'][$variant] ?? []))));
+        if (count($ids) !== 1) {
+            continue;
+        }
+        $product_id = (int) $ids[0];
+        $product = (array) ($index['products'][$product_id] ?? []);
+        $title = strtoupper((string) ($product['title'] ?? ''));
+        if ($title !== '' && strpos($title, 'SERIES') === false) {
+            continue;
+        }
+        return [
+            'product_id' => $product_id,
+            'match_method' => 'family_series_model',
+            'normalized_model' => $variant,
+        ];
+    }
+    return [];
+}
+
 function ado_qm_should_block_plate_context_variant(array $item, string $segment): bool {
     $context = ado_qm_normalize_text($segment . ' ' . (string) ($item['desc'] ?? ''));
     if ($context === '') { return false; }
@@ -1062,6 +1137,23 @@ function ado_qm_match_segment(array $item, string $segment, array $index): array
         if ($exact_rows) {
             $candidate_rows = $exact_rows;
         } else {
+            $family_series = ado_qm_resolve_family_series_match($item, $candidate, $clean_segment, $index);
+            if ($family_series) {
+                return [
+                    'product_id' => (int) ($family_series['product_id'] ?? 0),
+                    'qty' => $qty,
+                    'raw_line' => $clean_segment,
+                    'source_model' => $source_model,
+                    'source_desc' => (string) ($item['desc'] ?? ''),
+                    'match_method' => (string) ($family_series['match_method'] ?? 'family_series_model'),
+                    'confidence' => 96,
+                    'reason_code' => '',
+                    'candidate_products' => [],
+                    'decision_key' => '*|' . (string) ($family_series['normalized_model'] ?? ''),
+                    'normalized_model' => (string) ($family_series['normalized_model'] ?? ''),
+                    'trace' => array_merge($trace, ['family_series=' . (string) ($family_series['normalized_model'] ?? '')]),
+                ];
+            }
             $candidate_rows = ado_qm_fuzzy_product_rows($candidate, $context_words, $index);
         }
         $candidate_rows = ado_qm_filter_rejected_rows($candidate_rows, (array) ($candidate['decision_keys'] ?? []));

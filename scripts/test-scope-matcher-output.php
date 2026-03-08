@@ -217,10 +217,12 @@ $gap8310 = scope_match_first_result(scope_match_direct_item('1 Touchless Actuato
 scope_match_assert((int) ($gap8310['product_id'] ?? 0) === 0, 'matcher: 8310-810DA was incorrectly auto-matched', $failures);
 
 $match9563 = scope_match_first_result(scope_match_direct_item('1 Operator 9563 REGARM2', 'Operator', '9563'), $index);
+scope_match_assert((int) ($match9563['product_id'] ?? 0) > 0, 'matcher: 9563 did not resolve through its Woo-backed family-series product', $failures);
 
 $match956018 = scope_match_first_result(scope_match_direct_item('1 Plate 9560-18 628', 'Plate', '9560-18'), $index);
 
 $match6223 = scope_match_first_result(scope_match_direct_item('1 Electric Strike 6223-CON', 'Electric Strike', '6223-CON'), $index);
+scope_match_assert((int) ($match6223['product_id'] ?? 0) > 0, 'matcher: 6223-CON did not resolve through its Woo-backed family-series product', $failures);
 
 $partial = scope_match_first_result(scope_match_direct_item('1 Electric Strike 1006-630 E630', 'Electric Strike', 'E630'), $index);
 scope_match_assert((int) ($partial['product_id'] ?? 0) === 0, 'matcher: junk fragment E630 was incorrectly auto-matched', $failures);
