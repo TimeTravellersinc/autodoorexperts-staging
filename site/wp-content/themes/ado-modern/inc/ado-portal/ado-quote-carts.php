@@ -499,20 +499,23 @@ function ado_quote_group_match_state(array $group, array $unmatched_by_door): st
     $door_number = (string) ($door['door_number'] ?? '');
     $unmatched = $unmatched_by_door[$door_id] ?? $unmatched_by_door['door-number:' . $door_number] ?? [];
     $lines = array_values((array) ($group['lines'] ?? []));
+    $is_scoped = !empty($door['is_scoped']);
+    $has_operator = !empty($door['has_operator']);
+
+    if (!$is_scoped || !$has_operator) {
+        return 'out_of_scope';
+    }
 
     if (!$lines && $unmatched) {
-        return 'none';
+        return 'unknown';
     }
     if (!$lines) {
-        return 'empty';
+        return 'unknown';
     }
 
     foreach ($lines as $line) {
         if (!is_array($line)) {
             continue;
-        }
-        if ((string) ($line['line_type'] ?? '') === 'manual') {
-            return 'manual';
         }
         $method = strtolower((string) ($line['match_method'] ?? ''));
         $confidence = (float) ($line['match_confidence'] ?? 0);
@@ -525,22 +528,19 @@ function ado_quote_group_match_state(array $group, array $unmatched_by_door): st
         return 'fuzzy';
     }
 
-    return 'full';
+    return 'matched';
 }
 
 function ado_quote_group_match_label(string $state, int $unmatched_count): string
 {
-    if ($state === 'manual') {
-        return 'Manual pricing';
-    }
-    if ($state === 'none') {
-        return 'Needs review';
+    if ($state === 'unknown') {
+        return 'Unknown';
     }
     if ($state === 'fuzzy') {
-        return $unmatched_count > 0 ? 'Partial match' : 'Needs review';
+        return $unmatched_count > 0 ? 'Fuzzy Match' : 'Fuzzy Match';
     }
-    if ($state === 'empty') {
-        return 'No items';
+    if ($state === 'out_of_scope') {
+        return 'Out of Scope';
     }
     return 'Matched';
 }
@@ -553,36 +553,46 @@ function ado_quote_review_summary(int $quote_id): array
     $summary = [
         'doors_total' => count($groups),
         'doors_in_scope' => count($groups),
-        'matched_doors' => 0,
-        'empty_doors' => 0,
-        'manual_lines' => 0,
-        'dropped_rows' => 0,
+        'matched' => 0,
+        'fuzzy' => 0,
+        'unknown' => 0,
+        'out_of_scope' => 0,
     ];
 
     foreach ($groups as $group) {
-        $lines = array_values((array) ($group['lines'] ?? []));
-        if ($lines) {
-            $summary['matched_doors']++;
-        } else {
-            $summary['empty_doors']++;
-        }
         $door = (array) ($group['door'] ?? []);
         $door_id = (string) ($door['door_id'] ?? '');
         $door_number = (string) ($door['door_number'] ?? '');
-        $summary['dropped_rows'] += count((array) ($unmatched_by_door[$door_id] ?? $unmatched_by_door['door-number:' . $door_number] ?? []));
-        $summary['dropped_rows'] += count((array) ($excluded_by_door[$door_id] ?? $excluded_by_door['door-number:' . $door_number] ?? []));
-        foreach ($lines as $line) {
-            if (is_array($line) && (string) ($line['line_type'] ?? '') === 'manual') {
-                $summary['manual_lines']++;
-            }
+        $state = ado_quote_group_match_state($group, $unmatched_by_door);
+        if (!isset($summary[$state])) {
+            $state = 'unknown';
+        }
+        $summary[$state]++;
+        if (!empty($excluded_by_door[$door_id] ?? $excluded_by_door['door-number:' . $door_number] ?? []) && $state !== 'out_of_scope') {
+            $summary['out_of_scope']++;
         }
     }
+    $summary['doors_in_scope'] = max(0, (int) $summary['doors_total'] - (int) $summary['out_of_scope']);
     return $summary;
+}
+
+function ado_quote_state_card_class(string $state): string
+{
+    if ($state === 'matched') {
+        return 'match-full';
+    }
+    if ($state === 'fuzzy') {
+        return 'match-fuzzy';
+    }
+    if ($state === 'unknown') {
+        return 'match-none';
+    }
+    return 'no-scope';
 }
 
 function ado_quote_flag_class(string $state): string
 {
-    if ($state === 'manual' || $state === 'none') {
+    if ($state === 'unknown') {
         return 'danger';
     }
     if ($state === 'fuzzy') {
@@ -593,16 +603,16 @@ function ado_quote_flag_class(string $state): string
 
 function ado_quote_flag_label(string $state): string
 {
-    if ($state === 'manual') {
-        return 'Manual pricing';
-    }
-    if ($state === 'none') {
+    if ($state === 'unknown') {
         return 'Unknown model';
     }
     if ($state === 'fuzzy') {
         return 'Fuzzy match';
     }
-    return 'Review';
+    if ($state === 'out_of_scope') {
+        return 'Out of scope';
+    }
+    return 'Matched';
 }
 
 function ado_render_quote_inline_review(array $row, int $quote_id, array $adjustment = []): string
@@ -671,12 +681,42 @@ function ado_render_quote_detail(int $user_id, int $quote_id): string
     $flash_banner = ado_render_quote_unmatched_banner($user_id, $quote_id);
     $debug_log = ado_render_quote_debug_log($quote_id);
     $unmatched_by_door = ado_quote_unmatched_by_door($quote_id);
+    $excluded_by_door = ado_quote_excluded_by_door($quote_id);
     $summary = ado_quote_review_summary($quote_id);
     $scope_file = wp_basename((string) ($row['scope_url'] ?? ''));
     $status = strtolower((string) ($row['status'] ?? 'draft'));
     $door_notes = ado_quote_door_notes($quote_id);
     $line_adjustments = ado_quote_line_adjustments($quote_id);
     $nonce = wp_create_nonce('ado_quote_nonce');
+    $review_items = [];
+    $default_open_door_id = '';
+    foreach ($groups as $idx => $group) {
+        $door = (array) ($group['door'] ?? []);
+        $door_id = (string) ($door['door_id'] ?? ('door-' . $idx));
+        $door_number = (string) ($door['door_number'] ?? ('Door ' . ($idx + 1)));
+        $door_label = (string) ($door['door_label'] ?? ('Door ' . $door_number));
+        $state = ado_quote_group_match_state($group, $unmatched_by_door);
+        if ($default_open_door_id === '' && in_array($state, ['fuzzy', 'unknown'], true)) {
+            $default_open_door_id = $door_id;
+        }
+        if (!in_array($state, ['fuzzy', 'unknown'], true)) {
+            continue;
+        }
+        $review_count = count((array) ($unmatched_by_door[$door_id] ?? $unmatched_by_door['door-number:' . $door_number] ?? []));
+        $review_count += count((array) ($excluded_by_door[$door_id] ?? $excluded_by_door['door-number:' . $door_number] ?? []));
+        $review_items[] = [
+            'door_id' => $door_id,
+            'door_number' => $door_number,
+            'door_label' => $door_label,
+            'state' => $state,
+            'label' => $state === 'fuzzy' ? 'Fuzzy match, confirm model' : 'Unknown model, manual entry',
+            'count' => max(1, $review_count),
+        ];
+    }
+    if ($default_open_door_id === '' && $groups) {
+        $first_group = (array) ($groups[0]['door'] ?? []);
+        $default_open_door_id = (string) ($first_group['door_id'] ?? 'door-0');
+    }
 
     ob_start();
     ?>
@@ -685,17 +725,18 @@ function ado_render_quote_detail(int $user_id, int $quote_id): string
       .ado-quote-review{margin-top:24px;color:var(--ado-text);} .ado-quote-review *{box-sizing:border-box;}
       .ado-quote-review .qr-hero{margin-bottom:18px;} .ado-quote-review .qr-title{font-size:22px;font-weight:800;letter-spacing:-.5px;margin:0 0 3px;} .ado-quote-review .qr-subtitle{font-size:13px;color:var(--ado-muted);margin:0;}
       .ado-quote-review .qr-chip-row{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;} .ado-quote-review .qr-chip{display:inline-flex;align-items:center;gap:5px;background:var(--ado-surface);border:1px solid var(--ado-border);border-radius:5px;padding:4px 10px;font-size:11px;font-weight:700;color:var(--ado-secondary);} .ado-quote-review .qr-chip.status-draft{background:var(--ado-accent-soft);border-color:#bfdbfe;color:var(--ado-accent);} .ado-quote-review .qr-chip.status-submitted,.ado-quote-review .qr-chip.status-ordered{background:var(--ado-green-soft);border-color:var(--ado-green-border);color:var(--ado-green);}
-      .ado-quote-review .qr-banner{background:linear-gradient(135deg,var(--ado-green-soft),#f0fdf4);border:1px solid var(--ado-green-border);border-radius:var(--ado-radius);padding:14px 18px;display:flex;align-items:center;gap:14px;margin-bottom:22px;} .ado-quote-review .qr-banner-main{flex:1;} .ado-quote-review .qr-banner-title{font-weight:700;color:#065f46;font-size:14px;margin:0 0 2px;} .ado-quote-review .qr-banner-copy{font-size:12px;color:#047857;margin:0;} .ado-quote-review .qr-banner-stats{display:flex;gap:14px;flex-shrink:0;} .ado-quote-review .qr-stat{text-align:center;padding:6px 14px;background:#fff;border:1px solid var(--ado-green-border);border-radius:6px;} .ado-quote-review .qr-stat strong{display:block;font-size:17px;font-weight:800;} .ado-quote-review .qr-stat span{display:block;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--ado-muted);margin-top:1px;}
+      .ado-quote-review .qr-banner{background:linear-gradient(135deg,var(--ado-green-soft),#f0fdf4);border:1px solid var(--ado-green-border);border-radius:var(--ado-radius);padding:14px 18px;display:flex;align-items:center;gap:14px;margin-bottom:22px;} .ado-quote-review .qr-banner-main{flex:1;} .ado-quote-review .qr-banner-title{font-weight:700;color:#065f46;font-size:14px;margin:0 0 2px;} .ado-quote-review .qr-banner-copy{font-size:12px;color:#047857;margin:0;} .ado-quote-review .qr-banner-stats{display:flex;gap:14px;flex-shrink:0;} .ado-quote-review .qr-stat{text-align:center;padding:6px 14px;background:#fff;border:1px solid var(--ado-green-border);border-radius:6px;} .ado-quote-review .qr-stat strong{display:block;font-size:17px;font-weight:800;} .ado-quote-review .qr-stat span{display:block;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--ado-muted);margin-top:1px;} .ado-quote-review .qr-stat.matched strong{color:var(--ado-green);} .ado-quote-review .qr-stat.fuzzy strong{color:var(--ado-warn);} .ado-quote-review .qr-stat.unknown strong{color:var(--ado-danger);} .ado-quote-review .qr-stat.no-scope strong{color:var(--ado-muted);}
+      .ado-quote-review .qr-section-head{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:12px;} .ado-quote-review .qr-section-title{display:flex;align-items:center;gap:8px;font-size:15px;font-weight:700;margin:0;} .ado-quote-review .qr-section-icon{width:24px;height:24px;border-radius:6px;background:var(--ado-accent-soft);color:var(--ado-accent);display:flex;align-items:center;justify-content:center;flex-shrink:0;} .ado-quote-review .qr-section-actions{display:flex;gap:7px;flex-wrap:wrap;}
       .ado-quote-review .qr-layout{display:grid;grid-template-columns:1fr 310px;gap:20px;align-items:flex-start;} .ado-quote-review .qr-sidebar{position:sticky;top:74px;display:flex;flex-direction:column;gap:14px;}
       .ado-quote-review .qr-sidecard{background:var(--ado-surface);border:1px solid var(--ado-border);border-radius:var(--ado-radius);overflow:hidden;box-shadow:0 1px 2px rgba(0,0,0,.05);} .ado-quote-review .qr-sidehead{padding:14px 18px 12px;border-bottom:1px solid var(--ado-border);display:flex;align-items:center;justify-content:space-between;} .ado-quote-review .qr-sidetitle{font-size:14px;font-weight:700;margin:0;} .ado-quote-review .qr-sidebody{padding:14px 18px;} .ado-quote-review .qr-siderow{display:flex;justify-content:space-between;gap:10px;padding:8px 0;border-bottom:1px solid var(--ado-border-light);font-size:13px;} .ado-quote-review .qr-siderow:last-child{border-bottom:none;} .ado-quote-review .qr-total{display:flex;justify-content:space-between;align-items:center;padding:14px 18px;background:var(--ado-text);margin-top:2px;} .ado-quote-review .qr-total span{font-size:13px;font-weight:700;color:rgba(255,255,255,.7);text-transform:uppercase;letter-spacing:.06em;} .ado-quote-review .qr-total strong{font-size:24px;font-weight:800;color:#fff;}
       .ado-quote-review .qr-flag-list{display:flex;flex-direction:column;gap:6px;} .ado-quote-review .qr-flag-item{display:flex;align-items:center;gap:8px;padding:8px 10px;border-radius:6px;font-size:12px;cursor:pointer;border:1px solid transparent;} .ado-quote-review .qr-flag-item.warn{background:var(--ado-warn-soft);border-color:var(--ado-warn-border);color:#92400e;} .ado-quote-review .qr-flag-item.danger{background:var(--ado-danger-soft);border-color:var(--ado-danger-border);color:#991b1b;} .ado-quote-review .qr-flag-item.neutral{background:var(--ado-surface-2);border-color:var(--ado-border);color:var(--ado-secondary);} .ado-quote-review .qr-flag-item strong{margin-left:auto;}
-      .ado-quote-review .qr-btn,.ado-quote-review .qr-btn:visited{display:inline-flex;align-items:center;justify-content:center;width:100%;padding:12px;border-radius:var(--ado-radius-sm);text-decoration:none;font-weight:700;border:1px solid var(--ado-border);background:var(--ado-surface);color:var(--ado-text);cursor:pointer;} .ado-quote-review .qr-btn.primary{background:var(--ado-accent);color:#fff;border-color:var(--ado-accent);} .ado-quote-review .qr-btn+.qr-btn{margin-top:8px;}
-      .ado-quote-review .qr-door-list{display:flex;flex-direction:column;gap:10px;} .ado-quote-review .qr-door-card{background:var(--ado-surface);border:1px solid var(--ado-border);border-radius:var(--ado-radius);overflow:hidden;transition:box-shadow .18s ease;} .ado-quote-review .qr-door-card:hover{box-shadow:0 4px 12px rgba(0,0,0,.08);} .ado-quote-review .qr-door-card.match-full{border-left:3px solid var(--ado-green);} .ado-quote-review .qr-door-card.match-fuzzy{border-left:3px solid var(--ado-warn);} .ado-quote-review .qr-door-card.match-manual,.ado-quote-review .qr-door-card.match-none{border-left:3px solid var(--ado-danger);} .ado-quote-review .qr-door-card.match-out-of-scope,.ado-quote-review .qr-door-card.match-empty{border-left:3px solid var(--ado-muted);opacity:.85;}
-      .ado-quote-review .qr-door-header{display:flex;align-items:center;gap:12px;padding:12px 16px;cursor:pointer;user-select:none;background:var(--ado-surface);} .ado-quote-review .qr-door-num{width:36px;height:36px;border-radius:8px;font-size:13px;font-weight:800;display:flex;align-items:center;justify-content:center;flex-shrink:0;} .ado-quote-review .qr-door-card.match-full .qr-door-num{background:var(--ado-green-soft);color:var(--ado-green);} .ado-quote-review .qr-door-card.match-fuzzy .qr-door-num{background:var(--ado-warn-soft);color:var(--ado-warn);} .ado-quote-review .qr-door-card.match-manual .qr-door-num,.ado-quote-review .qr-door-card.match-none .qr-door-num{background:var(--ado-danger-soft);color:var(--ado-danger);} .ado-quote-review .qr-door-card.match-out-of-scope .qr-door-num,.ado-quote-review .qr-door-card.match-empty .qr-door-num{background:#f0f1f3;color:var(--ado-muted);} .ado-quote-review .qr-door-title{flex:1;} .ado-quote-review .qr-door-title strong{display:block;font-size:13.5px;} .ado-quote-review .qr-door-title span{display:block;font-size:11.5px;color:var(--ado-muted);margin-top:1px;}
-      .ado-quote-review .qr-door-tag{font-size:10.5px;font-weight:600;padding:2px 7px;border-radius:20px;background:var(--ado-accent-soft);color:var(--ado-accent);} .ado-quote-review .qr-door-tag.out-scope{background:#f0f1f3;color:var(--ado-muted);border:1px solid var(--ado-border);} .ado-quote-review .qr-door-badge{font-size:10.5px;font-weight:700;letter-spacing:.05em;padding:3px 9px;border-radius:20px;display:flex;align-items:center;gap:4px;} .ado-quote-review .qr-door-card.match-full .qr-door-badge{background:var(--ado-green-soft);color:var(--ado-green);border:1px solid var(--ado-green-border);} .ado-quote-review .qr-door-card.match-fuzzy .qr-door-badge{background:var(--ado-warn-soft);color:var(--ado-warn);border:1px solid var(--ado-warn-border);} .ado-quote-review .qr-door-card.match-manual .qr-door-badge,.ado-quote-review .qr-door-card.match-none .qr-door-badge{background:var(--ado-danger-soft);color:var(--ado-danger);border:1px solid var(--ado-danger-border);} .ado-quote-review .qr-door-card.match-out-of-scope .qr-door-badge,.ado-quote-review .qr-door-card.match-empty .qr-door-badge{background:#f0f1f3;color:var(--ado-muted);border:1px solid var(--ado-border);} .ado-quote-review .qr-door-total{font-size:14px;font-weight:800;min-width:90px;text-align:right;} .ado-quote-review .qr-door-chevron{color:var(--ado-muted);transition:transform .2s ease;} .ado-quote-review .qr-door-card.open .qr-door-chevron{transform:rotate(90deg);} .ado-quote-review .qr-door-body{border-top:1px solid var(--ado-border);padding:14px 16px;display:none;flex-direction:column;gap:10px;background:var(--ado-surface-2);} .ado-quote-review .qr-door-card.open .qr-door-body{display:flex;}
+      .ado-quote-review .qr-btn,.ado-quote-review .qr-btn:visited{display:inline-flex;align-items:center;justify-content:center;width:100%;padding:12px;border-radius:var(--ado-radius-sm);text-decoration:none;font-weight:700;border:1px solid var(--ado-border);background:var(--ado-surface);color:var(--ado-text);cursor:pointer;} .ado-quote-review .qr-btn.primary{background:var(--ado-accent);color:#fff;border-color:var(--ado-accent);} .ado-quote-review .qr-btn.secondary{background:transparent;color:var(--ado-secondary);} .ado-quote-review .qr-btn.inline{width:auto;padding:8px 12px;} .ado-quote-review .qr-btn+.qr-btn{margin-top:8px;}
+      .ado-quote-review .qr-door-list{display:flex;flex-direction:column;gap:10px;} .ado-quote-review .qr-door-card{background:var(--ado-surface);border:1px solid var(--ado-border);border-radius:var(--ado-radius);overflow:hidden;transition:box-shadow .18s ease;} .ado-quote-review .qr-door-card:hover{box-shadow:0 4px 12px rgba(0,0,0,.08);} .ado-quote-review .qr-door-card.match-full{border-left:3px solid var(--ado-green);} .ado-quote-review .qr-door-card.match-fuzzy{border-left:3px solid var(--ado-warn);} .ado-quote-review .qr-door-card.match-none{border-left:3px solid var(--ado-danger);} .ado-quote-review .qr-door-card.no-scope{border-left:3px solid var(--ado-muted);opacity:.85;}
+      .ado-quote-review .qr-door-header{display:flex;align-items:center;gap:12px;padding:12px 16px;cursor:pointer;user-select:none;background:var(--ado-surface);} .ado-quote-review .qr-door-num{width:36px;height:36px;border-radius:8px;font-size:13px;font-weight:800;display:flex;align-items:center;justify-content:center;flex-shrink:0;} .ado-quote-review .qr-door-card.match-full .qr-door-num{background:var(--ado-green-soft);color:var(--ado-green);} .ado-quote-review .qr-door-card.match-fuzzy .qr-door-num{background:var(--ado-warn-soft);color:var(--ado-warn);} .ado-quote-review .qr-door-card.match-none .qr-door-num{background:var(--ado-danger-soft);color:var(--ado-danger);} .ado-quote-review .qr-door-card.no-scope .qr-door-num{background:#f0f1f3;color:var(--ado-muted);} .ado-quote-review .qr-door-title{flex:1;} .ado-quote-review .qr-door-title strong{display:block;font-size:13.5px;} .ado-quote-review .qr-door-title span{display:block;font-size:11.5px;color:var(--ado-muted);margin-top:1px;}
+      .ado-quote-review .qr-door-tag{font-size:10.5px;font-weight:600;padding:2px 7px;border-radius:20px;background:var(--ado-accent-soft);color:var(--ado-accent);} .ado-quote-review .qr-door-tag.out-scope{background:#f0f1f3;color:var(--ado-muted);border:1px solid var(--ado-border);} .ado-quote-review .qr-door-badge{font-size:10.5px;font-weight:700;letter-spacing:.05em;padding:3px 9px;border-radius:20px;display:flex;align-items:center;gap:4px;} .ado-quote-review .qr-door-card.match-full .qr-door-badge{background:var(--ado-green-soft);color:var(--ado-green);border:1px solid var(--ado-green-border);} .ado-quote-review .qr-door-card.match-fuzzy .qr-door-badge{background:var(--ado-warn-soft);color:var(--ado-warn);border:1px solid var(--ado-warn-border);} .ado-quote-review .qr-door-card.match-none .qr-door-badge{background:var(--ado-danger-soft);color:var(--ado-danger);border:1px solid var(--ado-danger-border);} .ado-quote-review .qr-door-card.no-scope .qr-door-badge{background:#f0f1f3;color:var(--ado-muted);border:1px solid var(--ado-border);} .ado-quote-review .qr-door-total{font-size:14px;font-weight:800;min-width:90px;text-align:right;} .ado-quote-review .qr-door-chevron{color:var(--ado-muted);transition:transform .2s ease;} .ado-quote-review .qr-door-card.open .qr-door-chevron{transform:rotate(90deg);} .ado-quote-review .qr-door-body{border-top:1px solid var(--ado-border);padding:14px 16px;display:none;flex-direction:column;gap:10px;background:var(--ado-surface-2);} .ado-quote-review .qr-door-card.open .qr-door-body{display:flex;}
       .ado-quote-review .qr-table{width:100%;border-collapse:collapse;font-size:12.5px;} .ado-quote-review .qr-table th{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--ado-muted);padding:0 0 7px;text-align:left;border-bottom:1px solid var(--ado-border);} .ado-quote-review .qr-table td{padding:8px 0;border-bottom:1px solid var(--ado-border-light);vertical-align:top;} .ado-quote-review .qr-table tr:last-child td{border-bottom:none;} .ado-quote-review .qr-model{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11.5px;background:var(--ado-surface);border:1px solid var(--ado-border);border-radius:5px;padding:3px 8px;color:var(--ado-secondary);display:inline-block;} .ado-quote-review .qr-model.fuzzy{background:var(--ado-warn-soft);border-color:var(--ado-warn-border);color:var(--ado-warn);} .ado-quote-review .qr-model.none{background:var(--ado-danger-soft);border-color:var(--ado-danger-border);color:var(--ado-danger);} .ado-quote-review .qr-desc{font-weight:500;color:var(--ado-text);} .ado-quote-review .qr-desc.subtle{color:var(--ado-muted);}
       .ado-quote-review .qr-inline-review{padding:10px 12px;border-radius:6px;display:flex;flex-direction:column;gap:10px;} .ado-quote-review .qr-inline-review-no_candidates,.ado-quote-review .qr-inline-review-manual_price{background:var(--ado-danger-soft);border:1px solid var(--ado-danger-border);} .ado-quote-review .qr-inline-review-ambiguous,.ado-quote-review .qr-inline-review-low_confidence{background:var(--ado-warn-soft);border:1px solid var(--ado-warn-border);} .ado-quote-review .qr-inline-copy{display:flex;flex-direction:column;gap:4px;font-size:12px;} .ado-quote-review .qr-inline-copy span{color:var(--ado-secondary);} .ado-quote-review .qr-inline-candidates,.ado-quote-review .qr-inline-manual{display:flex;gap:8px;flex-wrap:wrap;} .ado-quote-review .qr-mini-btn{background:var(--ado-surface);border:1px solid var(--ado-border);border-radius:4px;padding:6px 10px;font-size:11px;font-weight:700;cursor:pointer;} .ado-quote-review .qr-mini-btn.primary{background:var(--ado-accent);border-color:var(--ado-accent);color:#fff;} .ado-quote-review .qr-mini-btn.secondary{background:transparent;} .ado-quote-review .qr-input{background:#fff;border:1px solid var(--ado-border);border-radius:5px;padding:7px 9px;font-size:12px;min-width:150px;outline:none;} .ado-quote-review .qr-input:focus,.ado-quote-review .qr-notes:focus,.ado-quote-review .qr-po-input:focus{border-color:var(--ado-accent);box-shadow:0 0 0 3px var(--ado-accent-glow);} .ado-quote-review .qr-notes-row{display:flex;gap:10px;align-items:flex-start;padding-top:8px;border-top:1px solid var(--ado-border-light);} .ado-quote-review .qr-notes-label{font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.07em;color:var(--ado-muted);width:90px;flex-shrink:0;padding-top:8px;} .ado-quote-review .qr-notes-wrap{flex:1;} .ado-quote-review .qr-notes{width:100%;background:#fff;border:1px solid var(--ado-border);border-radius:6px;padding:7px 10px;font-size:12.5px;color:var(--ado-secondary);resize:vertical;min-height:56px;} .ado-quote-review .qr-po-label{font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.07em;color:var(--ado-muted);margin-bottom:5px;} .ado-quote-review .qr-po-input{background:var(--ado-surface);border:1px solid var(--ado-border);border-radius:var(--ado-radius-sm);font-size:13.5px;padding:9px 12px;outline:none;width:100%;margin-bottom:8px;} .ado-quote-review .qr-note{font-size:11.5px;color:var(--ado-secondary);line-height:1.5;padding:8px 10px;background:var(--ado-warn-soft);border:1px solid var(--ado-warn-border);border-radius:6px;margin-bottom:8px;} .ado-quote-review .ado-card{margin-top:18px;}
-      @media (max-width:1100px){.ado-quote-review .qr-layout{grid-template-columns:1fr;}.ado-quote-review .qr-sidebar{position:static;}} @media (max-width:700px){.ado-quote-review .qr-banner{flex-direction:column;align-items:flex-start;}.ado-quote-review .qr-door-header{flex-wrap:wrap;}.ado-quote-review .qr-inline-manual{flex-direction:column;}.ado-quote-review .qr-input{min-width:100%;}}
+      @media (max-width:1100px){.ado-quote-review .qr-layout{grid-template-columns:1fr;}.ado-quote-review .qr-sidebar{position:static;}} @media (max-width:700px){.ado-quote-review .qr-banner{flex-direction:column;align-items:flex-start;}.ado-quote-review .qr-section-head{align-items:flex-start;flex-direction:column;}.ado-quote-review .qr-door-header{flex-wrap:wrap;}.ado-quote-review .qr-inline-manual{flex-direction:column;}.ado-quote-review .qr-input{min-width:100%;}}
     </style>
     <div class="ado-quote-review" data-quote-id="<?php echo esc_attr((string) $quote_id); ?>">
       <div class="qr-hero">
@@ -707,9 +748,16 @@ function ado_render_quote_detail(int $user_id, int $quote_id): string
           <?php if ($scope_file !== '') : ?><span class="qr-chip"><?php echo esc_html($scope_file); ?></span><?php endif; ?>
         </div>
       </div>
-      <div class="qr-banner"><div class="qr-banner-main"><div class="qr-banner-title">Quote is built from WooCommerce matches only</div><div class="qr-banner-copy">Only scoped items that resolved to a WooCommerce product are included below. Everything else is dropped from the quote and stored in a separate internal log.</div></div><div class="qr-banner-stats"><div class="qr-stat"><strong><?php echo esc_html((string) $summary['matched_doors']); ?></strong><span>With Matches</span></div><div class="qr-stat"><strong><?php echo esc_html((string) $summary['empty_doors']); ?></strong><span>No Matches</span></div><div class="qr-stat"><strong><?php echo esc_html((string) $summary['dropped_rows']); ?></strong><span>Dropped</span></div></div></div>
+      <div class="qr-banner"><div class="qr-banner-main"><div class="qr-banner-title">Extraction complete — <?php echo esc_html((string) $summary['doors_total']); ?> doors found</div><div class="qr-banner-copy">Review fuzzy and unknown rows, then submit with PO to lock pricing.</div></div><div class="qr-banner-stats"><div class="qr-stat"><strong><?php echo esc_html((string) $summary['matched']); ?></strong><span>Matched</span></div><div class="qr-stat"><strong><?php echo esc_html((string) $summary['fuzzy']); ?></strong><span>Fuzzy</span></div><div class="qr-stat"><strong><?php echo esc_html((string) $summary['unknown']); ?></strong><span>Unknown</span></div><div class="qr-stat"><strong><?php echo esc_html((string) $summary['out_of_scope']); ?></strong><span>No Scope</span></div></div></div>
       <div class="qr-layout">
         <div class="qr-main">
+          <div class="qr-section-head">
+            <h3 class="qr-section-title"><span class="qr-section-icon"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path></svg></span>Door-by-Door Review</h3>
+            <div class="qr-section-actions">
+              <button type="button" class="qr-btn secondary inline ado-expand-all">Expand All</button>
+              <button type="button" class="qr-btn secondary inline ado-collapse-all">Collapse All</button>
+            </div>
+          </div>
           <div class="qr-door-list">
             <?php foreach ($groups as $index => $group) :
                 $door = (array) ($group['door'] ?? []);
@@ -720,19 +768,30 @@ function ado_render_quote_detail(int $user_id, int $quote_id): string
                 $door_number = (string) ($door['door_number'] ?? ('Door ' . ($index + 1)));
                 $door_label = (string) ($door['door_label'] ?? ('Door ' . $door_number));
                 $note = (string) ($door_notes[$door_id] ?? ($door['notes'] ?? ''));
-                $open = $index === 0;
+                $open = $door_id === $default_open_door_id;
             ?>
-            <div class="qr-door-card match-<?php echo esc_attr($state); ?><?php echo $open ? ' open' : ''; ?>" id="qr-door-<?php echo esc_attr($door_id); ?>" data-door-id="<?php echo esc_attr($door_id); ?>">
+            <div class="qr-door-card <?php echo esc_attr(ado_quote_state_card_class($state)); ?><?php echo $open ? ' open' : ''; ?>" id="qr-door-<?php echo esc_attr($door_id); ?>" data-door-id="<?php echo esc_attr($door_id); ?>">
               <div class="qr-door-header">
                 <div class="qr-door-num"><?php echo esc_html($door_number); ?></div>
                 <div class="qr-door-title"><strong><?php echo esc_html($door_label); ?></strong><span><?php echo esc_html(trim(implode(' | ', array_filter([(string) ($door['location'] ?? ''), (string) ($door['desc'] ?? '')])))); ?></span></div>
                 <span class="qr-door-tag"><?php echo esc_html(!empty($door['door_type']) ? (string) $door['door_type'] : 'Scoped door'); ?></span>
-                <span class="qr-door-badge"><?php echo esc_html($lines ? 'Matched' : 'No matched items'); ?></span>
+                <span class="qr-door-badge"><?php echo esc_html(ado_quote_group_match_label($state, count((array) ($unmatched_by_door[$door_id] ?? $unmatched_by_door['door-number:' . $door_number] ?? [])))); ?></span>
                 <div class="qr-door-total"><?php echo wp_kses_post(ado_quote_totals_html(['subtotal' => (float) $totals['subtotal']])); ?></div>
                 <svg class="qr-door-chevron" width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path fill-rule="evenodd" d="M4.646 1.646a.5.5 0 01.708 0l6 6a.5.5 0 010 .708l-6 6a.5.5 0 01-.708-.708L10.293 8 4.646 2.354a.5.5 0 010-.708z" clip-rule="evenodd"/></svg>
               </div>
               <div class="qr-door-body">
                 <?php if ($lines) : ?><table class="qr-table"><thead><tr><th>Model</th><th>Description</th><th style="text-align:center">Qty</th><th>Unit Price</th><th>Line Total</th></tr></thead><tbody><?php foreach ($lines as $line) : $line_state = ((string) ($line['line_type'] ?? '') === 'manual') ? 'none' : ((((float) ($line['match_confidence'] ?? 0)) > 0 && ((float) ($line['match_confidence'] ?? 0)) < 95) ? 'fuzzy' : ''); ?><tr><td><span class="qr-model<?php echo $line_state ? ' ' . esc_attr($line_state) : ''; ?>"><?php echo esc_html((string) ($line['display_model'] ?? $line['sku'] ?? $line['model'] ?? $line['source_model'] ?? '')); ?></span></td><td><span class="qr-desc"><?php echo esc_html((string) ($line['display_description'] ?? $line['product_name'] ?? $line['description'] ?? '')); ?></span><?php if (!empty($line['line_type']) && $line['line_type'] === 'manual') : ?><span class="qr-desc subtle"><br>Manual pricing line</span><?php endif; ?></td><td style="text-align:center"><?php echo esc_html((string) ((int) ($line['qty'] ?? 0))); ?></td><td><?php echo wp_kses_post(ado_quote_totals_html(['subtotal' => (float) ($line['unit_price'] ?? 0)])); ?></td><td><?php echo wp_kses_post(ado_quote_totals_html(['subtotal' => (float) ($line['line_total'] ?? 0)])); ?></td></tr><?php endforeach; ?></tbody></table><?php endif; ?>
+                <?php $door_unmatched = (array) ($unmatched_by_door[$door_id] ?? $unmatched_by_door['door-number:' . $door_number] ?? []); ?>
+                <?php foreach ($door_unmatched as $review_row) : if (!is_array($review_row)) { continue; } $line_key = (string) ($review_row['line_key'] ?? ''); $line_adjustment = $line_key !== '' ? ((array) ($line_adjustments[$line_key] ?? [])) : []; ?>
+                  <?php echo ado_render_quote_inline_review($review_row, $quote_id, $line_adjustment); ?>
+                <?php endforeach; ?>
+                <?php $door_excluded = (array) ($excluded_by_door[$door_id] ?? $excluded_by_door['door-number:' . $door_number] ?? []); ?>
+                <?php if ($state === 'out_of_scope') : ?>
+                  <div class="qr-inline-review qr-inline-review-low_confidence"><div class="qr-inline-copy"><strong>Out of Scope</strong><span>This door is included for completeness but has no operator scope and no pricing.</span></div></div>
+                <?php endif; ?>
+                <?php foreach ($door_excluded as $excluded_row) : if (!is_array($excluded_row)) { continue; } ?>
+                  <div class="qr-inline-review qr-inline-review-low_confidence"><div class="qr-inline-copy"><strong><?php echo esc_html((string) ($excluded_row['model'] ?? 'Excluded line')); ?></strong><span><?php echo esc_html((string) ($excluded_row['excluded_reason'] ?? 'Excluded from scope')); ?></span></div></div>
+                <?php endforeach; ?>
                 <div class="qr-notes-row"><div class="qr-notes-label">Notes</div><div class="qr-notes-wrap"><textarea class="qr-notes" data-quote-id="<?php echo esc_attr((string) $quote_id); ?>" data-door-id="<?php echo esc_attr($door_id); ?>" placeholder="Add install notes, special conditions, or clarification for this door."><?php echo esc_textarea($note); ?></textarea><button type="button" class="qr-mini-btn primary ado-save-door-note" data-quote-id="<?php echo esc_attr((string) $quote_id); ?>" data-door-id="<?php echo esc_attr($door_id); ?>" style="margin-top:8px;">Save note</button></div></div>
               </div>
             </div>
@@ -743,8 +802,9 @@ function ado_render_quote_detail(int $user_id, int $quote_id): string
           <?php echo ado_render_quote_dropped_log($quote_id); ?>
         </div>
         <aside class="qr-sidebar">
-          <div class="qr-sidecard"><div class="qr-sidehead"><div class="qr-sidetitle">Quote Summary</div><span style="font-size:11px;color:var(--ado-muted)">Matched products only</span></div><div class="qr-sidebody"><div class="qr-siderow"><span>Project</span><strong><?php echo esc_html((string) $row['name']); ?></strong></div><div class="qr-siderow"><span>Scoped doors</span><strong><?php echo esc_html((string) $summary['doors_in_scope']); ?></strong></div><div class="qr-siderow"><span>Doors with matches</span><strong><?php echo esc_html((string) $summary['matched_doors']); ?></strong></div><div class="qr-siderow"><span>Doors without matches</span><strong><?php echo esc_html((string) $summary['empty_doors']); ?></strong></div><div class="qr-siderow"><span>Dropped items</span><strong><?php echo esc_html((string) $summary['dropped_rows']); ?></strong></div><div class="qr-siderow"><span>Hardware quantity</span><strong><?php echo esc_html((string) $row['total_items']); ?></strong></div></div><div class="qr-total"><span>Est. Total</span><strong><?php echo wp_kses_post((string) $row['subtotal_html']); ?></strong></div></div>
-          <div class="qr-sidecard"><div class="qr-sidehead"><div class="qr-sidetitle">Submit &amp; Approve</div></div><div class="qr-sidebody"><div class="qr-po-label">Purchase Order Number</div><input class="qr-po-input" type="text" placeholder="e.g. PO-2026-0041" disabled><div class="qr-note">Submitting locks in the current quote structure. Manual-priced or unresolved items can still be followed up separately.</div><?php if ((string) $row['status'] !== 'ordered') : ?><a class="qr-btn primary" href="<?php echo esc_url(ado_quote_checkout_url($quote_id)); ?>">Checkout This Quote</a><?php elseif ((int) $row['order_id'] > 0) : ?><a class="qr-btn primary" href="<?php echo esc_url(wc_get_endpoint_url('view-order', (string) ((int) $row['order_id']), wc_get_page_permalink('myaccount'))); ?>">Open Project Order #<?php echo esc_html((string) ((int) $row['order_id'])); ?></a><?php endif; ?><?php if ($can_rerun) : ?><button class="qr-btn ado-rerun-match" type="button" data-id="<?php echo esc_attr((string) $quote_id); ?>">Re-run Matching</button><?php endif; ?><a class="qr-btn" href="<?php echo esc_url(home_url('/portal/quotes/')); ?>">Back to My Quotes</a></div></div>
+          <div class="qr-sidecard"><div class="qr-sidehead"><div class="qr-sidetitle">Quote Summary</div><span style="font-size:11px;color:var(--ado-muted)">Live · auto-updates</span></div><div class="qr-sidebody"><div class="qr-siderow"><span>Project</span><strong><?php echo esc_html((string) $row['name']); ?></strong></div><div class="qr-siderow"><span>Doors in scope</span><strong><?php echo esc_html((string) $summary['doors_in_scope']); ?> of <?php echo esc_html((string) $summary['doors_total']); ?></strong></div><div class="qr-siderow"><span>Matched</span><strong><?php echo esc_html((string) $summary['matched']); ?></strong></div><div class="qr-siderow"><span>Fuzzy</span><strong><?php echo esc_html((string) $summary['fuzzy']); ?></strong></div><div class="qr-siderow"><span>Unknown</span><strong><?php echo esc_html((string) $summary['unknown']); ?></strong></div><div class="qr-siderow"><span>No Scope</span><strong><?php echo esc_html((string) $summary['out_of_scope']); ?></strong></div></div><div class="qr-total"><span>Est. Total</span><strong><?php echo wp_kses_post((string) $row['subtotal_html']); ?></strong></div></div>
+          <div class="qr-sidecard"><div class="qr-sidehead"><div class="qr-sidetitle">Items Needing Review</div></div><div class="qr-sidebody"><div class="qr-flag-list"><?php if ($review_items) : ?><?php foreach ($review_items as $review_item) : ?><div class="qr-flag-item <?php echo esc_attr(ado_quote_flag_class((string) $review_item['state'])); ?>" data-scroll-door="<?php echo esc_attr((string) $review_item['door_id']); ?>"><span><?php echo esc_html((string) $review_item['door_number']); ?> — <?php echo esc_html((string) $review_item['label']); ?></span><strong>1</strong></div><?php endforeach; ?><?php else : ?><div class="qr-flag-item neutral"><span>No open review items</span><strong>0</strong></div><?php endif; ?></div><div style="font-size:11.5px;color:var(--ado-muted);margin-top:10px;line-height:1.5;">Jump to any flagged door to resolve fuzzy or unknown entries.</div></div></div>
+          <div class="qr-sidecard"><div class="qr-sidehead"><div class="qr-sidetitle">Submit &amp; Approve</div></div><div class="qr-sidebody"><div class="qr-po-label">Purchase Order Number</div><input class="qr-po-input ado-po-number" type="text" placeholder="e.g. PO-2026-0041"><div class="qr-note">Submitting locks pricing for matched lines. Unknown lines can be manually priced before submit.</div><?php if ((string) $row['status'] !== 'ordered') : ?><button class="qr-btn primary ado-submit-quote" type="button" data-id="<?php echo esc_attr((string) $quote_id); ?>">Submit Quote Request</button><a class="qr-btn" href="<?php echo esc_url(ado_quote_checkout_url($quote_id)); ?>">Checkout This Quote</a><?php elseif ((int) $row['order_id'] > 0) : ?><a class="qr-btn primary" href="<?php echo esc_url(wc_get_endpoint_url('view-order', (string) ((int) $row['order_id']), wc_get_page_permalink('myaccount'))); ?>">Open Project Order #<?php echo esc_html((string) ((int) $row['order_id'])); ?></a><?php endif; ?><?php if ($can_rerun) : ?><button class="qr-btn ado-rerun-match" type="button" data-id="<?php echo esc_attr((string) $quote_id); ?>">Re-run Matching</button><?php endif; ?><a class="qr-btn" href="<?php echo esc_url(home_url('/portal/quotes/')); ?>">Back to My Quotes</a></div></div>
         </aside>
       </div>
     </div>
@@ -755,9 +815,12 @@ function ado_render_quote_detail(int $user_id, int $quote_id): string
         var ajaxUrl = <?php echo wp_json_encode(admin_url('admin-ajax.php')); ?>;
         var nonce = <?php echo wp_json_encode($nonce); ?>;
         root.on('click', '.qr-door-header', function(){ $(this).closest('.qr-door-card').toggleClass('open'); });
-        root.on('click', '[data-scroll-door]', function(){ var id = $(this).data('scroll-door'); var card = $('#qr-door-' + id); if (!card.length) { return; } card.addClass('open'); card[0].scrollIntoView({behavior:'smooth', block:'center'}); });
+        root.on('click', '.ado-expand-all', function(){ root.find('.qr-door-card').addClass('open'); });
+        root.on('click', '.ado-collapse-all', function(){ root.find('.qr-door-card').removeClass('open'); });
+        root.on('click', '[data-scroll-door]', function(){ var id = $(this).data('scroll-door'); var card = $('#qr-door-' + id); if (!card.length) { return; } card.addClass('open'); card[0].scrollIntoView({behavior:'smooth', block:'center'}); card.css('box-shadow', '0 0 0 3px rgba(220,38,38,.2),0 4px 12px rgba(0,0,0,.08)'); window.setTimeout(function(){ card.css('box-shadow', ''); }, 1600); });
         root.on('click', '.ado-save-door-note', function(){ var button = $(this); var doorId = button.data('door-id'); var note = root.find('.qr-notes[data-door-id="' + doorId + '"]').val() || ''; $.post(ajaxUrl, {action:'ado_save_quote_door_note', nonce:nonce, quote_id:button.data('quote-id'), door_id:doorId, note:note}).done(function(res){ if (!res || !res.success) { window.alert((res && res.data && res.data.message) ? res.data.message : 'Failed to save note.'); return; } button.text('Saved'); setTimeout(function(){ button.text('Save note'); }, 1200); }).fail(function(){ window.alert('Failed to save note.'); }); });
         root.on('click', '.ado-save-line-adjustment', function(){ var button = $(this); var wrap = button.closest('.qr-inline-review'); $.post(ajaxUrl, {action:'ado_save_quote_line_adjustment', nonce:nonce, quote_id:button.data('quote-id'), line_key:button.data('line-key'), corrected_model:wrap.find('.qr-adjust-model').val() || '', manual_description:wrap.find('.qr-adjust-desc').val() || '', manual_sku:wrap.find('.qr-adjust-sku').val() || '', manual_unit_price:wrap.find('.qr-adjust-price').val() || ''}).done(function(res){ if (!res || !res.success) { window.alert((res && res.data && res.data.message) ? res.data.message : 'Failed to save line adjustment.'); return; } if (res.data && res.data.quote_url) { window.location.href = res.data.quote_url; return; } window.location.reload(); }).fail(function(){ window.alert('Failed to save line adjustment.'); }); });
+        root.on('click', '.ado-submit-quote', function(){ var quoteId = $(this).data('id'); var po = $.trim(root.find('.ado-po-number').val() || ''); if (!po) { window.alert('PO number is required before submit.'); return; } $.post(ajaxUrl, {action:'ado_client_quote_transition', nonce:nonce, quote_id:quoteId, target_status:'submitted', po_number:po}).done(function(res){ if (!res || !res.success) { window.alert((res && res.data && res.data.message) ? res.data.message : 'Failed to submit quote.'); return; } $(document).trigger('ado:quote-transitioned', [res]); window.alert('Quote submitted.'); }).fail(function(){ window.alert('Failed to submit quote.'); }); });
       })(jQuery);
     </script>
     <?php
@@ -796,6 +859,13 @@ add_action('wp_ajax_ado_scope_to_quote_cart', static function (): void {
     }
 
     $quote_id = (int) ($created['quote_id'] ?? 0);
+    // Ensure consistent initial state for unified status-driven dashboard.
+    if ($quote_id > 0) {
+        $current_status = strtolower((string) get_post_meta($quote_id, '_adq_status', true));
+        if ($current_status === '') {
+            ado_quote_integration()->update_quote_status($quote_id, 'draft');
+        }
+    }
     $unmatched = $quote_id > 0 ? get_post_meta($quote_id, '_adq_unmatched_items', true) : [];
     $unmatched = is_array($unmatched) ? $unmatched : [];
     ado_set_quote_unmatched_flash($uid, $quote_id, $unmatched);
@@ -806,6 +876,146 @@ add_action('wp_ajax_ado_scope_to_quote_cart', static function (): void {
         'drafts_html' => ado_render_quote_drafts_html($uid),
         'unmatched_count' => count($unmatched),
         'debug_log' => $debug ? array_values((array) ($created['debug_log'] ?? [])) : [],
+    ]);
+});
+
+function ado_quote_scope_token_key(string $token): string
+{
+    $token = preg_replace('/[^a-zA-Z0-9]/', '', $token);
+    if ($token === '') {
+        return '';
+    }
+    return 'ado_scope_payload_' . $token;
+}
+
+function ado_quote_stage_scoped_payload(int $user_id, string $scope_url): array
+{
+    $scope_url = esc_url_raw($scope_url);
+    if ($scope_url === '') {
+        return ['ok' => false, 'message' => 'Missing scoped JSON URL.'];
+    }
+
+    $scope_path = ado_quote_integration()->scope_url_to_path($scope_url);
+    if ($scope_path === '' || !file_exists($scope_path)) {
+        return ['ok' => false, 'message' => 'Scoped JSON file not found.'];
+    }
+
+    $payload = json_decode((string) file_get_contents($scope_path), true);
+    if (!is_array($payload)) {
+        return ['ok' => false, 'message' => 'Scoped JSON payload is invalid.'];
+    }
+    $doors = (array) ($payload['result']['doors'] ?? []);
+    if (!$doors) {
+        return ['ok' => false, 'message' => 'Scoped JSON contains no doors.'];
+    }
+
+    try {
+        $token = bin2hex(random_bytes(16));
+    } catch (Throwable $e) {
+        $token = wp_generate_password(32, false, false);
+        $token = preg_replace('/[^a-zA-Z0-9]/', '', (string) $token);
+    }
+    $key = ado_quote_scope_token_key($token);
+    if ($key === '') {
+        return ['ok' => false, 'message' => 'Failed to stage scoped payload.'];
+    }
+
+    $ttl_seconds = 30 * MINUTE_IN_SECONDS;
+    set_transient($key, [
+        'user_id' => (int) $user_id,
+        'created_at' => time(),
+        'scope_url' => (string) $scope_url,
+        'payload' => $payload,
+    ], $ttl_seconds);
+
+    return [
+        'ok' => true,
+        'scope_token' => $token,
+        'expires_in' => $ttl_seconds,
+    ];
+}
+
+function ado_quote_create_from_scope_token(int $user_id, string $token, string $quote_name = ''): array
+{
+    $token = preg_replace('/[^a-zA-Z0-9]/', '', (string) $token);
+    $key = ado_quote_scope_token_key($token);
+    if ($key === '') {
+        return ['ok' => false, 'message' => 'Invalid staged payload token.'];
+    }
+    $staged = get_transient($key);
+    if (!is_array($staged) || empty($staged['payload']) || (int) ($staged['user_id'] ?? 0) !== (int) $user_id) {
+        return ['ok' => false, 'message' => 'Staged payload not found or expired. Please re-upload.'];
+    }
+    $payload = (array) ($staged['payload'] ?? []);
+
+    $created = ado_quote_integration()->create_quote_from_payload($user_id, $payload, [
+        'name' => $quote_name,
+        'scope_url' => (string) ($staged['scope_url'] ?? ''),
+        'scope_path' => '',
+        'debug' => false,
+    ]);
+    if (empty($created['ok'])) {
+        return [
+            'ok' => false,
+            'message' => (string) ($created['message'] ?? 'Failed to create quote.'),
+            'unmatched' => array_values((array) ($created['unmatched'] ?? [])),
+            'excluded' => array_values((array) ($created['excluded'] ?? [])),
+            'debug_log' => array_values((array) ($created['debug_log'] ?? [])),
+        ];
+    }
+
+    delete_transient($key);
+    return $created;
+}
+
+add_action('wp_ajax_ado_stage_scoped_payload', static function (): void {
+    $uid = ado_assert_client_ajax();
+    $scope_url = esc_url_raw((string) ($_POST['scope_url'] ?? ''));
+    $staged = ado_quote_stage_scoped_payload($uid, $scope_url);
+    if (empty($staged['ok'])) {
+        wp_send_json_error(['message' => (string) ($staged['message'] ?? 'Failed to stage scoped payload.')], 400);
+    }
+    wp_send_json_success([
+        'scope_token' => (string) ($staged['scope_token'] ?? ''),
+        'expires_in' => (int) ($staged['expires_in'] ?? 0),
+    ]);
+});
+
+add_action('wp_ajax_ado_scope_token_to_quote_cart', static function (): void {
+    $uid = ado_assert_client_ajax();
+    $scope_token = sanitize_text_field((string) ($_POST['scope_token'] ?? ''));
+    $quote_name = sanitize_text_field((string) ($_POST['quote_name'] ?? ''));
+    if ($scope_token === '') {
+        wp_send_json_error(['message' => 'Missing staged payload token.'], 400);
+    }
+
+    $created = ado_quote_create_from_scope_token($uid, $scope_token, $quote_name);
+    if (empty($created['ok'])) {
+        wp_send_json_error([
+            'message' => (string) ($created['message'] ?? 'Failed to create quote.'),
+            'unmatched' => array_values((array) ($created['unmatched'] ?? [])),
+            'excluded' => array_values((array) ($created['excluded'] ?? [])),
+            'debug_log' => array_values((array) ($created['debug_log'] ?? [])),
+        ], 400);
+    }
+
+    $quote_id = (int) ($created['quote_id'] ?? 0);
+    if ($quote_id > 0) {
+        $current_status = strtolower((string) get_post_meta($quote_id, '_adq_status', true));
+        if ($current_status === '') {
+            ado_quote_integration()->update_quote_status($quote_id, 'draft');
+        }
+    }
+    $unmatched = $quote_id > 0 ? get_post_meta($quote_id, '_adq_unmatched_items', true) : [];
+    $unmatched = is_array($unmatched) ? $unmatched : [];
+    ado_set_quote_unmatched_flash($uid, $quote_id, $unmatched);
+    wp_send_json_success([
+        'message' => 'Quote created from staged scoped JSON.',
+        'quote_id' => $quote_id,
+        'quote_url' => ado_quote_url($quote_id),
+        'drafts_html' => ado_render_quote_drafts_html($uid),
+        'unmatched_count' => count($unmatched),
+        'debug_log' => array_values((array) ($created['debug_log'] ?? [])),
     ]);
 });
 
@@ -917,8 +1127,8 @@ add_action('wp_ajax_ado_resolve_quote_match_review', static function (): void {
         wp_send_json_error(['message' => 'This row has no review candidates.'], 400);
     }
 
+    $selected = null;
     if ($product_id > 0) {
-        $selected = null;
         foreach ($candidates as $candidate) {
             if ((int) ($candidate['product_id'] ?? 0) === $product_id) {
                 $selected = $candidate;
@@ -939,6 +1149,33 @@ add_action('wp_ajax_ado_resolve_quote_match_review', static function (): void {
     $rerun = ado_quote_integration()->rerun_matching($quote_id, $debug);
     if (empty($rerun['ok'])) {
         wp_send_json_error(['message' => (string) ($rerun['message'] ?? 'Failed to rebuild quote.')], 400);
+    }
+    if ($product_id > 0 && is_array($selected)) {
+        $still_unmatched = false;
+        $latest_unmatched = get_post_meta($quote_id, '_adq_unmatched_items', true);
+        $latest_unmatched = is_array($latest_unmatched) ? $latest_unmatched : [];
+        foreach ($latest_unmatched as $row) {
+            if (is_array($row) && (string) ($row['line_key'] ?? '') === $line_key) {
+                $still_unmatched = true;
+                break;
+            }
+        }
+        if ($still_unmatched) {
+            $product = wc_get_product($product_id);
+            $sku = trim((string) ($selected['sku'] ?? ($product ? $product->get_sku() : '')));
+            $title = trim((string) ($selected['title'] ?? ($product ? $product->get_name() : 'Manual corrected line')));
+            $unit_price = $product ? (float) $product->get_price('edit') : 0.0;
+            ado_quote_integration()->save_quote_line_adjustment($quote_id, $line_key, [
+                'corrected_model' => $sku,
+                'manual_sku' => $sku,
+                'manual_description' => $title,
+                'manual_unit_price' => $unit_price,
+            ]);
+            $rerun = ado_quote_integration()->rerun_matching($quote_id, $debug);
+            if (empty($rerun['ok'])) {
+                wp_send_json_error(['message' => (string) ($rerun['message'] ?? 'Failed to apply accepted match.')], 400);
+            }
+        }
     }
     $new_unmatched = get_post_meta($quote_id, '_adq_unmatched_items', true);
     $new_unmatched = is_array($new_unmatched) ? $new_unmatched : [];
@@ -1150,6 +1387,501 @@ add_shortcode('ado_quote_workspace', static function (): string {
         });
       });
     })(jQuery);
+    </script>
+    <?php
+    return (string) ob_get_clean();
+});
+
+function ado_client_quote_dashboard_state_rows(int $user_id): array
+{
+    $rows = ado_get_quote_drafts($user_id);
+    $state = ['new_quotes' => [], 'my_quotes' => []];
+    foreach ($rows as $row) {
+        if (!is_array($row)) {
+            continue;
+        }
+        $status = strtolower((string) ($row['status'] ?? 'draft'));
+        if (in_array($status, ['assigned', 'accepted', 'submitted', 'ordered'], true)) {
+            $state['my_quotes'][] = $row;
+        } else {
+            $state['new_quotes'][] = $row;
+        }
+    }
+    return $state;
+}
+
+add_action('wp_ajax_ado_client_quotes_state', static function (): void {
+    $uid = ado_assert_client_ajax();
+    wp_send_json_success(['state' => ado_client_quote_dashboard_state_rows($uid)]);
+});
+
+add_action('wp_ajax_ado_client_quote_detail_html', static function (): void {
+    $uid = ado_assert_client_ajax();
+    $quote_id = (int) ($_POST['quote_id'] ?? 0);
+    if ($quote_id <= 0) {
+        wp_send_json_error(['message' => 'Quote not found.'], 404);
+    }
+    if (!ado_quote_integration()->quote_belongs_to_user($quote_id, $uid) && !current_user_can('manage_woocommerce')) {
+        wp_send_json_error(['message' => 'Quote access denied.'], 403);
+    }
+    wp_send_json_success([
+        'html' => ado_render_quote_detail($uid, $quote_id),
+    ]);
+});
+
+add_action('wp_ajax_ado_client_quote_transition', static function (): void {
+    $uid = ado_assert_client_ajax();
+    $quote_id = (int) ($_POST['quote_id'] ?? 0);
+    $target = sanitize_key((string) ($_POST['target_status'] ?? ''));
+    $po_number = sanitize_text_field((string) ($_POST['po_number'] ?? ''));
+    if ($quote_id <= 0 || !in_array($target, ['assigned', 'accepted', 'submitted'], true)) {
+        wp_send_json_error(['message' => 'Invalid quote transition request.'], 400);
+    }
+    if (!ado_quote_integration()->quote_belongs_to_user($quote_id, $uid) && !current_user_can('manage_woocommerce')) {
+        wp_send_json_error(['message' => 'Quote access denied.'], 403);
+    }
+
+    $current = strtolower((string) get_post_meta($quote_id, '_adq_status', true));
+    if ($current === '') {
+        $current = 'draft';
+    }
+    $allowed = [
+        'assigned' => ['draft', 'review_required', 'ready'],
+        'accepted' => ['draft', 'review_required', 'ready', 'assigned'],
+        'submitted' => ['draft', 'review_required', 'ready', 'assigned', 'accepted'],
+    ];
+    if (!in_array($current, (array) ($allowed[$target] ?? []), true)) {
+        wp_send_json_error(['message' => 'Transition is not allowed from current quote status.'], 409);
+    }
+    if ($target === 'submitted' && $po_number === '') {
+        wp_send_json_error(['message' => 'PO number is required before submitting.'], 400);
+    }
+
+    ado_quote_integration()->update_quote_status($quote_id, $target);
+    if ($target === 'submitted') {
+        update_post_meta($quote_id, '_adq_po_number', $po_number);
+    }
+    wp_send_json_success([
+        'message' => 'Quote updated.',
+        'state' => ado_client_quote_dashboard_state_rows($uid),
+    ]);
+});
+
+add_shortcode('ado_client_quote_dashboard', static function (): string {
+    if (!is_user_logged_in()) {
+        return '<p>Please sign in to create quotes.</p>';
+    }
+    if (!ado_is_client()) {
+        return '<p>This area is for client accounts only.</p>';
+    }
+
+    $uid = (int) get_current_user_id();
+    $state = ado_client_quote_dashboard_state_rows($uid);
+    $nonce = wp_create_nonce('ado_quote_nonce');
+    $adx_nonce = wp_create_nonce('adx_parse_pdf');
+
+    ob_start();
+    ?>
+    <div class="ado-client-quote-ui" id="adoClientQuoteUi" data-ajax="<?php echo esc_url(admin_url('admin-ajax.php')); ?>" data-nonce="<?php echo esc_attr($nonce); ?>" data-adx-nonce="<?php echo esc_attr($adx_nonce); ?>">
+      <div class="ado-client-quote-shell">
+        <section>
+          <div class="ado-page-title">My Quotes</div>
+          <div class="ado-filter-pills">
+            <button class="ado-filter-pill is-active" data-filter="all">All Quotes</button>
+            <button class="ado-filter-pill" data-filter="awaiting">Awaiting Approval</button>
+            <button class="ado-filter-pill" data-filter="approved">Approved</button>
+            <button class="ado-filter-pill" data-filter="drafts">Drafts</button>
+            <button class="ado-filter-pill" data-filter="expired">Expired</button>
+          </div>
+          <div class="ado-quote-grid" id="ado-client-quotes"></div>
+        </section>
+      </div>
+      <div class="ado-preview-drawer" id="adoClientQuoteDrawer" hidden>
+        <div class="ado-preview-head">
+          <h3 style="margin:0;">Review Extracted Quote</h3>
+          <button class="ado-btn" type="button" id="ado-client-close-drawer">Close</button>
+        </div>
+        <div id="ado-client-drawer-body"></div>
+      </div>
+      <div class="ado-upload-drawer" id="adoClientUploadDrawer" hidden>
+        <div class="ado-upload-drawer-head">
+          <h3 style="margin:0;">Upload Hardware Schedule PDF</h3>
+          <button class="ado-btn" type="button" id="ado-client-upload-drawer-close">Close</button>
+        </div>
+        <p class="ado-muted">Upload a PDF once. Extraction and quote creation will start automatically.</p>
+        <div class="ado-upload-dropzone" id="ado-client-upload-zone">
+          <input type="file" id="ado-client-upload-input" accept="application/pdf" hidden>
+          <div class="ado-upload-icon" aria-hidden="true"></div>
+          <div class="ado-upload-text">Drop your hardware schedule PDF here</div>
+          <div class="ado-upload-hint">Or click to browse - PDF up to 25MB</div>
+        </div>
+        <div class="ado-upload-divider">
+          <span>or</span>
+          <button class="ado-link-btn" type="button" id="ado-client-enter-manual">Enter manually</button>
+        </div>
+        <p id="ado-client-upload-status" class="ado-muted" style="margin-top:10px;"></p>
+        <div class="ado-parser-hidden" aria-hidden="true">
+          <?php echo do_shortcode('[contact-form]'); ?>
+        </div>
+      </div>
+    </div>
+    <style>
+      .ado-client-quote-shell{display:grid;grid-template-columns:1fr 320px;gap:18px}
+      .ado-list-cols{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+      .ado-page-title{font-family:'Syne',sans-serif;font-size:24px;font-weight:800;letter-spacing:-.4px;margin:0 0 4px}
+      .ado-client-quote-shell{display:block}
+      .ado-filter-pills{display:flex;gap:8px;flex-wrap:wrap;margin:0 0 16px;font-size:14px}
+      .ado-filter-pills .ado-filter-pill{border:1px solid var(--border);background:transparent;color:var(--text-secondary);padding:6px 14px;border-radius:999px;font-weight:600;cursor:pointer;transition:all .2s ease}
+      .ado-filter-pill.is-active{background:var(--accent);border-color:var(--accent);color:#fff}
+      .ado-filter-pill:hover{border-color:var(--text-primary);color:var(--text-primary)}
+      .ado-quote-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;margin-top:18px}
+      @media (max-width:1024px){.ado-quote-grid{grid-template-columns:1fr}}
+      .ado-q-row{border:1px solid #e5e7eb;border-radius:10px;padding:10px;margin-bottom:10px;background:#fff}
+      .ado-q-meta{font-size:12px;color:#6b7280}
+      .ado-q-actions{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}
+      .ado-preview-drawer{position:fixed;top:0;right:0;bottom:0;width:min(820px,100vw);background:#fff;border-left:1px solid #e5e7eb;z-index:9999;overflow:auto;padding:16px}
+      .ado-preview-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px}
+      .ado-upload-drawer{position:fixed;top:0;right:0;bottom:0;width:min(460px,100vw);background:#fff;border-left:1px solid #e5e7eb;z-index:10000;overflow:auto;padding:24px 28px;display:flex;flex-direction:column;gap:12px;}
+      .ado-upload-drawer[hidden]{display:none !important;}
+      body.admin-bar .ado-upload-drawer{top:32px;}
+      @media (max-width:782px){body.admin-bar .ado-upload-drawer{top:46px;}}
+      .ado-upload-drawer-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;}
+      .ado-link-btn{border:none;background:none;color:#1d4ed8;font-weight:600;font-size:12px;padding:0;cursor:pointer;}
+      .ado-upload-dropzone{border:1.5px dashed #cbd5f5;border-radius:16px;padding:32px 20px;text-align:center;background:#f8fafc;margin-top:12px;cursor:pointer;transition:background .2s ease,border .2s ease;}
+      .ado-upload-dropzone:hover,.ado-upload-dropzone.is-active{border-color:#1d4ed8;background:#ecf0ff;}
+      .ado-upload-icon{width:48px;height:48px;margin:0 auto 8px;border-radius:50%;background:#e0e7ff;position:relative;}
+      .ado-upload-icon::before,.ado-upload-icon::after{content:'';position:absolute;left:50%;top:50%;width:18px;height:2px;background:#312e81;border-radius:1px;transform-origin:center;}
+      .ado-upload-icon::before{transform:translate(-50%,-50%) rotate(0deg);}
+      .ado-upload-icon::after{transform:translate(-50%,-50%) rotate(90deg);}
+      .ado-upload-text{font-size:16px;font-weight:700;margin-bottom:4px;color:#0f172a;}
+      .ado-upload-hint{font-size:12px;color:#475569;}
+      .ado-upload-divider{display:flex;align-items:center;gap:12px;margin-top:14px;font-size:12px;color:#64748b;}
+      .ado-upload-divider::before,.ado-upload-divider::after{content:'';flex:1;height:1px;background:#e2e8f0;}
+      .ado-parser-hidden{position:absolute;left:-9999px;top:auto;width:1px;height:1px;overflow:hidden;}
+      @media (max-width:1024px){.ado-client-quote-shell,.ado-list-cols{grid-template-columns:1fr}}
+    </style>
+    <script>
+      (function($){
+        var root = $('#adoClientQuoteUi');
+        if (!root.length) { return; }
+        var ajaxUrl = root.data('ajax');
+        var nonce = root.data('nonce');
+        var adxNonce = root.attr('data-adx-nonce');
+        var state = <?php echo wp_json_encode($state); ?>;
+        var latestScope = '';
+        var uploadStatus = $('#ado-client-upload-status');
+        var quoteList = $('#ado-client-quotes');
+        var filterPills = $('.ado-filter-pill');
+        var currentFilter = 'all';
+        var filterMap = {
+          all: [],
+          awaiting: ['submitted', 'assigned'],
+          approved: ['accepted', 'ordered'],
+          drafts: ['draft', 'review_required', 'ready'],
+          expired: ['expired'],
+        };
+        var drawer = $('#adoClientQuoteDrawer');
+        var drawerBody = $('#ado-client-drawer-body');
+        var uploadDrawer = $('#adoClientUploadDrawer');
+        var uploadDrawerClose = $('#ado-client-upload-drawer-close');
+        var newQuoteTrigger = $('#ado-client-new-quote-trigger');
+
+        function openUploadDrawer(){
+          if (!uploadDrawer.length) {
+            return;
+          }
+          uploadDrawer.prop('hidden', false).removeAttr('hidden');
+        }
+
+        function closeUploadDrawer(){
+          if (!uploadDrawer.length) {
+            return;
+          }
+          uploadDrawer.prop('hidden', true).attr('hidden', 'hidden');
+        }
+
+        function post(action, payload, cb){
+          $.post(ajaxUrl, Object.assign({action:action, nonce:nonce}, payload || {}))
+            .done(function(res){ cb(res || {success:false,data:{message:'Request failed'}}); })
+            .fail(function(){ cb({success:false,data:{message:'Request failed'}}); });
+        }
+        function money(v){
+          var n = Number(v || 0);
+          return n.toLocaleString(undefined, {style:'currency', currency:'USD'});
+        }
+        function renderQuoteRows(rows){
+          if (!rows || !rows.length) {
+            return '<div class="ado-muted">No quotes.</div>';
+          }
+          return rows.map(function(q){
+            var status = (q.status || 'draft').toLowerCase();
+            var actions = '<button class="ado-btn" data-view="' + q.id + '">View</button>';
+            if (['assigned', 'accepted', 'submitted', 'ordered'].indexOf(status) === -1) {
+              actions += '<button class="ado-btn" data-go="assigned" data-id="' + q.id + '">Assign</button>';
+              actions += '<button class="ado-btn" data-go="accepted" data-id="' + q.id + '">Accept</button>';
+              actions += '<button class="ado-btn primary" data-go="submitted" data-id="' + q.id + '">Submit</button>';
+            }
+            return '<div class="ado-q-row"><div><strong>' + (q.name || ('Quote #' + q.id)) + '</strong></div>' +
+              '<div class="ado-q-meta">' + (q.status || 'draft') + ' - ' + (q.created_at || '') + '</div>' +
+              '<div class="ado-q-meta">Doors: ' + (q.door_count || 0) + ' • Items: ' + (q.total_items || 0) + ' • Unmatched: ' + (q.unmatched_count || 0) + '</div>' +
+              '<div class="ado-q-meta">Subtotal: ' + money(q.subtotal || 0) + '</div>' +
+              '<div class="ado-q-actions">' + actions + '</div></div>';
+          }).join('');
+        }
+        function matchesFilter(row){
+          if (!row || currentFilter === 'all') {
+            return true;
+          }
+          var status = (row.status || 'draft').toLowerCase();
+          var allowed = filterMap[currentFilter] || [];
+          return allowed.length === 0 || allowed.indexOf(status) !== -1;
+        }
+        function renderQuotes(){
+          var rows = (state.new_quotes || []).concat(state.my_quotes || []);
+          quoteList.html(renderQuoteRows(rows.filter(matchesFilter)));
+        }
+        function renderState(){
+          renderQuotes();
+        }
+        function refreshState(){
+          post('ado_client_quotes_state', {}, function(res){
+            if (!res || !res.success || !res.data || !res.data.state) { return; }
+            state = res.data.state;
+            renderState();
+          });
+        }
+
+        function setActiveFilter(filter){
+          if (!filter) {
+            return;
+          }
+          currentFilter = filter;
+          filterPills.removeClass('is-active');
+          filterPills.filter('[data-filter=\"' + filter + '\"]').addClass('is-active');
+        }
+
+        renderState();
+        filterPills.on('click', function(){
+          var filter = $(this).data('filter');
+          if (!filter || filter === currentFilter) {
+            return;
+          }
+          setActiveFilter(filter);
+          renderQuotes();
+        });
+
+        var dropzone = $('#ado-client-upload-zone');
+        var fileInput = $('#ado-client-upload-input');
+        var maxPdfBytes = 25 * 1024 * 1024;
+
+        function setUploadStatus(message, isError){
+          uploadStatus.text(message || '').css('color', isError ? '#b42318' : '#0f766e');
+        }
+
+        function getAdxNonce(){
+          var fromForm = $('#adx-form input[name=\"adx_nonce\"]').val();
+          if (fromForm) { return String(fromForm); }
+          if (window.ADX_UI_CONFIG && window.ADX_UI_CONFIG.nonce) { return String(window.ADX_UI_CONFIG.nonce); }
+          return String(adxNonce || '');
+        }
+
+        function submitPDFFile(file){
+          if (!file) { return; }
+          var isPdf = (file.type === 'application/pdf') || /\.pdf$/i.test((file.name || ''));
+          if (!isPdf) {
+            setUploadStatus('Please upload a PDF file.', true);
+            return;
+          }
+          if (file.size > maxPdfBytes) {
+            setUploadStatus('PDF must be 25MB or smaller.', true);
+            return;
+          }
+          setUploadStatus('Uploading hardware schedule...');
+          var formData = new FormData();
+          formData.append('action', 'adx_parse_pdf');
+          formData.append('pdf', file, file.name);
+          formData.append('adx_nonce', getAdxNonce());
+          formData.append('adx_debug_mode', '0');
+          $.ajax({
+            url: ajaxUrl,
+            method: 'POST',
+            data: formData,
+            processData: false,
+            contentType: false,
+            dataType: 'json',
+            success: function(res){
+              if (!res || !res.success) {
+                var message = (res && res.data && res.data.message) ? res.data.message : 'Extraction failed.';
+                setUploadStatus(message + ' Please retry with a clean PDF.', true);
+                return;
+              }
+              var scopeUrl = res.data && res.data.download_url_scope ? res.data.download_url_scope : '';
+              if (!scopeUrl) {
+                setUploadStatus('Extraction completed but no scoped JSON URL was returned.', true);
+                return;
+              }
+              stageScope(scopeUrl, function(staged){
+                if (!staged || !staged.ok) {
+                  setUploadStatus((staged && staged.message) ? staged.message : 'Failed to stage scoped payload.', true);
+                  return;
+                }
+                handleScopeCreate(staged.scope_token);
+              });
+            },
+            error: function(xhr){
+              var message = (xhr && xhr.responseJSON && xhr.responseJSON.data && xhr.responseJSON.data.message)
+                ? xhr.responseJSON.data.message
+                : 'Extraction request failed.';
+              setUploadStatus(message + ' Please retry upload.', true);
+            }
+          });
+        }
+
+        function highlightDropzone(active){
+          if (dropzone.length) {
+            dropzone.toggleClass('is-active', !!active);
+          }
+        }
+
+        dropzone.on('click', function(){
+          fileInput.trigger('click');
+        });
+        dropzone.on('dragover', function(event){
+          event.preventDefault();
+          highlightDropzone(true);
+        });
+        dropzone.on('dragleave drop', function(event){
+          event.preventDefault();
+          highlightDropzone(false);
+          if (event.type === 'drop') {
+            var transfer = event.originalEvent && event.originalEvent.dataTransfer ? event.originalEvent.dataTransfer : null;
+            if (transfer && transfer.files && transfer.files.length) {
+              submitPDFFile(transfer.files[0]);
+            }
+          }
+        });
+        fileInput.on('change', function(){
+          var file = this.files && this.files[0];
+          submitPDFFile(file);
+          this.value = '';
+        });
+
+        setUploadStatus('Drop your hardware schedule PDF here or click to browse to start extraction.');
+
+        function stageScope(scopeUrl, cb){
+          post('ado_stage_scoped_payload', {scope_url: scopeUrl}, function(res){
+            if (!res || !res.success || !res.data || !res.data.scope_token) {
+              cb({ok:false, message:(res && res.data && res.data.message) ? res.data.message : 'Failed to stage scoped payload.'});
+              return;
+            }
+            cb({ok:true, scope_token:res.data.scope_token});
+          });
+        }
+
+        function handleScopeCreate(scopeToken){
+          var scopeTokenValue = scopeToken || '';
+          if (!scopeTokenValue) {
+            setUploadStatus('Scoped payload token missing. Please retry upload.', true);
+            return;
+          }
+          setUploadStatus('PDF extracted. Creating quote now...');
+          post('ado_scope_token_to_quote_cart', {scope_token: scopeTokenValue, quote_name: ''}, function(createRes){
+            if (!createRes || !createRes.success) {
+              setUploadStatus((createRes && createRes.data && createRes.data.message) ? createRes.data.message + ' Click retry on the upload form.' : 'Failed to create quote. Please retry upload.', true);
+              return;
+            }
+            setUploadStatus('Quote created successfully.');
+            // New quotes are created as drafts; switch to Drafts so the new quote is visible deterministically.
+            setActiveFilter('drafts');
+            refreshState();
+            if (createRes.data && createRes.data.quote_id) {
+              post('ado_client_quote_detail_html', {quote_id:createRes.data.quote_id}, function(detailRes){
+                if (!detailRes || !detailRes.success) { return; }
+                drawerBody.html(detailRes.data && detailRes.data.html ? detailRes.data.html : '');
+                closeUploadDrawer();
+                drawer.prop('hidden', false);
+            });
+            }
+          });
+        }
+
+        root.on('click', '[data-view]', function(){
+          var quoteId = $(this).data('view');
+          if (!quoteId) { return; }
+            post('ado_client_quote_detail_html', {quote_id:quoteId}, function(res){
+              if (!res || !res.success) { window.alert((res && res.data && res.data.message) ? res.data.message : 'Failed to load quote preview.'); return; }
+              drawerBody.html(res.data && res.data.html ? res.data.html : '');
+              closeUploadDrawer();
+              drawer.prop('hidden', false);
+            });
+        });
+
+        root.on('click', '[data-go]', function(){
+          var target = $(this).data('go');
+          var quoteId = $(this).data('id');
+          if (!target || !quoteId) { return; }
+          var po = '';
+          if (target === 'submitted') {
+            po = window.prompt('Enter PO number to submit this quote:') || '';
+            if (!$.trim(po)) { return; }
+          }
+          var before = {new_quotes:(state.new_quotes || []).slice(), my_quotes:(state.my_quotes || []).slice()};
+          var moving = null;
+          state.new_quotes = (state.new_quotes || []).filter(function(row){
+            if (String(row.id) === String(quoteId)) { moving = row; return false; }
+            return true;
+          });
+          if (moving) {
+            moving = Object.assign({}, moving, {status:target});
+            state.my_quotes = [moving].concat(state.my_quotes || []);
+          }
+          renderState();
+          post('ado_client_quote_transition', {quote_id:quoteId, target_status:target, po_number:po}, function(res){
+            if (!res || !res.success) {
+              state = before;
+              renderState();
+              window.alert((res && res.data && res.data.message) ? res.data.message : 'Transition failed.');
+              return;
+            }
+            if (res.data && res.data.state) {
+              state = res.data.state;
+              renderState();
+            } else {
+              refreshState();
+            }
+          });
+        });
+
+        if (newQuoteTrigger.length) {
+          newQuoteTrigger.on('click', function(event){
+            event.preventDefault();
+            openUploadDrawer();
+          });
+        }
+        if (uploadDrawerClose.length) {
+          uploadDrawerClose.on('click', function(){
+            closeUploadDrawer();
+          });
+        }
+        $(document).on('keydown', function(keyEvent){
+          if (uploadDrawer.length && !uploadDrawer.prop('hidden') && keyEvent.key === 'Escape') {
+            closeUploadDrawer();
+          }
+        });
+
+        $('#ado-client-close-drawer').on('click', function(){
+          drawer.prop('hidden', true);
+        });
+        $(document).on('ado:quote-transitioned', function(_ev, res){
+          if (res && res.data && res.data.state) {
+            state = res.data.state;
+            renderState();
+          } else {
+            refreshState();
+          }
+          drawer.prop('hidden', true);
+        });
+      })(jQuery);
     </script>
     <?php
     return (string) ob_get_clean();

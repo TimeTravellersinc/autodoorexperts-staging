@@ -711,6 +711,17 @@ final class ADO_Quote_Integration
                         $manual_description = (string) ($adjusted['manual_description'] ?? '');
                         $manual_sku = (string) ($adjusted['manual_sku'] ?? '');
 
+                        if ($pid <= 0 && $source_model !== '') {
+                            $fallback_pid = wc_get_product_id_by_sku($source_model);
+                            if ($fallback_pid > 0) {
+                                $pid = $fallback_pid;
+                                if ($match_method === '') {
+                                    $match_method = 'sku_fallback';
+                                }
+                                $match_confidence = max($match_confidence, 80);
+                            }
+                        }
+
                         $debug_entry = [
                             'line_key' => $line_key,
                             'door_id' => (string) ($door_meta['door_id'] ?? ''),
@@ -966,6 +977,11 @@ final class ADO_Quote_Integration
             return true;
         }
 
+        $reason = strtoupper(trim((string) ($row['reason_code'] ?? '')));
+        if ($reason === 'NO_CANDIDATES' || $reason === 'NO_MATCH') {
+            return true;
+        }
+
         $model = strtoupper(trim((string) ($row['model'] ?? '')));
         $description = trim((string) ($row['description'] ?? ''));
 
@@ -1130,7 +1146,7 @@ final class ADO_Quote_Integration
             $match['manual_sku'] = $manual_sku !== '' ? $manual_sku : $corrected_model;
             if ($corrected_model !== '') {
                 $match['source_model'] = $corrected_model;
-                $match['normalized_model'] = ado_qm_normalize_model($corrected_model);
+                $match['normalized_model'] = function_exists('ado_qm_compact') ? ado_qm_compact($corrected_model) : strtoupper(preg_replace('/[^A-Z0-9]/', '', $corrected_model));
             }
             if ($manual_description !== '') {
                 $match['source_desc'] = $manual_description;
@@ -1146,7 +1162,7 @@ final class ADO_Quote_Integration
 
         if ($corrected_model !== '') {
             $match['source_model'] = $corrected_model;
-            $match['normalized_model'] = ado_qm_normalize_model($corrected_model);
+            $match['normalized_model'] = function_exists('ado_qm_compact') ? ado_qm_compact($corrected_model) : strtoupper(preg_replace('/[^A-Z0-9]/', '', $corrected_model));
         }
         if ($manual_description !== '') {
             $match['source_desc'] = $manual_description;

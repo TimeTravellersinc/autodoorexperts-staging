@@ -9,6 +9,7 @@ function ado_cd_view_url(string $view): string {
         'new-quote' => home_url('/portal/new-quote/'),
         'quotes' => home_url('/portal/quotes/'),
         'projects' => home_url('/portal/projects/'),
+        'service-calls' => home_url('/portal/service-calls/'),
         'schedule' => home_url('/portal/schedule/'),
         'invoices' => home_url('/portal/invoices/'),
     ];
@@ -133,11 +134,13 @@ function ado_cd_render_schedule(int $user_id): string {
 function ado_cd_render_view_content(string $view, int $user_id): string {
     switch ($view) {
         case 'new-quote':
-            return do_shortcode('[ado_quote_workspace]');
+            return do_shortcode('[ado_client_quote_dashboard]');
         case 'quotes':
-            return do_shortcode('[ado_quote_workspace]');
+            return do_shortcode('[ado_client_quote_dashboard]');
         case 'projects':
             return '<article class="ado-card"><div class="ado-card-head"><span class="ado-card-title">Project Tracking</span></div><div style="padding:16px 18px;">' . do_shortcode('[ado_client_projects]') . '</div></article>';
+        case 'service-calls':
+            return '<article class="ado-card"><div class="ado-card-head"><span class="ado-card-title">My Service Calls</span></div><div style="padding:16px 18px;"><p class="ado-row-sub">We are preparing this section. Please contact support if you need help with a service call.</p></div></article>';
         case 'schedule':
             return ado_cd_render_schedule($user_id);
         case 'invoices':
@@ -155,17 +158,18 @@ add_shortcode('ado_client_dashboard_app', static function (): string {
 
     $uid = (int) get_current_user_id();
     $counts = ado_cd_counts($uid);
-    $view = sanitize_key((string) ($_GET['view'] ?? 'dashboard'));
+    $view = sanitize_key((string) ($_GET['view'] ?? 'quotes'));
     $view_titles = [
         'dashboard' => 'Dashboard',
         'new-quote' => 'New Quote',
         'quotes' => 'My Quotes',
         'projects' => 'My Projects',
+        'service-calls' => 'My Service Calls',
         'schedule' => 'Schedule',
         'invoices' => 'Invoices',
     ];
     if (!isset($view_titles[$view])) {
-        $view = 'dashboard';
+        $view = 'quotes';
     }
     ob_start();
     ?>
@@ -186,9 +190,9 @@ add_shortcode('ado_client_dashboard_app', static function (): string {
           <div class="ado-nav-label">Overview</div>
           <a class="<?php echo $view === 'dashboard' ? 'active' : ''; ?>" href="<?php echo ado_cd_view_url('dashboard'); ?>"><span>Dashboard</span></a>
           <div class="ado-nav-label">Quotes &amp; Projects</div>
-          <a class="<?php echo $view === 'new-quote' ? 'active' : ''; ?>" href="<?php echo ado_cd_view_url('new-quote'); ?>"><span>New Quote</span></a>
           <a class="<?php echo $view === 'quotes' ? 'active' : ''; ?>" href="<?php echo ado_cd_view_url('quotes'); ?>"><span>My Quotes</span><?php if ($counts['quotes_count'] > 0) { ?><span class="ado-nav-badge"><?php echo esc_html((string) $counts['quotes_count']); ?></span><?php } ?></a>
           <a class="<?php echo $view === 'projects' ? 'active' : ''; ?>" href="<?php echo ado_cd_view_url('projects'); ?>"><span>My Projects</span></a>
+          <a class="<?php echo $view === 'service-calls' ? 'active' : ''; ?>" href="<?php echo ado_cd_view_url('service-calls'); ?>"><span>My Service Calls</span></a>
           <div class="ado-nav-label">Scheduling</div>
           <a class="<?php echo $view === 'schedule' ? 'active' : ''; ?>" href="<?php echo ado_cd_view_url('schedule'); ?>"><span>Schedule</span></a>
           <div class="ado-nav-label">Billing</div>
@@ -200,7 +204,7 @@ add_shortcode('ado_client_dashboard_app', static function (): string {
           <h1><?php echo esc_html((string) $view_titles[$view]); ?></h1>
           <div class="ado-top-right">
             <a class="ado-btn" href="mailto:info@autodoorexperts.ca">Support</a>
-            <a class="ado-btn primary" href="<?php echo ado_cd_view_url('new-quote'); ?>">New Quote</a>
+            <a id="ado-client-new-quote-trigger" class="ado-btn primary" href="<?php echo ado_cd_view_url('new-quote'); ?>">New Quote</a>
           </div>
         </header>
         <div class="ado-content"><?php echo ado_cd_render_view_content($view, $uid); ?></div>
