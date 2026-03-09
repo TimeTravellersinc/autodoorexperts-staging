@@ -748,7 +748,7 @@ function ado_render_quote_detail(int $user_id, int $quote_id): string
           <?php if ($scope_file !== '') : ?><span class="qr-chip"><?php echo esc_html($scope_file); ?></span><?php endif; ?>
         </div>
       </div>
-      <div class="qr-banner"><div class="qr-banner-main"><div class="qr-banner-title">Extraction complete — <?php echo esc_html((string) $summary['doors_total']); ?> doors found</div><div class="qr-banner-copy">Review fuzzy and unknown rows, then submit with PO to lock pricing.</div></div><div class="qr-banner-stats"><div class="qr-stat"><strong><?php echo esc_html((string) $summary['matched']); ?></strong><span>Matched</span></div><div class="qr-stat"><strong><?php echo esc_html((string) $summary['fuzzy']); ?></strong><span>Fuzzy</span></div><div class="qr-stat"><strong><?php echo esc_html((string) $summary['unknown']); ?></strong><span>Unknown</span></div><div class="qr-stat"><strong><?php echo esc_html((string) $summary['out_of_scope']); ?></strong><span>No Scope</span></div></div></div>
+      <div class="qr-banner"><div class="qr-banner-main"><div class="qr-banner-title">Extraction complete - <?php echo esc_html((string) $summary['doors_total']); ?> doors found</div><div class="qr-banner-copy">Review fuzzy and unknown rows, then submit with PO to lock pricing.</div></div><div class="qr-banner-stats"><div class="qr-stat"><strong><?php echo esc_html((string) $summary['matched']); ?></strong><span>Matched</span></div><div class="qr-stat"><strong><?php echo esc_html((string) $summary['fuzzy']); ?></strong><span>Fuzzy</span></div><div class="qr-stat"><strong><?php echo esc_html((string) $summary['unknown']); ?></strong><span>Unknown</span></div><div class="qr-stat"><strong><?php echo esc_html((string) $summary['out_of_scope']); ?></strong><span>No Scope</span></div></div></div>
       <div class="qr-layout">
         <div class="qr-main">
           <div class="qr-section-head">
@@ -802,9 +802,9 @@ function ado_render_quote_detail(int $user_id, int $quote_id): string
           <?php echo ado_render_quote_dropped_log($quote_id); ?>
         </div>
         <aside class="qr-sidebar">
-          <div class="qr-sidecard"><div class="qr-sidehead"><div class="qr-sidetitle">Quote Summary</div><span style="font-size:11px;color:var(--ado-muted)">Live · auto-updates</span></div><div class="qr-sidebody"><div class="qr-siderow"><span>Project</span><strong><?php echo esc_html((string) $row['name']); ?></strong></div><div class="qr-siderow"><span>Doors in scope</span><strong><?php echo esc_html((string) $summary['doors_in_scope']); ?> of <?php echo esc_html((string) $summary['doors_total']); ?></strong></div><div class="qr-siderow"><span>Matched</span><strong><?php echo esc_html((string) $summary['matched']); ?></strong></div><div class="qr-siderow"><span>Fuzzy</span><strong><?php echo esc_html((string) $summary['fuzzy']); ?></strong></div><div class="qr-siderow"><span>Unknown</span><strong><?php echo esc_html((string) $summary['unknown']); ?></strong></div><div class="qr-siderow"><span>No Scope</span><strong><?php echo esc_html((string) $summary['out_of_scope']); ?></strong></div></div><div class="qr-total"><span>Est. Total</span><strong><?php echo wp_kses_post((string) $row['subtotal_html']); ?></strong></div></div>
-          <div class="qr-sidecard"><div class="qr-sidehead"><div class="qr-sidetitle">Items Needing Review</div></div><div class="qr-sidebody"><div class="qr-flag-list"><?php if ($review_items) : ?><?php foreach ($review_items as $review_item) : ?><div class="qr-flag-item <?php echo esc_attr(ado_quote_flag_class((string) $review_item['state'])); ?>" data-scroll-door="<?php echo esc_attr((string) $review_item['door_id']); ?>"><span><?php echo esc_html((string) $review_item['door_number']); ?> — <?php echo esc_html((string) $review_item['label']); ?></span><strong>1</strong></div><?php endforeach; ?><?php else : ?><div class="qr-flag-item neutral"><span>No open review items</span><strong>0</strong></div><?php endif; ?></div><div style="font-size:11.5px;color:var(--ado-muted);margin-top:10px;line-height:1.5;">Jump to any flagged door to resolve fuzzy or unknown entries.</div></div></div>
-          <div class="qr-sidecard"><div class="qr-sidehead"><div class="qr-sidetitle">Submit &amp; Approve</div></div><div class="qr-sidebody"><div class="qr-po-label">Purchase Order Number</div><input class="qr-po-input ado-po-number" type="text" placeholder="e.g. PO-2026-0041"><div class="qr-note">Submitting locks pricing for matched lines. Unknown lines can be manually priced before submit.</div><?php if ((string) $row['status'] !== 'ordered') : ?><button class="qr-btn primary ado-submit-quote" type="button" data-id="<?php echo esc_attr((string) $quote_id); ?>">Submit Quote Request</button><a class="qr-btn" href="<?php echo esc_url(ado_quote_checkout_url($quote_id)); ?>">Checkout This Quote</a><?php elseif ((int) $row['order_id'] > 0) : ?><a class="qr-btn primary" href="<?php echo esc_url(wc_get_endpoint_url('view-order', (string) ((int) $row['order_id']), wc_get_page_permalink('myaccount'))); ?>">Open Project Order #<?php echo esc_html((string) ((int) $row['order_id'])); ?></a><?php endif; ?><?php if ($can_rerun) : ?><button class="qr-btn ado-rerun-match" type="button" data-id="<?php echo esc_attr((string) $quote_id); ?>">Re-run Matching</button><?php endif; ?><a class="qr-btn" href="<?php echo esc_url(home_url('/portal/quotes/')); ?>">Back to My Quotes</a></div></div>
+          <div class="qr-sidecard"><div class="qr-sidehead"><div class="qr-sidetitle">Quote Summary</div><span style="font-size:11px;color:var(--ado-muted)">Live - auto-updates</span></div><div class="qr-sidebody"><div class="qr-siderow"><span>Project</span><strong><?php echo esc_html((string) $row['name']); ?></strong></div><div class="qr-siderow"><span>Doors in scope</span><strong><?php echo esc_html((string) $summary['doors_in_scope']); ?> of <?php echo esc_html((string) $summary['doors_total']); ?></strong></div><div class="qr-siderow"><span>Matched</span><strong><?php echo esc_html((string) $summary['matched']); ?></strong></div><div class="qr-siderow"><span>Fuzzy</span><strong><?php echo esc_html((string) $summary['fuzzy']); ?></strong></div><div class="qr-siderow"><span>Unknown</span><strong><?php echo esc_html((string) $summary['unknown']); ?></strong></div><div class="qr-siderow"><span>No Scope</span><strong><?php echo esc_html((string) $summary['out_of_scope']); ?></strong></div></div><div class="qr-total"><span>Est. Total</span><strong><?php echo wp_kses_post((string) $row['subtotal_html']); ?></strong></div></div>
+          <div class="qr-sidecard"><div class="qr-sidehead"><div class="qr-sidetitle">Items Needing Review</div></div><div class="qr-sidebody"><div class="qr-flag-list"><?php if ($review_items) : ?><?php foreach ($review_items as $review_item) : ?><div class="qr-flag-item <?php echo esc_attr(ado_quote_flag_class((string) $review_item['state'])); ?>" data-scroll-door="<?php echo esc_attr((string) $review_item['door_id']); ?>"><span><?php echo esc_html((string) $review_item['door_number']); ?> - <?php echo esc_html((string) $review_item['label']); ?></span><strong><?php echo esc_html((string) ($review_item['count'] ?? 1)); ?></strong></div><?php endforeach; ?><?php else : ?><div class="qr-flag-item neutral"><span>No open review items</span><strong>0</strong></div><?php endif; ?></div><div style="font-size:11.5px;color:var(--ado-muted);margin-top:10px;line-height:1.5;">Jump to any flagged door to resolve fuzzy or unknown entries.</div></div></div>
+          <div class="qr-sidecard"><div class="qr-sidehead"><div class="qr-sidetitle">Submit &amp; Approve</div></div><div class="qr-sidebody"><div class="qr-po-label">Purchase Order Number</div><input class="qr-po-input ado-po-number" type="text" placeholder="e.g. PO-2026-0041"><div class="qr-note">Submitting locks pricing for matched lines. Unknown lines can be manually priced before submit.</div><?php if ((string) $row['status'] !== 'ordered') : ?><button class="qr-btn primary ado-submit-quote" type="button" data-id="<?php echo esc_attr((string) $quote_id); ?>">Submit Quote Request</button><a class="qr-btn" href="<?php echo esc_url(ado_quote_checkout_url($quote_id)); ?>">Checkout This Quote</a><?php elseif ((int) $row['order_id'] > 0) : ?><a class="qr-btn primary" href="<?php echo esc_url(wc_get_endpoint_url('view-order', (string) ((int) $row['order_id']), wc_get_page_permalink('myaccount'))); ?>">Open Project Order #<?php echo esc_html((string) ((int) $row['order_id'])); ?></a><?php endif; ?><?php if ($can_rerun) : ?><button class="qr-btn ado-rerun-match" type="button" data-id="<?php echo esc_attr((string) $quote_id); ?>">Re-run Matching</button><?php endif; ?><button type="button" class="qr-btn secondary ado-close-review-session">Close Review</button></div></div>
         </aside>
       </div>
     </div>
@@ -821,6 +821,7 @@ function ado_render_quote_detail(int $user_id, int $quote_id): string
         root.on('click', '.ado-save-door-note', function(){ var button = $(this); var doorId = button.data('door-id'); var note = root.find('.qr-notes[data-door-id="' + doorId + '"]').val() || ''; $.post(ajaxUrl, {action:'ado_save_quote_door_note', nonce:nonce, quote_id:button.data('quote-id'), door_id:doorId, note:note}).done(function(res){ if (!res || !res.success) { window.alert((res && res.data && res.data.message) ? res.data.message : 'Failed to save note.'); return; } button.text('Saved'); setTimeout(function(){ button.text('Save note'); }, 1200); }).fail(function(){ window.alert('Failed to save note.'); }); });
         root.on('click', '.ado-save-line-adjustment', function(){ var button = $(this); var wrap = button.closest('.qr-inline-review'); $.post(ajaxUrl, {action:'ado_save_quote_line_adjustment', nonce:nonce, quote_id:button.data('quote-id'), line_key:button.data('line-key'), corrected_model:wrap.find('.qr-adjust-model').val() || '', manual_description:wrap.find('.qr-adjust-desc').val() || '', manual_sku:wrap.find('.qr-adjust-sku').val() || '', manual_unit_price:wrap.find('.qr-adjust-price').val() || ''}).done(function(res){ if (!res || !res.success) { window.alert((res && res.data && res.data.message) ? res.data.message : 'Failed to save line adjustment.'); return; } if (res.data && res.data.quote_url) { window.location.href = res.data.quote_url; return; } window.location.reload(); }).fail(function(){ window.alert('Failed to save line adjustment.'); }); });
         root.on('click', '.ado-submit-quote', function(){ var quoteId = $(this).data('id'); var po = $.trim(root.find('.ado-po-number').val() || ''); if (!po) { window.alert('PO number is required before submit.'); return; } $.post(ajaxUrl, {action:'ado_client_quote_transition', nonce:nonce, quote_id:quoteId, target_status:'submitted', po_number:po}).done(function(res){ if (!res || !res.success) { window.alert((res && res.data && res.data.message) ? res.data.message : 'Failed to submit quote.'); return; } $(document).trigger('ado:quote-transitioned', [res]); window.alert('Quote submitted.'); }).fail(function(){ window.alert('Failed to submit quote.'); }); });
+        root.on('click', '.ado-close-review-session', function(){ $('#ado-client-close-drawer').trigger('click'); });
       })(jQuery);
     </script>
     <?php
@@ -1496,7 +1497,8 @@ add_shortcode('ado_client_quote_dashboard', static function (): string {
           <div class="ado-quote-grid" id="ado-client-quotes"></div>
         </section>
       </div>
-      <div class="ado-preview-drawer" id="adoClientQuoteDrawer" hidden>
+      <div class="ado-preview-backdrop" id="adoClientQuoteBackdrop" hidden></div>
+      <div class="ado-preview-drawer extracted-session" id="adoClientQuoteDrawer" hidden>
         <div class="ado-preview-head">
           <h3 style="margin:0;">Review Extracted Quote</h3>
           <button class="ado-btn" type="button" id="ado-client-close-drawer">Close</button>
@@ -1539,12 +1541,28 @@ add_shortcode('ado_client_quote_dashboard', static function (): string {
       .ado-q-row{border:1px solid #e5e7eb;border-radius:10px;padding:10px;margin-bottom:10px;background:#fff}
       .ado-q-meta{font-size:12px;color:#6b7280}
       .ado-q-actions{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}
-      .ado-preview-drawer{position:fixed;top:0;right:0;bottom:0;width:min(820px,100vw);background:#fff;border-left:1px solid #e5e7eb;z-index:9999;overflow:auto;padding:16px}
-      .ado-preview-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px}
+      body.ado-preview-open{overflow:hidden}
+      .ado-preview-backdrop{position:fixed;inset:0;background:rgba(15,23,42,.38);backdrop-filter:blur(2px);z-index:9997}
+      .ado-preview-backdrop[hidden]{display:none !important}
+      .ado-preview-drawer{position:fixed;top:0;right:0;bottom:0;width:min(92vw,1480px);max-width:100vw;background:#fff;border-left:1px solid #e5e7eb;box-shadow:-24px 0 60px rgba(15,23,42,.16);z-index:9998;overflow-x:hidden;overflow-y:auto;padding:20px 24px 28px}
+      .ado-preview-drawer[hidden]{display:none !important}
+      body.admin-bar .ado-preview-drawer{top:32px}
+      .ado-preview-drawer.extracted-session{left:auto}
+      .ado-preview-head{display:flex;justify-content:space-between;align-items:center;gap:16px;margin-bottom:12px;position:sticky;top:-20px;padding:20px 0 12px;background:#fff;z-index:2}
+      #ado-client-drawer-body{overflow-x:hidden}
+      #ado-client-drawer-body .ado-quote-review{margin-top:0;max-width:100%;overflow-x:hidden}
+      #ado-client-drawer-body .ado-quote-review .qr-layout{max-width:100%;overflow-x:hidden}
+      #ado-client-drawer-body .ado-quote-review .qr-main{min-width:0}
+      #ado-client-drawer-body .ado-quote-review .qr-door-list,
+      #ado-client-drawer-body .ado-quote-review .qr-door-card,
+      #ado-client-drawer-body .ado-quote-review .qr-table{max-width:100%}
+      #ado-client-drawer-body .ado-quote-review .qr-table{table-layout:fixed}
+      #ado-client-drawer-body .ado-quote-review .qr-table th,
+      #ado-client-drawer-body .ado-quote-review .qr-table td{word-break:break-word}
       .ado-upload-drawer{position:fixed;top:0;right:0;bottom:0;width:min(460px,100vw);background:#fff;border-left:1px solid #e5e7eb;z-index:10000;overflow:auto;padding:24px 28px;display:flex;flex-direction:column;gap:12px;}
       .ado-upload-drawer[hidden]{display:none !important;}
       body.admin-bar .ado-upload-drawer{top:32px;}
-      @media (max-width:782px){body.admin-bar .ado-upload-drawer{top:46px;}}
+      @media (max-width:782px){body.admin-bar .ado-preview-drawer{top:46px}.ado-preview-drawer{width:100vw;padding:16px 16px 24px}.ado-preview-head{top:-16px;padding:16px 0 10px}.ado-upload-drawer{width:100vw}body.admin-bar .ado-upload-drawer{top:46px;}}
       .ado-upload-drawer-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;}
       .ado-link-btn{border:none;background:none;color:#1d4ed8;font-weight:600;font-size:12px;padding:0;cursor:pointer;}
       .ado-upload-dropzone{border:1.5px dashed #cbd5f5;border-radius:16px;padding:32px 20px;text-align:center;background:#f8fafc;margin-top:12px;cursor:pointer;transition:background .2s ease,border .2s ease;}
@@ -1564,8 +1582,9 @@ add_shortcode('ado_client_quote_dashboard', static function (): string {
       (function($){
         var root = $('#adoClientQuoteUi');
         if (!root.length) { return; }
-        var ajaxUrl = root.data('ajax');
-        var nonce = root.data('nonce');
+        // Use attr() over jQuery .data() to avoid stale cached values during iterative UI changes.
+        var ajaxUrl = root.attr('data-ajax') || root.data('ajax');
+        var nonce = root.attr('data-nonce') || root.data('nonce');
         var adxNonce = root.attr('data-adx-nonce');
         var state = <?php echo wp_json_encode($state); ?>;
         var latestScope = '';
@@ -1581,6 +1600,7 @@ add_shortcode('ado_client_quote_dashboard', static function (): string {
           expired: ['expired'],
         };
         var drawer = $('#adoClientQuoteDrawer');
+        var drawerBackdrop = $('#adoClientQuoteBackdrop');
         var drawerBody = $('#ado-client-drawer-body');
         var uploadDrawer = $('#adoClientUploadDrawer');
         var uploadDrawerClose = $('#ado-client-upload-drawer-close');
@@ -1598,6 +1618,27 @@ add_shortcode('ado_client_quote_dashboard', static function (): string {
             return;
           }
           uploadDrawer.prop('hidden', true).attr('hidden', 'hidden');
+        }
+
+        function openPreviewDrawer(html){
+          if (!drawer.length) {
+            return;
+          }
+          if (typeof html === 'string') {
+            drawerBody.html(html);
+          }
+          drawer.prop('hidden', false).removeAttr('hidden');
+          drawerBackdrop.prop('hidden', false).removeAttr('hidden');
+          $('body').addClass('ado-preview-open');
+        }
+
+        function closePreviewDrawer(){
+          if (!drawer.length) {
+            return;
+          }
+          drawer.prop('hidden', true).attr('hidden', 'hidden');
+          drawerBackdrop.prop('hidden', true).attr('hidden', 'hidden');
+          $('body').removeClass('ado-preview-open');
         }
 
         function post(action, payload, cb){
@@ -1797,9 +1838,8 @@ add_shortcode('ado_client_quote_dashboard', static function (): string {
             if (createRes.data && createRes.data.quote_id) {
               post('ado_client_quote_detail_html', {quote_id:createRes.data.quote_id}, function(detailRes){
                 if (!detailRes || !detailRes.success) { return; }
-                drawerBody.html(detailRes.data && detailRes.data.html ? detailRes.data.html : '');
                 closeUploadDrawer();
-                drawer.prop('hidden', false);
+                openPreviewDrawer(detailRes.data && detailRes.data.html ? detailRes.data.html : '');
             });
             }
           });
@@ -1810,9 +1850,8 @@ add_shortcode('ado_client_quote_dashboard', static function (): string {
           if (!quoteId) { return; }
             post('ado_client_quote_detail_html', {quote_id:quoteId}, function(res){
               if (!res || !res.success) { window.alert((res && res.data && res.data.message) ? res.data.message : 'Failed to load quote preview.'); return; }
-              drawerBody.html(res.data && res.data.html ? res.data.html : '');
               closeUploadDrawer();
-              drawer.prop('hidden', false);
+              openPreviewDrawer(res.data && res.data.html ? res.data.html : '');
             });
         });
 
@@ -1864,14 +1903,17 @@ add_shortcode('ado_client_quote_dashboard', static function (): string {
           });
         }
         $(document).on('keydown', function(keyEvent){
+          if (drawer.length && !drawer.prop('hidden') && keyEvent.key === 'Escape') {
+            closePreviewDrawer();
+            return;
+          }
           if (uploadDrawer.length && !uploadDrawer.prop('hidden') && keyEvent.key === 'Escape') {
             closeUploadDrawer();
           }
         });
 
-        $('#ado-client-close-drawer').on('click', function(){
-          drawer.prop('hidden', true);
-        });
+        $('#ado-client-close-drawer').on('click', function(){ closePreviewDrawer(); });
+        drawerBackdrop.on('click', function(){ closePreviewDrawer(); });
         $(document).on('ado:quote-transitioned', function(_ev, res){
           if (res && res.data && res.data.state) {
             state = res.data.state;
@@ -1879,7 +1921,7 @@ add_shortcode('ado_client_quote_dashboard', static function (): string {
           } else {
             refreshState();
           }
-          drawer.prop('hidden', true);
+          closePreviewDrawer();
         });
       })(jQuery);
     </script>
@@ -1957,3 +1999,4 @@ function ado_render_match_tools_page(): void
     </div>
     <?php
 }
+
