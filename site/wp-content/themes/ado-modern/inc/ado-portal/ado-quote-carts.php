@@ -1902,11 +1902,24 @@ function ado_quote_save_scoped_payload_for_quote(int $quote_id, array $payload):
 
 function ado_quote_original_door_rows(int $quote_id, string $door_id, string $door_number): array
 {
-    $parser_payload = ado_quote_parser_payload_for_quote($quote_id);
+    static $quote_cache = [];
+    if ($quote_id <= 0) {
+        return [];
+    }
+    if (!isset($quote_cache[$quote_id])) {
+        $quote_cache[$quote_id] = [
+            'parser_payload' => ado_quote_parser_payload_for_quote($quote_id),
+            'scoped_payload' => ado_quote_scoped_payload_for_quote($quote_id),
+            'learning' => ado_quote_scope_learning(),
+            'overrides' => ado_quote_scope_item_overrides($quote_id),
+        ];
+    }
+
+    $parser_payload = (array) ($quote_cache[$quote_id]['parser_payload'] ?? []);
     if (!$parser_payload) {
         return [];
     }
-    $scoped_payload = ado_quote_scoped_payload_for_quote($quote_id);
+    $scoped_payload = (array) ($quote_cache[$quote_id]['scoped_payload'] ?? []);
     $scoped_doors = (array) ($scoped_payload['result']['doors'] ?? []);
     $parser_doors = (array) ($parser_payload['result']['doors'] ?? []);
     $target_keys = [];
@@ -1952,8 +1965,8 @@ function ado_quote_original_door_rows(int $quote_id, string $door_id, string $do
         }
     }
 
-    $learning = ado_quote_scope_learning();
-    $overrides = ado_quote_scope_item_overrides($quote_id);
+    $learning = is_array($quote_cache[$quote_id]['learning'] ?? null) ? (array) $quote_cache[$quote_id]['learning'] : [];
+    $overrides = is_array($quote_cache[$quote_id]['overrides'] ?? null) ? (array) $quote_cache[$quote_id]['overrides'] : [];
     $rows = [];
     $seen = [];
     foreach ((array) ($parser_door['items'] ?? []) as $item) {
