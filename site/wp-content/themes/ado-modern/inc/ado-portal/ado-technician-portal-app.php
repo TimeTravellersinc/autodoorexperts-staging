@@ -1300,9 +1300,9 @@ function ado_tp_render_project_door_drawer(array $door, WC_Order $project): stri
                       <strong><?php echo esc_html($model_label); ?></strong>
                       <?php if ((int) ($model['qty'] ?? 1) > 1) { ?><span class="ado-door-hardware-qty">x<?php echo esc_html((string) (int) ($model['qty'] ?? 1)); ?></span><?php } ?>
                       <div class="ado-door-hardware-head-actions">
-                        <label class="ado-door-hardware-installed-label">
+                        <label class="ado-door-hardware-installed-label" data-installed="<?php echo $entry_installed ? 'on' : 'off'; ?>">
                           <input type="checkbox" class="ado-door-hardware-installed" name="<?php echo esc_attr('hardware_installed[' . $category_key . '][' . $model_key . ']'); ?>" value="1" <?php echo $entry_installed ? 'checked' : ''; ?>>
-                          <span>Installed</span>
+                          <span class="ado-door-installed-text"><?php echo $entry_installed ? 'Installed' : 'Pending'; ?></span>
                         </label>
                         <button class="btn btn-ghost btn-sm ado-door-hardware-toggle" type="button" data-target="<?php echo esc_attr($entry_id); ?>">Add note/media</button>
                       </div>
@@ -1342,11 +1342,19 @@ function ado_tp_render_project_door_drawer(array $door, WC_Order $project): stri
           <span>Test notes</span>
           <textarea class="ado-door-note" name="testing[note]" placeholder="Add test notes for this door."><?php echo esc_textarea($testing_note); ?></textarea>
         </label>
-        <label class="ado-door-field ado-door-video-upload-field">
-          <span>Final test video</span>
+        <div class="ado-door-video-upload-shell" data-video-dropzone>
+          <div class="ado-door-video-upload-head">
+            <span class="ado-door-video-upload-title">Final test video</span>
+            <span class="ado-door-video-upload-state" data-video-state><?php echo !empty($final_videos) ? 'Video on file' : 'No video selected'; ?></span>
+          </div>
+          <div class="ado-door-video-upload-actions">
+            <button class="btn btn-ghost btn-sm ado-door-video-pick" type="button" data-video-pick>Select video</button>
+            <small>or drag and drop here</small>
+          </div>
           <input class="ado-door-video-upload-input" type="file" name="testing_final_video" accept="video/*">
-          <small class="ado-door-video-upload-note">Upload the final test run video before confirming completion.</small>
-        </label>
+          <small class="ado-door-video-upload-selected" data-video-selected></small>
+          <small class="ado-door-video-upload-note">Upload final test run evidence before completion.</small>
+        </div>
         <?php if (!empty($final_videos)) { ?>
           <div class="ado-door-existing-media ado-door-testing-video-list">
             <?php foreach ($final_videos as $video) { if (!is_array($video) || trim((string) ($video['url'] ?? '')) === '') { continue; } ?>
@@ -1582,7 +1590,7 @@ add_shortcode('ado_technician_portal_app', static function (): string {
 .ado-tech .ado-door-hardware-list{display:flex;flex-direction:column;gap:8px}.ado-tech .ado-door-hardware-item{padding:10px;border:1px solid var(--border);border-radius:8px;background:rgba(255,255,255,.03)}.ado-tech .ado-door-hardware-item strong{display:flex;align-items:center;gap:8px;font-size:13px}.ado-tech .ado-door-hardware-item small{display:block;color:#94a3b8;margin-top:4px}.ado-tech .ado-door-hardware-qty{font-size:10px;padding:2px 6px;border-radius:999px;background:var(--accent-soft);color:var(--accent)}
 .ado-tech .ado-door-overview-blocks{display:grid;grid-template-columns:1fr;gap:10px}.ado-tech .ado-door-overview-block{padding:10px;border:1px solid var(--border);border-radius:8px;background:rgba(255,255,255,.03)}.ado-tech .ado-door-overview-block strong{display:block;font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:#64748b;margin-bottom:6px}.ado-tech .ado-door-overview-link{display:block;padding:8px 10px;border:1px solid var(--border);border-radius:8px;background:rgba(255,255,255,.03);text-decoration:none;color:var(--text)}.ado-tech .ado-door-overview-link span{display:block;font-size:13px;font-weight:600}.ado-tech .ado-door-overview-link small{display:block;color:#94a3b8;margin-top:3px}.ado-tech .ado-door-overview-fallback{margin:0}
 .ado-tech .ado-door-document-list,.ado-tech .ado-door-comment-list,.ado-tech .ado-door-hardware-groups,.ado-tech .ado-door-hardware-models,.ado-tech .ado-door-confirmation-list{display:flex;flex-direction:column;gap:8px}.ado-tech .ado-door-document-list .ado-door-overview-link,.ado-tech .ado-door-comment-item,.ado-tech .ado-door-hardware-group,.ado-tech .ado-door-confirmation{padding:10px;border:1px solid var(--border);border-radius:8px;background:rgba(255,255,255,.02)}.ado-tech .ado-door-comment-item strong,.ado-tech .ado-door-hardware-group-title{display:block;font-size:13px;font-weight:600}.ado-tech .ado-door-comment-item small,.ado-tech .ado-door-hardware-group-title,.ado-tech .ado-door-form-hint{color:#94a3b8}.ado-tech .ado-door-confirmation-head,.ado-tech .ado-door-hardware-model-head{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}.ado-tech .ado-door-confirmation-options{display:flex;gap:10px;flex-wrap:wrap}.ado-tech .ado-door-confirmation-options label,.ado-tech .ado-door-complete{display:flex;align-items:center;gap:8px;font-size:12px}.ado-tech .ado-door-field{display:block;margin-top:10px}.ado-tech .ado-door-field span{display:block;font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:#64748b;margin-bottom:5px}.ado-tech .ado-door-field textarea,.ado-tech .ado-door-field input[type="text"],.ado-tech .ado-door-field input[type="file"]{width:100%;background:rgba(255,255,255,.05);border:1px solid var(--border);border-radius:8px;color:var(--text);padding:10px 12px;font-size:13px}.ado-tech .ado-door-field textarea{min-height:92px;resize:vertical}.ado-tech .ado-door-form-hint{margin-top:8px;font-size:12px;line-height:1.4}.ado-tech .ado-door-hardware-model{padding:10px;border:1px solid var(--border);border-radius:8px;background:rgba(255,255,255,.03)}.ado-tech .ado-door-hardware-model-head strong{font-size:13px}.ado-tech .ado-door-hardware-toggle{white-space:nowrap}.ado-tech .ado-door-hardware-panel{margin-top:10px;padding-top:10px;border-top:1px solid var(--border)}.ado-tech .ado-door-existing-media{display:flex;flex-direction:column;gap:8px;margin-top:10px}.ado-tech .ado-door-existing-media a{display:block;padding:8px 10px;border:1px solid var(--border);border-radius:8px;background:rgba(255,255,255,.03);text-decoration:none;color:var(--text)}.ado-tech .ado-door-existing-media strong{display:block;font-size:13px}.ado-tech .ado-door-existing-media small{display:block;color:#94a3b8;margin-top:3px}.ado-tech .ado-door-note{width:100%;min-height:110px;resize:vertical;background:rgba(255,255,255,.05);border:1px solid var(--border);border-radius:8px;color:var(--text);padding:10px 12px;font-size:13px}.ado-tech .ado-door-actions{display:flex;gap:8px;flex-wrap:wrap;align-items:center}.ado-tech .ado-door-flash{display:none;margin-top:4px;padding:8px 10px;border-radius:8px;font-size:12px}.ado-tech .ado-door-flash.ok{display:block;background:rgba(34,197,94,.15);color:#86efac}.ado-tech .ado-door-flash.err{display:block;background:rgba(239,68,68,.15);color:#fecaca}.ado-tech .ado-door-empty{padding:10px;border:1px dashed var(--border);border-radius:8px;color:#94a3b8}
-.ado-tech .ado-door-hardware-groups{gap:14px}.ado-tech .ado-door-hardware-group-title{font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:#93c5fd;padding:2px 2px 0}.ado-tech .ado-door-hardware-head-actions{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.ado-tech .ado-door-hardware-installed-label{display:inline-flex;align-items:center;gap:8px;font-size:11px;color:#dbeafe;padding:6px 11px;border-radius:999px;border:1px solid rgba(59,130,246,.45);background:linear-gradient(135deg,rgba(14,116,144,.2),rgba(15,23,42,.55));box-shadow:inset 0 0 0 1px rgba(148,163,184,.08),0 0 0 1px rgba(14,165,233,.08)}.ado-tech .ado-door-hardware-installed-label span{font-weight:700;letter-spacing:.04em;text-transform:uppercase}.ado-tech .ado-door-hardware-installed-label input[type="checkbox"]{appearance:none;-webkit-appearance:none;width:16px;height:16px;margin:0;border:1px solid rgba(148,163,184,.65);border-radius:4px;background:#0b1220;display:grid;place-items:center;transition:border-color .15s ease,box-shadow .15s ease,background .15s ease}.ado-tech .ado-door-hardware-installed-label input[type="checkbox"]::after{content:'';width:8px;height:8px;border-radius:2px;background:linear-gradient(135deg,#22d3ee,#38bdf8);transform:scale(0);transition:transform .15s ease}.ado-tech .ado-door-hardware-installed-label input[type="checkbox"]:checked{border-color:#22d3ee;box-shadow:0 0 0 3px rgba(34,211,238,.2)}.ado-tech .ado-door-hardware-installed-label input[type="checkbox"]:checked::after{transform:scale(1)}.ado-tech .ado-door-video-upload-field{padding:12px;border:1px solid rgba(56,189,248,.35);border-radius:12px;background:linear-gradient(135deg,rgba(14,116,144,.18),rgba(15,23,42,.6))}.ado-tech .ado-door-video-upload-field span{color:#bfdbfe}.ado-tech .ado-door-video-upload-input{color:var(--text);background:rgba(2,6,23,.4)!important;border-color:rgba(56,189,248,.3)!important}.ado-tech .ado-door-video-upload-input::file-selector-button{margin-right:10px;padding:7px 12px;border-radius:999px;border:1px solid rgba(56,189,248,.45);background:rgba(14,116,144,.3);color:#e0f2fe;cursor:pointer}.ado-tech .ado-door-video-upload-note{display:block;margin-top:8px;font-size:11px;color:#93c5fd;line-height:1.35}.ado-tech .ado-door-testing-video-list a{background:linear-gradient(135deg,rgba(14,116,144,.16),rgba(15,23,42,.5));border-color:rgba(56,189,248,.35)}
+.ado-tech .ado-door-hardware-groups{gap:14px}.ado-tech .ado-door-hardware-group-title{font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:#94a3b8;padding:2px 2px 0}.ado-tech .ado-door-hardware-head-actions{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.ado-tech .ado-door-hardware-installed-label{display:inline-flex;align-items:center;gap:9px;padding:5px 10px;border-radius:999px;border:1px solid rgba(148,163,184,.35);background:rgba(15,23,42,.55);cursor:pointer;transition:border-color .15s ease,background .15s ease}.ado-tech .ado-door-hardware-installed-label[data-installed="on"]{border-color:rgba(34,197,94,.42);background:rgba(22,101,52,.2)}.ado-tech .ado-door-hardware-installed-label .ado-door-installed-text{font-size:11px;letter-spacing:.04em;text-transform:uppercase;color:#cbd5e1;min-width:62px}.ado-tech .ado-door-hardware-installed-label[data-installed="on"] .ado-door-installed-text{color:#bbf7d0}.ado-tech .ado-door-hardware-installed-label input[type="checkbox"]{appearance:none;-webkit-appearance:none;width:34px;height:20px;margin:0;border-radius:999px;border:1px solid rgba(148,163,184,.45);background:rgba(15,23,42,.92);position:relative;transition:border-color .15s ease,background .15s ease}.ado-tech .ado-door-hardware-installed-label input[type="checkbox"]::after{content:'';position:absolute;top:2px;left:2px;width:14px;height:14px;border-radius:50%;background:#94a3b8;transition:transform .15s ease,background .15s ease}.ado-tech .ado-door-hardware-installed-label input[type="checkbox"]:checked{border-color:rgba(34,197,94,.6);background:rgba(21,128,61,.35)}.ado-tech .ado-door-hardware-installed-label input[type="checkbox"]:checked::after{transform:translateX(14px);background:#bbf7d0}.ado-tech .ado-door-video-upload-shell{position:relative;margin-top:10px;padding:12px;border:1px dashed rgba(148,163,184,.35);border-radius:12px;background:rgba(15,23,42,.45);transition:border-color .15s ease,background .15s ease}.ado-tech .ado-door-video-upload-shell.is-dragover{border-color:rgba(148,163,184,.7);background:rgba(30,41,59,.65)}.ado-tech .ado-door-video-upload-head{display:flex;align-items:center;justify-content:space-between;gap:10px}.ado-tech .ado-door-video-upload-title{font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:#cbd5e1}.ado-tech .ado-door-video-upload-state{font-size:11px;color:#94a3b8;padding:3px 8px;border:1px solid rgba(148,163,184,.28);border-radius:999px;background:rgba(15,23,42,.6)}.ado-tech .ado-door-video-upload-actions{display:flex;align-items:center;gap:8px;margin-top:10px}.ado-tech .ado-door-video-upload-actions small{color:#94a3b8;font-size:11px}.ado-tech .ado-door-video-upload-input{position:absolute;width:1px;height:1px;opacity:0;pointer-events:none}.ado-tech .ado-door-video-upload-selected{display:block;margin-top:6px;font-size:12px;color:#cbd5e1}.ado-tech .ado-door-video-upload-note{display:block;margin-top:9px;font-size:11px;color:#94a3b8;line-height:1.35}.ado-tech .ado-door-testing-video-list a{background:rgba(30,41,59,.45);border-color:rgba(148,163,184,.28)}
 body.ado-door-drawer-open{overflow:hidden}
 @media (max-width:840px){.ado-tech .ado-door-meta-grid,.ado-tech .ado-door-overview-blocks,.ado-tech .ado-door-unconfirm-grid{grid-template-columns:1fr}.ado-tech .ado-door-drawer-head{padding:14px}.ado-tech .ado-door-drawer-body{padding:14px}.ado-tech .ado-door-card{padding:10px}}</style>
 
@@ -1769,11 +1777,100 @@ body.ado-door-drawer-open{overflow:hidden}
         root.querySelectorAll('.ado-door-unconfirm-btn').forEach(function(button){
           syncUnconfirmButton(button);
         });
+        root.querySelectorAll('input.ado-door-hardware-installed').forEach(function(input){
+          syncInstalledControl(input);
+        });
+        root.querySelectorAll('.ado-door-update-form').forEach(function(form){
+          syncVideoUploadShell(form);
+        });
         root.querySelectorAll('.ado-door-hardware-toggle').forEach(function(button){
           var targetId = button.getAttribute('data-target') || '';
           var panel = targetId ? document.getElementById(targetId) : null;
           if (panel) {
             button.setAttribute('aria-expanded', panel.hidden ? 'false' : 'true');
+          }
+        });
+      }
+      function syncInstalledControl(input){
+        if (!input) {
+          return;
+        }
+        var label = input.closest('.ado-door-hardware-installed-label');
+        if (!label) {
+          return;
+        }
+        var installed = !!input.checked;
+        label.setAttribute('data-installed', installed ? 'on' : 'off');
+        var text = label.querySelector('.ado-door-installed-text');
+        if (text) {
+          text.textContent = installed ? 'Installed' : 'Pending';
+        }
+      }
+      function bindVideoDropzone(shell, input, form){
+        if (!shell || !input || shell.getAttribute('data-video-bound') === '1') {
+          return;
+        }
+        shell.setAttribute('data-video-bound', '1');
+        shell.addEventListener('click', function(ev){
+          if (ev.target.closest('button, a, input, textarea, label')) {
+            return;
+          }
+          input.click();
+        });
+        shell.addEventListener('dragover', function(ev){
+          ev.preventDefault();
+          shell.classList.add('is-dragover');
+        });
+        shell.addEventListener('dragleave', function(ev){
+          var related = ev.relatedTarget;
+          if (!related || !shell.contains(related)) {
+            shell.classList.remove('is-dragover');
+          }
+        });
+        shell.addEventListener('drop', function(ev){
+          ev.preventDefault();
+          shell.classList.remove('is-dragover');
+          if (!ev.dataTransfer || !ev.dataTransfer.files || ev.dataTransfer.files.length < 1) {
+            return;
+          }
+          try {
+            input.files = ev.dataTransfer.files;
+          } catch (err) {
+            return;
+          }
+          input.dispatchEvent(new Event('change', { bubbles: true }));
+          queueDoorAutosave(form, 120);
+        });
+      }
+      function syncVideoUploadShell(form){
+        if (!form) {
+          return;
+        }
+        var shells = form.parentElement ? form.parentElement.querySelectorAll('.ado-door-video-upload-shell') : [];
+        if (!shells.length) {
+          return;
+        }
+        var existingCount = parseInt(form.getAttribute('data-final-video-count') || '0', 10) || 0;
+        shells.forEach(function(shell){
+          var input = shell.querySelector('input[name=\"testing_final_video\"]');
+          var state = shell.querySelector('[data-video-state]');
+          var selected = shell.querySelector('[data-video-selected]');
+          if (!input) {
+            return;
+          }
+          bindVideoDropzone(shell, input, form);
+          var hasNew = !!(input.files && input.files.length > 0);
+          if (state) {
+            state.textContent = hasNew ? 'Ready to upload' : (existingCount > 0 ? 'Video on file' : 'No video selected');
+          }
+          if (selected) {
+            if (hasNew) {
+              var file = input.files[0];
+              var sizeMb = file && file.size ? (file.size / (1024 * 1024)).toFixed(1) + ' MB' : '';
+              selected.textContent = file ? ('Selected: ' + file.name + (sizeMb ? ' (' + sizeMb + ')' : '')) : '';
+            } else {
+              selected.textContent = existingCount > 0 ? 'A final video is already on file. Selecting a new file will replace it.' : '';
+            }
           }
         });
       }
@@ -1981,6 +2078,7 @@ body.ado-door-drawer-open{overflow:hidden}
           if (json.data && Object.prototype.hasOwnProperty.call(json.data, 'final_video_count')) {
             form.setAttribute('data-final-video-count', String(json.data.final_video_count || 0));
           }
+          syncVideoUploadShell(form);
           setDoorFormMessage(form, (json.data && json.data.message) ? json.data.message : 'Door update saved.', true);
         } catch (err) {
           setDoorFormMessage(form, (err && err.message) ? err.message : 'Failed to save door update.', false);
@@ -2010,6 +2108,16 @@ body.ado-door-drawer-open{overflow:hidden}
           });
         });
         projectWorkspace.addEventListener('click', function(ev){
+          var videoPick = ev.target.closest('[data-video-pick]');
+          if (videoPick) {
+            ev.preventDefault();
+            var videoShell = videoPick.closest('.ado-door-video-upload-shell');
+            var videoInput = videoShell ? videoShell.querySelector('input[name=\"testing_final_video\"]') : null;
+            if (videoInput) {
+              videoInput.click();
+            }
+            return;
+          }
           var unconfirmButton = ev.target.closest('.ado-door-unconfirm-btn');
           if (unconfirmButton) {
             ev.preventDefault();
@@ -2045,6 +2153,12 @@ body.ado-door-drawer-open{overflow:hidden}
           var form = resolveDoorForm(target);
           if (!form) {
             return;
+          }
+          if (target.matches('.ado-door-hardware-installed')) {
+            syncInstalledControl(target);
+          }
+          if (target.matches('input[name=\"testing_final_video\"]')) {
+            syncVideoUploadShell(form);
           }
           if (target.matches('.ado-door-hardware-installed, input[name=\"testing[complete]\"], input[name=\"testing_final_video\"], input[name^=\"hardware_media\"]')) {
             queueDoorAutosave(form, 120);
