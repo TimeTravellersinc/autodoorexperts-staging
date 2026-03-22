@@ -68,17 +68,94 @@ function ado_tp_order_location(WC_Order $order): string
 function ado_tp_scope_payload(WC_Order $order): array
 {
     $scope_path = (string) $order->get_meta('_ado_scoped_json_path');
-    if ($scope_path === '' || !file_exists($scope_path)) {
-        return [];
+    if ($scope_path !== '' && is_readable($scope_path)) {
+        $json = json_decode((string) file_get_contents($scope_path), true);
+        if (is_array($json)) {
+            return $json;
+        }
     }
-    $json = json_decode((string) file_get_contents($scope_path), true);
-    return is_array($json) ? $json : [];
+
+    $snapshot = (string) $order->get_meta('_ado_scoped_json_snapshot');
+    if ($snapshot !== '') {
+        $json = json_decode($snapshot, true);
+        if (is_array($json)) {
+            return $json;
+        }
+        $clean_snapshot = preg_replace('/,"_scope_pass\\d+_examples":\\[[\\s\\S]*?\\](?=,|})/', '', $snapshot);
+        if (is_string($clean_snapshot) && $clean_snapshot !== $snapshot) {
+            $json = json_decode($clean_snapshot, true);
+            if (is_array($json)) {
+                return $json;
+            }
+        }
+    }
+
+    return [];
 }
 
 function ado_tp_door_rows(WC_Order $order): array
 {
     $rows = [];
     $door_state = ado_tp_project_door_state_maps($order);
+    $scoped_rows = [];
+    $scoped_lookup = [];
+    $payload = ado_tp_scope_payload($order);
+    foreach ((array) ($payload['result']['doors'] ?? []) as $door) {
+        if (!is_array($door)) {
+            continue;
+        }
+        $door_id = trim((string) ($door['door_id'] ?? ''));
+        if ($door_id === '') {
+            continue;
+        }
+        $model = '';
+        $items = [];
+        foreach ((array) ($door['items'] ?? []) as $item) {
+            if (!is_array($item)) {
+                continue;
+            }
+            $token = trim((string) ($item['catalog'] ?? ''));
+            if ($token !== '' && $model === '') {
+                $model = $token;
+            }
+            $normalized_item = ado_tp_normalize_project_door_item($item);
+            if ($normalized_item === null) {
+                continue;
+            }
+            $items[] = $normalized_item;
+            if ($model === '' && $normalized_item['catalog'] !== '') {
+                $model = (string) $normalized_item['catalog'];
+            }
+            if ($model === '' && $normalized_item['desc'] !== '') {
+                $model = (string) $normalized_item['desc'];
+            }
+        }
+        $door_number = trim((string) ($door['door_number'] ?? $door_id));
+        $door_label = trim((string) ($door['door_label'] ?? ''));
+        if ($door_label === '') {
+            $door_label = 'Door ' . $door_number;
+        }
+        $scoped_row = [
+            'door_id' => $door_id,
+            'door_number' => $door_number,
+            'door_label' => $door_label,
+            'model' => $model !== '' ? $model : 'Model pending',
+            'location' => trim((string) ($door['heading'] ?? '')),
+            'door_type' => trim((string) ($door['door_type'] ?? '')),
+            'notes' => (string) ($door_state['notes'][$door_id] ?? ($door['notes'] ?? '')),
+            'items' => $items,
+            'checks' => ado_tp_project_door_check_state((array) ($door_state['checks'][$door_id] ?? ($door['install_checks'] ?? []))),
+            'is_scoped' => true,
+        ];
+        $scoped_rows[] = $scoped_row;
+        foreach ([$door_id, $door_number] as $door_key) {
+            $door_key = strtolower(trim((string) $door_key));
+            if ($door_key !== '') {
+                $scoped_lookup[$door_key] = $scoped_row;
+            }
+        }
+    }
+
     $project_doors = $order->get_meta('_ado_project_doors');
     if (is_array($project_doors) && $project_doors) {
         foreach ($project_doors as $door) {
@@ -114,6 +191,25 @@ function ado_tp_door_rows(WC_Order $order): array
             }
             $door_number = trim((string) ($door['door_number'] ?? $door_id));
             $door_label = trim((string) ($door['door_label'] ?? ''));
+            $scoped_door = null;
+            foreach ([$door_id, $door_number] as $door_key) {
+                $door_key = strtolower(trim((string) $door_key));
+                if ($door_key !== '' && isset($scoped_lookup[$door_key])) {
+                    $scoped_door = $scoped_lookup[$door_key];
+                    break;
+                }
+            }
+            if (is_array($scoped_door)) {
+                if (!$items && !empty($scoped_door['items']) && is_array($scoped_door['items'])) {
+                    $items = $scoped_door['items'];
+                }
+                if (($model === '' || $model === 'Model pending') && trim((string) ($scoped_door['model'] ?? '')) !== '') {
+                    $model = trim((string) $scoped_door['model']);
+                }
+                if ($door_label === '' && trim((string) ($scoped_door['door_label'] ?? '')) !== '') {
+                    $door_label = trim((string) $scoped_door['door_label']);
+                }
+            }
             if ($door_label === '') {
                 $door_label = 'Door ' . $door_number;
             }
@@ -172,56 +268,7 @@ function ado_tp_door_rows(WC_Order $order): array
         return $rows;
     }
 
-    $payload = ado_tp_scope_payload($order);
-    foreach ((array) ($payload['result']['doors'] ?? []) as $door) {
-        if (!is_array($door)) {
-            continue;
-        }
-        $door_id = trim((string) ($door['door_id'] ?? ''));
-        if ($door_id === '') {
-            continue;
-        }
-        $model = '';
-        $items = [];
-        foreach ((array) ($door['items'] ?? []) as $item) {
-            if (!is_array($item)) {
-                continue;
-            }
-            $token = trim((string) ($item['catalog'] ?? ''));
-            if ($token !== '' && $model === '') {
-                $model = $token;
-            }
-            $normalized_item = ado_tp_normalize_project_door_item($item);
-            if ($normalized_item === null) {
-                continue;
-            }
-            $items[] = $normalized_item;
-            if ($model === '' && $normalized_item['catalog'] !== '') {
-                $model = (string) $normalized_item['catalog'];
-            }
-            if ($model === '' && $normalized_item['desc'] !== '') {
-                $model = (string) $normalized_item['desc'];
-            }
-        }
-        $door_number = trim((string) ($door['door_number'] ?? $door_id));
-        $door_label = trim((string) ($door['door_label'] ?? ''));
-        if ($door_label === '') {
-            $door_label = 'Door ' . $door_number;
-        }
-        $rows[] = [
-            'door_id' => $door_id,
-            'door_number' => $door_number,
-            'door_label' => $door_label,
-            'model' => $model !== '' ? $model : 'Model pending',
-            'location' => trim((string) ($door['heading'] ?? '')),
-            'door_type' => trim((string) ($door['door_type'] ?? '')),
-            'notes' => (string) ($door_state['notes'][$door_id] ?? ($door['notes'] ?? '')),
-            'items' => $items,
-            'checks' => ado_tp_project_door_check_state((array) ($door_state['checks'][$door_id] ?? ($door['install_checks'] ?? []))),
-            'is_scoped' => true,
-        ];
-    }
-    return $rows;
+    return $scoped_rows;
 }
 
 function ado_tp_normalize_project_door_item(array $item): ?array
