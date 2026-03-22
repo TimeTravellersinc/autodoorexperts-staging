@@ -78,6 +78,7 @@ function ado_tp_scope_payload(WC_Order $order): array
 function ado_tp_door_rows(WC_Order $order): array
 {
     $rows = [];
+    $door_state = ado_tp_project_door_state_maps($order);
     $project_doors = $order->get_meta('_ado_project_doors');
     if (is_array($project_doors) && $project_doors) {
         foreach ($project_doors as $door) {
@@ -89,10 +90,45 @@ function ado_tp_door_rows(WC_Order $order): array
                 continue;
             }
             $model = '';
+            $items = [];
             if (!empty($door['signals']) && is_array($door['signals'])) {
                 $model = trim((string) reset($door['signals']));
             }
-            $rows[] = ['door_id' => $door_id, 'model' => $model !== '' ? $model : 'Model pending'];
+            if (!empty($door['items']) && is_array($door['items'])) {
+                foreach ($door['items'] as $item) {
+                    if (!is_array($item)) {
+                        continue;
+                    }
+                    $normalized_item = ado_tp_normalize_project_door_item($item);
+                    if ($normalized_item === null) {
+                        continue;
+                    }
+                    $items[] = $normalized_item;
+                    if ($model === '' && $normalized_item['catalog'] !== '') {
+                        $model = (string) $normalized_item['catalog'];
+                    }
+                    if ($model === '' && $normalized_item['desc'] !== '') {
+                        $model = (string) $normalized_item['desc'];
+                    }
+                }
+            }
+            $door_number = trim((string) ($door['door_number'] ?? $door_id));
+            $door_label = trim((string) ($door['door_label'] ?? ''));
+            if ($door_label === '') {
+                $door_label = 'Door ' . $door_number;
+            }
+            $rows[] = [
+                'door_id' => $door_id,
+                'door_number' => $door_number,
+                'door_label' => $door_label,
+                'model' => $model !== '' ? $model : 'Model pending',
+                'location' => trim((string) ($door['heading'] ?? '')),
+                'door_type' => trim((string) ($door['door_type'] ?? '')),
+                'notes' => (string) ($door_state['notes'][$door_id] ?? ($door['notes'] ?? '')),
+                'items' => $items,
+                'checks' => ado_tp_project_door_check_state((array) ($door_state['checks'][$door_id] ?? ($door['install_checks'] ?? []))),
+                'is_scoped' => true,
+            ];
         }
         if ($rows) {
             return $rows;
@@ -113,7 +149,24 @@ function ado_tp_door_rows(WC_Order $order): array
         }
         $item_seen[$door_id] = true;
         $model = trim((string) $item->get_meta('_adq_model'));
-        $rows[] = ['door_id' => $door_id, 'model' => $model !== '' ? $model : 'Model pending'];
+        $item_name = trim((string) $item->get_name());
+        $rows[] = [
+            'door_id' => $door_id,
+            'door_number' => $door_id,
+            'door_label' => 'Door ' . $door_id,
+            'model' => $model !== '' ? $model : 'Model pending',
+            'location' => '',
+            'door_type' => '',
+            'notes' => (string) ($door_state['notes'][$door_id] ?? ''),
+            'items' => $item_name !== '' ? [ado_tp_normalize_project_door_item([
+                'catalog' => $model !== '' ? $model : $item_name,
+                'desc' => $item_name,
+                'raw' => $item_name,
+                'qty' => max(1, (int) $item->get_quantity()),
+            ])] : [],
+            'checks' => ado_tp_project_door_check_state((array) ($door_state['checks'][$door_id] ?? [])),
+            'is_scoped' => false,
+        ];
     }
     if ($rows) {
         return $rows;
@@ -129,19 +182,99 @@ function ado_tp_door_rows(WC_Order $order): array
             continue;
         }
         $model = '';
+        $items = [];
         foreach ((array) ($door['items'] ?? []) as $item) {
             if (!is_array($item)) {
                 continue;
             }
             $token = trim((string) ($item['catalog'] ?? ''));
-            if ($token !== '') {
+            if ($token !== '' && $model === '') {
                 $model = $token;
-                break;
+            }
+            $normalized_item = ado_tp_normalize_project_door_item($item);
+            if ($normalized_item === null) {
+                continue;
+            }
+            $items[] = $normalized_item;
+            if ($model === '' && $normalized_item['catalog'] !== '') {
+                $model = (string) $normalized_item['catalog'];
+            }
+            if ($model === '' && $normalized_item['desc'] !== '') {
+                $model = (string) $normalized_item['desc'];
             }
         }
-        $rows[] = ['door_id' => $door_id, 'model' => $model !== '' ? $model : 'Model pending'];
+        $door_number = trim((string) ($door['door_number'] ?? $door_id));
+        $door_label = trim((string) ($door['door_label'] ?? ''));
+        if ($door_label === '') {
+            $door_label = 'Door ' . $door_number;
+        }
+        $rows[] = [
+            'door_id' => $door_id,
+            'door_number' => $door_number,
+            'door_label' => $door_label,
+            'model' => $model !== '' ? $model : 'Model pending',
+            'location' => trim((string) ($door['heading'] ?? '')),
+            'door_type' => trim((string) ($door['door_type'] ?? '')),
+            'notes' => (string) ($door_state['notes'][$door_id] ?? ($door['notes'] ?? '')),
+            'items' => $items,
+            'checks' => ado_tp_project_door_check_state((array) ($door_state['checks'][$door_id] ?? ($door['install_checks'] ?? []))),
+            'is_scoped' => true,
+        ];
     }
     return $rows;
+}
+
+function ado_tp_normalize_project_door_item(array $item): ?array
+{
+    $catalog = trim((string) ($item['catalog'] ?? ($item['model'] ?? '')));
+    $desc = trim((string) ($item['desc'] ?? ''));
+    $raw = trim((string) ($item['raw'] ?? ''));
+    $qty = max(1, (int) ($item['qty'] ?? 1));
+    if ($catalog === '' && $desc === '' && $raw === '') {
+        return null;
+    }
+    return [
+        'catalog' => $catalog,
+        'desc' => $desc,
+        'raw' => $raw,
+        'qty' => $qty,
+    ];
+}
+
+function ado_tp_project_door_check_labels(): array
+{
+    return [
+        'installed' => 'Install complete',
+        'hardware_verified' => 'Hardware verified',
+        'cleanup_complete' => 'Cleanup complete',
+    ];
+}
+
+function ado_tp_project_door_check_state(array $saved = []): array
+{
+    $state = [];
+    foreach (ado_tp_project_door_check_labels() as $key => $label) {
+        $state[$key] = !empty($saved[$key]);
+    }
+    return $state;
+}
+
+function ado_tp_project_door_state_maps(WC_Order $order): array
+{
+    $note_map = $order->get_meta('_ado_quote_door_notes');
+    $note_map = is_array($note_map) ? $note_map : [];
+    $tech_note_map = $order->get_meta('_ado_tech_door_notes');
+    if (is_array($tech_note_map) && $tech_note_map) {
+        $note_map = array_merge($note_map, $tech_note_map);
+    }
+
+    $check_map = $order->get_meta('_ado_tech_door_checks');
+    $check_map = is_array($check_map) ? $check_map : [];
+
+    return [
+        'notes' => $note_map,
+        'checks' => $check_map,
+    ];
 }
 
 function ado_tp_order_logs(WC_Order $order): array
@@ -486,9 +619,83 @@ function ado_tp_note_form(array $orders, bool $photo_mode = false): string
     return (string) ob_get_clean();
 }
 
+function ado_tp_dom_id(string $prefix, string $value): string
+{
+    $slug = preg_replace('/[^A-Za-z0-9_-]+/', '-', trim($value));
+    $slug = trim((string) $slug, '-_');
+    if ($slug === '') {
+        $slug = 'item';
+    }
+    return $prefix . $slug;
+}
+
+function ado_tp_render_project_door_drawer(array $door, WC_Order $project): string
+{
+    $door_id = trim((string) ($door['door_id'] ?? ''));
+    $door_number = trim((string) ($door['door_number'] ?? $door_id));
+    $door_label = trim((string) ($door['door_label'] ?? ''));
+    if ($door_label === '') {
+        $door_label = 'Door ' . ($door_number !== '' ? $door_number : 'Unknown');
+    }
+    $model = trim((string) ($door['model'] ?? ''));
+    $location = trim((string) ($door['location'] ?? ''));
+    $door_type = trim((string) ($door['door_type'] ?? ''));
+    $notes = trim((string) ($door['notes'] ?? ''));
+    $items = (array) ($door['items'] ?? []);
+    $checks = ado_tp_project_door_check_state((array) ($door['checks'] ?? []));
+    $project_id = (int) $project->get_id();
+    ob_start();
+    ?>
+    <div class="ado-door-card">
+      <h4 class="ado-door-section-title">Overview</h4>
+      <div class="ado-door-meta-grid">
+        <div class="ado-door-kv"><strong>Door</strong><small><?php echo esc_html($door_label); ?></small></div>
+        <div class="ado-door-kv"><strong>Model</strong><small><?php echo esc_html($model !== '' ? $model : 'Model pending'); ?></small></div>
+        <div class="ado-door-kv"><strong>Location</strong><small><?php echo esc_html($location !== '' ? $location : 'Location not set'); ?></small></div>
+        <div class="ado-door-kv"><strong>Type</strong><small><?php echo esc_html($door_type !== '' ? $door_type : 'Scoped door'); ?></small></div>
+      </div>
+    </div>
+    <div class="ado-door-card">
+      <h4 class="ado-door-section-title">Hardware List</h4>
+      <div class="ado-door-hardware-list">
+        <?php if ($items) { foreach ($items as $item) { if (!is_array($item)) { continue; } $label = trim((string) ($item['catalog'] ?? '')); $desc = trim((string) ($item['desc'] ?? '')); $raw = trim((string) ($item['raw'] ?? '')); $qty = max(1, (int) ($item['qty'] ?? 1)); if ($label === '' && $desc === '' && $raw === '') { continue; } ?>
+          <div class="ado-door-hardware-item">
+            <strong><?php echo esc_html($label !== '' ? $label : ($desc !== '' ? $desc : $raw)); ?><?php if ($qty > 1) { ?><span class="ado-door-hardware-qty">x<?php echo esc_html((string) $qty); ?></span><?php } ?></strong>
+            <?php if ($desc !== '' && $desc !== $label) { ?><small><?php echo esc_html($desc); ?></small><?php } elseif ($raw !== '' && $raw !== $label && $raw !== $desc) { ?><small><?php echo esc_html($raw); ?></small><?php } ?>
+          </div>
+        <?php } } else { ?>
+          <div class="ado-empty">No hardware lines were found for this door.</div>
+        <?php } ?>
+      </div>
+    </div>
+    <form class="ado-door-update-form" data-project-id="<?php echo esc_attr((string) $project_id); ?>" data-door-id="<?php echo esc_attr($door_id); ?>" novalidate>
+      <input type="hidden" name="project_id" value="<?php echo esc_attr((string) $project_id); ?>">
+      <input type="hidden" name="door_id" value="<?php echo esc_attr($door_id); ?>">
+      <div class="ado-door-card">
+        <h4 class="ado-door-section-title">Install Checklist</h4>
+        <div class="ado-door-checklist">
+          <?php foreach (ado_tp_project_door_check_labels() as $key => $label) { ?>
+            <label class="ado-door-check"><input type="checkbox" name="door_checks[<?php echo esc_attr($key); ?>]" value="1" <?php echo !empty($checks[$key]) ? 'checked' : ''; ?>><?php echo esc_html($label); ?></label>
+          <?php } ?>
+        </div>
+      </div>
+      <div class="ado-door-card">
+        <h4 class="ado-door-section-title">Door Note</h4>
+        <textarea class="ado-door-note" name="door_note" placeholder="Add a note for this door."><?php echo esc_textarea($notes); ?></textarea>
+        <div class="ado-door-actions" style="margin-top:10px;">
+          <button class="btn btn-primary" type="submit">Save Door Update</button>
+        </div>
+        <div class="ado-door-flash"></div>
+      </div>
+    </form>
+    <?php
+    return (string) ob_get_clean();
+}
+
 function ado_tp_render_view(string $view, array $ctx): string
 {
     $selected_project = (int) ($_GET['project_id'] ?? 0);
+    $selected_door_id = sanitize_text_field((string) ($_GET['door_id'] ?? ''));
     $note_filter = sanitize_key((string) ($_GET['note_filter'] ?? 'all'));
     $selected_day = sanitize_text_field((string) ($_GET['day'] ?? $ctx['today']));
     if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $selected_day)) {
@@ -524,6 +731,22 @@ function ado_tp_render_view(string $view, array $ctx): string
             $project_name = ado_tp_order_name($project);
             $project_location = ado_tp_order_location($project);
             $project_doors = ado_tp_door_rows($project);
+            $project_door_index = [];
+            foreach ($project_doors as $door) {
+                if (!is_array($door)) {
+                    continue;
+                }
+                $door_id = trim((string) ($door['door_id'] ?? ''));
+                if ($door_id === '') {
+                    continue;
+                }
+                $project_door_index[$door_id] = $door;
+            }
+            $selected_door = $selected_door_id !== '' && isset($project_door_index[$selected_door_id]) ? $project_door_index[$selected_door_id] : null;
+            $door_drawer_message = '';
+            if ($selected_door_id !== '' && !($selected_door && is_array($selected_door))) {
+                $door_drawer_message = 'Door not found in this project.';
+            }
             $project_progress = (int) $project->get_meta('_ado_progress_pct');
             if ($project_progress <= 0) {
                 $project_progress = $project->get_status() === 'completed' ? 100 : ($project->get_status() === 'processing' ? 60 : 20);
@@ -534,9 +757,24 @@ function ado_tp_render_view(string $view, array $ctx): string
                 return (int) ($entry['order_id'] ?? 0) === $project_id;
             }));
             ?>
-            <div class="page-header"><div><div class="page-title"><?php echo esc_html($project_name); ?></div><div class="page-sub"><?php echo esc_html($project_location); ?> &middot; Project #<?php echo esc_html((string) $project->get_id()); ?> &middot; <?php echo esc_html(ucfirst((string) $project->get_status())); ?> &middot; <?php echo esc_html((string) count((array) $project_doors)); ?> doors &middot; <?php echo esc_html((string) max(0, min(100, $project_progress))); ?>%<?php if ($next_visit !== '') { ?> &middot; Next visit <?php echo esc_html($next_visit); ?><?php } ?></div></div></div>
-            <div class="card" style="margin-bottom:12px;"><div class="card-header"><div class="card-title">Doors</div><span class="tag tag-blue"><?php echo esc_html((string) count((array) $project_doors)); ?> total</span></div><div class="card-body"><?php if (empty($project_doors)) { ?><div class="ado-empty">No doors are available for this project yet.</div><?php } else { ?><div class="list"><?php foreach ($project_doors as $door) { ?><div class="list-item"><strong><?php echo esc_html((string) ($door['door_id'] ?? 'Door')); ?></strong><small><?php echo esc_html((string) ($door['model'] ?? 'Model pending')); ?></small></div><?php } ?></div><?php } ?></div></div>
-            <div class="card" style="margin-top:12px;"><div class="card-header"><div class="card-title">Notes / Activity</div><span class="tag tag-blue"><?php echo esc_html((string) count((array) $project_logs)); ?> entries</span></div><div class="card-body"><?php if (empty($project_logs)) { ?><div class="ado-empty">No notes or activity yet for this project.</div><?php } else { ?><div class="list"><?php foreach ($project_logs as $entry) { $priority = (string) ($entry['priority'] ?? 'normal'); if ($priority === '') { $priority = 'normal'; } $priority_class = $priority === 'normal' ? 'info' : $priority; $created_at = trim((string) ($entry['created_at'] ?? '')); $hours = (float) ($entry['hours'] ?? 0); $note = trim((string) ($entry['note'] ?? '')); $door_hint = trim((string) ($entry['door_hint'] ?? '')); if ($door_hint === '') { $door_hint = ado_tp_note_door_hint($note); } $attachment_url = trim((string) ($entry['attachment_url'] ?? '')); ?><div class="note-card <?php echo esc_attr($priority_class); ?>"><div class="nc-top"><span class="nc-flag <?php echo esc_attr($priority_class); ?>"><?php echo esc_html(strtoupper($priority === 'normal' ? 'info' : $priority)); ?></span><?php if ($created_at !== '') { ?><span class="nc-time"><?php echo esc_html($created_at); ?></span><?php } ?><span class="nc-time"><?php echo esc_html(number_format($hours, 2)); ?>h</span><?php if ($door_hint !== '') { ?><span class="nc-door"><?php echo esc_html('Door ' . $door_hint); ?></span><?php } ?></div><div class="nc-body"><?php echo esc_html($note !== '' ? $note : 'No note text.'); ?></div><?php if ($attachment_url !== '') { ?><div class="nc-body"><a class="btn btn-ghost btn-sm" href="<?php echo esc_url($attachment_url); ?>" target="_blank" rel="noopener">Attachment</a></div><?php } ?></div><?php } ?></div><?php } ?></div></div>
+            <div class="ado-project-workspace" data-project-id="<?php echo esc_attr((string) $project_id); ?>" data-selected-door="<?php echo esc_attr($selected_door_id); ?>">
+              <div class="page-header"><div><div class="page-title"><?php echo esc_html($project_name); ?></div><div class="page-sub"><?php echo esc_html($project_location); ?> &middot; Project #<?php echo esc_html((string) $project->get_id()); ?> &middot; <?php echo esc_html(ucfirst((string) $project->get_status())); ?> &middot; <?php echo esc_html((string) count((array) $project_doors)); ?> doors &middot; <?php echo esc_html((string) max(0, min(100, $project_progress))); ?>%<?php if ($next_visit !== '') { ?> &middot; Next visit <?php echo esc_html($next_visit); ?><?php } ?></div></div></div>
+              <div class="card" style="margin-bottom:12px;"><div class="card-header"><div class="card-title">Doors</div><span class="tag tag-blue"><?php echo esc_html((string) count((array) $project_doors)); ?> total</span></div><div class="card-body"><?php if (empty($project_doors)) { ?><div class="ado-empty">No doors are available for this project yet.</div><?php } else { ?><div class="list"><?php foreach ($project_doors as $door) { if (!is_array($door)) { continue; } $door_id = trim((string) ($door['door_id'] ?? '')); if ($door_id === '') { continue; } $door_label = trim((string) ($door['door_label'] ?? ($door['door_number'] ?? 'Door'))); if ($door_label === '') { $door_label = 'Door ' . $door_id; } $hardware_count = count((array) ($door['items'] ?? [])); $template_id = ado_tp_dom_id('ado-door-template-', $door_id); $trigger_url = ado_tp_view_url('project', ['project_id' => $project_id, 'door_id' => $door_id]); $door_meta = trim(implode(' | ', array_filter([trim((string) ($door['model'] ?? '')), trim((string) ($door['door_type'] ?? '')), trim((string) ($door['location'] ?? ''))]))); ?><a class="list-item ado-door-trigger <?php echo $selected_door_id === $door_id ? 'active' : ''; ?>" href="<?php echo esc_url($trigger_url); ?>" data-door-id="<?php echo esc_attr($door_id); ?>" data-door-template="<?php echo esc_attr($template_id); ?>" data-door-label="<?php echo esc_attr($door_label); ?>" data-door-meta="<?php echo esc_attr($door_meta); ?>"><strong><?php echo esc_html($door_label); ?></strong><small><?php echo esc_html($door['model'] ?? 'Model pending'); ?> &middot; <?php echo esc_html((string) $hardware_count); ?> hardware lines</small><span class="ado-door-chip"><?php echo esc_html((string) $hardware_count); ?> lines</span></a><?php } ?></div><?php } ?></div></div>
+              <div class="card" style="margin-top:12px;"><div class="card-header"><div class="card-title">Notes / Activity</div><span class="tag tag-blue"><?php echo esc_html((string) count((array) $project_logs)); ?> entries</span></div><div class="card-body"><?php if (empty($project_logs)) { ?><div class="ado-empty">No notes or activity yet for this project.</div><?php } else { ?><div class="list"><?php foreach ($project_logs as $entry) { $priority = (string) ($entry['priority'] ?? 'normal'); if ($priority === '') { $priority = 'normal'; } $priority_class = $priority === 'normal' ? 'info' : $priority; $created_at = trim((string) ($entry['created_at'] ?? '')); $hours = (float) ($entry['hours'] ?? 0); $note = trim((string) ($entry['note'] ?? '')); $door_hint = trim((string) ($entry['door_hint'] ?? '')); if ($door_hint === '') { $door_hint = ado_tp_note_door_hint($note); } $attachment_url = trim((string) ($entry['attachment_url'] ?? '')); ?><div class="note-card <?php echo esc_attr($priority_class); ?>"><div class="nc-top"><span class="nc-flag <?php echo esc_attr($priority_class); ?>"><?php echo esc_html(strtoupper($priority === 'normal' ? 'info' : $priority)); ?></span><?php if ($created_at !== '') { ?><span class="nc-time"><?php echo esc_html($created_at); ?></span><?php } ?><span class="nc-time"><?php echo esc_html(number_format($hours, 2)); ?>h</span><?php if ($door_hint !== '') { ?><span class="nc-door"><?php echo esc_html('Door ' . $door_hint); ?></span><?php } ?></div><div class="nc-body"><?php echo esc_html($note !== '' ? $note : 'No note text.'); ?></div><?php if ($attachment_url !== '') { ?><div class="nc-body"><a class="btn btn-ghost btn-sm" href="<?php echo esc_url($attachment_url); ?>" target="_blank" rel="noopener">Attachment</a></div><?php } ?></div><?php } ?></div><?php } ?></div></div>
+              <div class="ado-door-backdrop <?php echo ($selected_door || $door_drawer_message !== '') ? 'is-open' : ''; ?>" <?php echo ($selected_door || $door_drawer_message !== '') ? '' : 'hidden'; ?>></div>
+              <aside class="ado-door-drawer <?php echo ($selected_door || $door_drawer_message !== '') ? 'is-open' : ''; ?>" <?php echo ($selected_door || $door_drawer_message !== '') ? '' : 'hidden'; ?>>
+                <div class="ado-door-drawer-head">
+                  <div>
+                    <div class="ado-door-drawer-kicker">Project Door</div>
+                    <div class="ado-door-drawer-title"><?php echo esc_html($selected_door ? (string) ($selected_door['door_label'] ?? 'Door details') : 'Door details'); ?></div>
+                    <div class="ado-door-drawer-sub"><?php echo esc_html($selected_door ? trim(implode(' | ', array_filter([(string) ($selected_door['model'] ?? ''), (string) ($selected_door['door_type'] ?? ''), (string) ($selected_door['location'] ?? '')]))) : ($door_drawer_message !== '' ? $door_drawer_message : 'Select a door to review hardware, notes, and install status.')); ?></div>
+                  </div>
+                  <button class="btn btn-ghost btn-sm ado-door-close" type="button">Close</button>
+                </div>
+                <div class="ado-door-drawer-body"><?php if ($selected_door && is_array($selected_door)) { echo ado_tp_render_project_door_drawer($selected_door, $project); } elseif ($door_drawer_message !== '') { ?><div class="ado-empty"><?php echo esc_html($door_drawer_message); ?></div><?php } else { ?><div class="ado-empty">Select a door to review hardware, notes, and install status.</div><?php } ?></div>
+              </aside>
+              <?php foreach ($project_doors as $door) { if (!is_array($door)) { continue; } $door_id = trim((string) ($door['door_id'] ?? '')); if ($door_id === '') { continue; } $template_id = ado_tp_dom_id('ado-door-template-', $door_id); ?><template id="<?php echo esc_attr($template_id); ?>"><?php echo ado_tp_render_project_door_drawer($door, $project); ?></template><?php } ?>
+            </div>
             <?php
         }
     } elseif ($view === 'notes') {
@@ -655,7 +893,16 @@ add_shortcode('ado_technician_portal_app', static function (): string {
     <style>
     @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600;700&family=Syne:wght@600;700;800&display=swap');
     .ado-tech{--bg:#0f1117;--surface:#1a1d27;--border:rgba(255,255,255,.08);--accent:#f97316;--accent-soft:rgba(249,115,22,.12);--blue:#3b82f6;--blue-soft:rgba(59,130,246,.12);--green:#22c55e;--warn:#eab308;--danger:#ef4444;--danger-soft:rgba(239,68,68,.12);--text:#f1f5f9;--muted:#94a3b8;font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);display:flex;min-height:100vh}.ado-tech *{box-sizing:border-box}.ado-tech .sidebar{width:240px;background:var(--surface);border-right:1px solid var(--border);display:flex;flex-direction:column;position:sticky;top:0;height:100vh}.ado-tech .logo{padding:22px 18px;border-bottom:1px solid var(--border);font-family:'Syne',sans-serif;font-weight:700}.ado-tech .tech-card{margin:14px;background:var(--accent-soft);border:1px solid rgba(249,115,22,.25);border-radius:8px;padding:10px;display:flex;gap:10px;align-items:center}.ado-tech .avatar{width:34px;height:34px;border-radius:50%;background:linear-gradient(135deg,var(--accent),#fb923c);display:flex;align-items:center;justify-content:center;font-family:'Syne',sans-serif;font-weight:700}.ado-tech .status{font-size:11px;color:var(--green)}.ado-tech nav{padding:8px 10px;overflow:auto;flex:1}.ado-tech .label{font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:#4b5563;padding:10px 10px 6px}.ado-tech .nav-item{display:flex;align-items:center;justify-content:space-between;padding:9px 10px;border-radius:8px;color:var(--muted);text-decoration:none;font-size:13px}.ado-tech .nav-item.active{background:var(--accent-soft);color:var(--accent)}.ado-tech .nav-item:hover{background:rgba(255,255,255,.05);color:var(--text)}.ado-tech .badge{font-size:10px;padding:2px 6px;border-radius:999px;background:var(--accent);color:#fff}.ado-tech .main{flex:1;display:flex;flex-direction:column}.ado-tech .top{height:60px;background:var(--surface);border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;padding:0 24px}.ado-tech .top h1{margin:0;font-family:'Syne',sans-serif;font-size:16px}.ado-tech .clock{font-family:'Syne',sans-serif;color:var(--green);font-size:14px}.ado-tech .content{padding:22px}.ado-tech .page-title{font-family:'Syne',sans-serif;font-size:22px;font-weight:800}.ado-tech .page-sub{font-size:13px;color:#64748b;margin-top:4px}.ado-tech .page-header{margin-bottom:14px}.ado-tech .ts-hero{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin-bottom:14px}.ado-tech .stat{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:14px}.ado-tech .stat strong{display:block;font-family:'Syne',sans-serif;font-size:22px}.ado-tech .stat small{display:block;color:#94a3b8;margin-top:3px}.ado-tech .two-col-60{display:grid;grid-template-columns:1fr 340px;gap:14px}.ado-tech .card{background:var(--surface);border:1px solid var(--border);border-radius:12px;overflow:hidden}.ado-tech .card-header{padding:12px 14px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center}.ado-tech .card-title{font-family:'Syne',sans-serif;font-size:14px}.ado-tech .card-body{padding:14px}.ado-tech .ado-empty{padding:10px;border:1px dashed var(--border);border-radius:8px;color:#94a3b8}.ado-tech .list{display:flex;flex-direction:column;gap:8px}.ado-tech .list-item{display:block;padding:10px;border:1px solid var(--border);border-radius:8px;background:rgba(255,255,255,.03);text-decoration:none;color:var(--text)}.ado-tech .list-item small{display:block;color:#94a3b8;margin-top:3px}.ado-tech .sub-item{padding:6px 10px;margin-left:8px;color:#94a3b8;font-size:12px}.ado-tech .tag{font-size:10px;padding:2px 8px;border-radius:999px;background:var(--accent-soft);color:var(--accent)}.ado-tech .tag-blue{background:var(--blue-soft);color:var(--blue)}.ado-tech .tag-orange{background:var(--accent-soft);color:var(--accent)}.ado-tech .job-block{padding:10px;border-radius:9px;background:rgba(255,255,255,.03);border-left:3px solid var(--accent);margin-bottom:8px}.ado-tech .job-block.blue{border-color:var(--blue)}.ado-tech .job-block.green{border-color:var(--green)}.ado-tech .job-block.purple{border-color:#a78bfa}.ado-tech .jb-name{font-weight:600}.ado-tech .jb-meta{font-size:12px;color:#94a3b8;margin-top:3px}.ado-tech .jb-tags{margin-top:6px;display:flex;gap:6px;align-items:center}.ado-tech .btn{display:inline-flex;align-items:center;justify-content:center;padding:7px 12px;border-radius:8px;border:1px solid var(--border);font-size:12px;text-decoration:none;color:#cbd5e1;background:transparent;cursor:pointer}.ado-tech .btn:hover{background:rgba(255,255,255,.08)}.ado-tech .btn-primary{background:var(--accent);border-color:transparent;color:#fff}.ado-tech .notes-grid{display:grid;grid-template-columns:1fr 320px;gap:14px}.ado-tech .notes-filter-bar{display:flex;gap:6px;flex-wrap:wrap}.ado-tech .filter-btn{display:inline-flex;padding:6px 12px;border-radius:999px;border:1px solid var(--border);font-size:12px;text-decoration:none;color:#94a3b8}.ado-tech .filter-btn.active{background:var(--accent-soft);color:var(--accent)}.ado-tech .note-card{padding:10px;border-radius:9px;border:1px solid var(--border);background:rgba(255,255,255,.02);margin-bottom:8px}.ado-tech .note-card.critical{border-left:3px solid var(--danger);background:rgba(239,68,68,.08)}.ado-tech .note-card.high{border-left:3px solid var(--warn)}.ado-tech .note-card.info{border-left:3px solid var(--blue)}.ado-tech .nc-top{display:flex;gap:8px;flex-wrap:wrap;align-items:center}.ado-tech .nc-flag{font-size:10px;font-weight:700;padding:2px 8px;border-radius:999px}.ado-tech .nc-flag.critical{background:var(--danger-soft);color:var(--danger)}.ado-tech .nc-flag.high{background:rgba(234,179,8,.15);color:var(--warn)}.ado-tech .nc-flag.info{background:var(--blue-soft);color:var(--blue)}.ado-tech .nc-project,.ado-tech .nc-time,.ado-tech .nc-door{font-size:11px;color:#94a3b8}.ado-tech .nc-body{margin-top:6px;font-size:13px}.ado-tech .week-nav{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:6px;margin-bottom:12px}.ado-tech .week-day{border:1px solid var(--border);border-radius:8px;text-align:center;padding:8px;text-decoration:none;color:#94a3b8}.ado-tech .week-day.today{background:var(--accent-soft);color:var(--accent)}.ado-tech .week-day.has-jobs{border-color:rgba(249,115,22,.5)}.ado-tech .wday-label{font-size:10px;text-transform:uppercase}.ado-tech .wday-num{font-family:'Syne',sans-serif;font-size:16px}.ado-tech .photos-layout{display:grid;grid-template-columns:1fr 300px;gap:14px}.ado-tech .photo-project-selector{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px}.ado-tech .photo-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}.ado-tech .photo-card{display:block;border:1px solid var(--border);border-radius:8px;overflow:hidden;text-decoration:none}.ado-tech .photo-card img{width:100%;height:100px;object-fit:cover;display:block}.ado-tech .photo-card small{display:block;padding:6px;color:#94a3b8}.ado-tech .compose-row{display:flex;gap:8px;flex-wrap:wrap}.ado-tech .compose-select,.ado-tech .compose-textarea{background:rgba(255,255,255,.05);border:1px solid var(--border);border-radius:8px;color:#f1f5f9;padding:8px 10px;font-size:13px}.ado-tech .compose-select{flex:1;min-width:120px}.ado-tech .compose-textarea{width:100%;height:88px;resize:vertical;margin-top:8px}.ado-tech .ado-form-flash{display:none;margin-top:8px;padding:8px;border-radius:8px;font-size:12px}.ado-tech .ado-form-flash.ok{display:block;background:rgba(34,197,94,.15);color:#86efac}.ado-tech .ado-form-flash.err{display:block;background:rgba(239,68,68,.15);color:#fecaca}.ado-tech .profile-hero{display:flex;gap:12px;align-items:center;background:linear-gradient(135deg,rgba(249,115,22,.15),rgba(249,115,22,.04));border:1px solid rgba(249,115,22,.3);border-radius:12px;padding:14px;margin-bottom:12px}.ado-tech .profile-avatar-lg{width:60px;height:60px;border-radius:50%;background:linear-gradient(135deg,var(--accent),#fb923c);display:flex;align-items:center;justify-content:center;font-family:'Syne',sans-serif;font-size:20px}.ado-tech .profile-name{font-family:'Syne',sans-serif;font-size:20px}.ado-tech .profile-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}.ado-tech .kv{padding:7px 0;border-bottom:1px solid var(--border);font-size:13px}@media (max-width:1100px){.ado-tech .two-col-60,.ado-tech .notes-grid,.ado-tech .photos-layout,.ado-tech .profile-grid{grid-template-columns:1fr}.ado-tech .ts-hero{grid-template-columns:1fr 1fr}}@media (max-width:840px){.ado-tech{flex-direction:column}.ado-tech .sidebar{width:100%;height:auto;position:relative}.ado-tech .content{padding:14px}.ado-tech .top{padding:0 12px}.ado-tech .week-nav{grid-template-columns:repeat(4,minmax(0,1fr))}.ado-tech .photo-grid{grid-template-columns:1fr 1fr}}
-    </style>
+    .ado-tech .ado-project-workspace{position:relative}
+.ado-tech .ado-door-trigger{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;text-decoration:none;color:var(--text);cursor:pointer}.ado-tech .ado-door-trigger strong{display:block}.ado-tech .ado-door-trigger small{display:block;color:#94a3b8;margin-top:3px}.ado-tech .ado-door-trigger.active{border-color:rgba(249,115,22,.55);background:rgba(249,115,22,.12)}.ado-tech .ado-door-chip{font-size:10px;padding:2px 8px;border-radius:999px;background:var(--blue-soft);color:var(--blue);white-space:nowrap;flex-shrink:0}
+.ado-tech .ado-door-backdrop{position:fixed;inset:0;background:rgba(2,6,23,.64);opacity:0;pointer-events:none;transition:opacity .16s ease;z-index:9990}.ado-tech .ado-door-backdrop.is-open{opacity:1;pointer-events:auto}
+.ado-tech .ado-door-drawer{position:fixed;top:0;right:0;bottom:0;width:min(92vw,560px);background:var(--surface);border-left:1px solid var(--border);box-shadow:-18px 0 42px rgba(2,6,23,.28);z-index:9991;transform:translateX(100%);transition:transform .2s ease;display:flex;flex-direction:column}.ado-tech .ado-door-drawer.is-open{transform:translateX(0)}body.admin-bar .ado-tech .ado-door-drawer{top:32px}@media (max-width:782px){body.admin-bar .ado-tech .ado-door-drawer{top:46px}.ado-tech .ado-door-drawer{width:100vw}}
+.ado-tech .ado-door-drawer-head{padding:16px 18px;border-bottom:1px solid var(--border);display:flex;align-items:flex-start;justify-content:space-between;gap:12px}.ado-tech .ado-door-drawer-kicker{font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:#64748b}.ado-tech .ado-door-drawer-title{font-family:'Syne',sans-serif;font-size:18px;font-weight:800;margin-top:3px}.ado-tech .ado-door-drawer-sub{font-size:12px;color:#94a3b8;margin-top:4px;line-height:1.4}.ado-tech .ado-door-drawer-body{padding:16px 18px;overflow:auto;flex:1;display:flex;flex-direction:column;gap:14px}
+.ado-tech .ado-door-card{border:1px solid var(--border);border-radius:10px;padding:12px;background:rgba(255,255,255,.02)}.ado-tech .ado-door-section-title{font-family:'Syne',sans-serif;font-size:13px;margin:0 0 10px}.ado-tech .ado-door-meta-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}.ado-tech .ado-door-kv{padding:8px 10px;border:1px solid var(--border);border-radius:8px;background:rgba(255,255,255,.03);font-size:12px}.ado-tech .ado-door-kv strong{display:block;font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:#64748b;margin-bottom:3px}.ado-tech .ado-door-kv small{display:block;color:var(--text)}
+.ado-tech .ado-door-hardware-list{display:flex;flex-direction:column;gap:8px}.ado-tech .ado-door-hardware-item{padding:10px;border:1px solid var(--border);border-radius:8px;background:rgba(255,255,255,.03)}.ado-tech .ado-door-hardware-item strong{display:flex;align-items:center;gap:8px;font-size:13px}.ado-tech .ado-door-hardware-item small{display:block;color:#94a3b8;margin-top:4px}.ado-tech .ado-door-hardware-qty{font-size:10px;padding:2px 6px;border-radius:999px;background:var(--accent-soft);color:var(--accent)}
+.ado-tech .ado-door-checklist{display:grid;grid-template-columns:1fr 1fr;gap:8px}.ado-tech .ado-door-check{display:flex;gap:8px;align-items:flex-start;padding:8px 10px;border:1px solid var(--border);border-radius:8px;background:rgba(255,255,255,.03);font-size:12px;cursor:pointer}.ado-tech .ado-door-check input{margin-top:2px}.ado-tech .ado-door-note{width:100%;min-height:110px;resize:vertical;background:rgba(255,255,255,.05);border:1px solid var(--border);border-radius:8px;color:var(--text);padding:10px 12px;font-size:13px}.ado-tech .ado-door-actions{display:flex;gap:8px;flex-wrap:wrap;align-items:center}.ado-tech .ado-door-flash{display:none;margin-top:4px;padding:8px 10px;border-radius:8px;font-size:12px}.ado-tech .ado-door-flash.ok{display:block;background:rgba(34,197,94,.15);color:#86efac}.ado-tech .ado-door-flash.err{display:block;background:rgba(239,68,68,.15);color:#fecaca}.ado-tech .ado-door-empty{padding:10px;border:1px dashed var(--border);border-radius:8px;color:#94a3b8}
+body.ado-door-drawer-open{overflow:hidden}
+@media (max-width:840px){.ado-tech .ado-door-meta-grid,.ado-tech .ado-door-checklist{grid-template-columns:1fr}.ado-tech .ado-door-drawer-head{padding:14px}.ado-tech .ado-door-drawer-body{padding:14px}.ado-tech .ado-door-card{padding:10px}}</style>
 
     <div class="ado-tech">
       <aside class="sidebar">
@@ -722,6 +969,169 @@ add_shortcode('ado_technician_portal_app', static function (): string {
           if (flash) { flash.className = 'ado-form-flash err'; flash.textContent = 'Failed to save.'; }
         }
       }
+      var projectWorkspace = document.querySelector('.ado-project-workspace');
+      var projectDrawer = projectWorkspace ? projectWorkspace.querySelector('.ado-door-drawer') : null;
+      var projectBackdrop = projectWorkspace ? projectWorkspace.querySelector('.ado-door-backdrop') : null;
+      function setDoorUrl(doorId){
+        var url = new URL(window.location.href);
+        if (doorId) {
+          url.searchParams.set('door_id', doorId);
+        } else {
+          url.searchParams.delete('door_id');
+        }
+        window.history.replaceState({}, '', url.toString());
+      }
+      function findDoorTrigger(doorId){
+        if (!projectWorkspace) {
+          return null;
+        }
+        var triggers = projectWorkspace.querySelectorAll('.ado-door-trigger');
+        for (var i = 0; i < triggers.length; i++) {
+          if (String(triggers[i].dataset.doorId || '') === String(doorId || '')) {
+            return triggers[i];
+          }
+        }
+        return null;
+      }
+      function showDoorDrawer(){
+        if (!projectDrawer || !projectBackdrop) {
+          return;
+        }
+        projectDrawer.hidden = false;
+        projectBackdrop.hidden = false;
+        window.requestAnimationFrame(function(){
+          projectDrawer.classList.add('is-open');
+          projectBackdrop.classList.add('is-open');
+          document.body.classList.add('ado-door-drawer-open');
+        });
+      }
+      function hideDoorDrawer(){
+        if (!projectDrawer || !projectBackdrop) {
+          return;
+        }
+        projectDrawer.classList.remove('is-open');
+        projectBackdrop.classList.remove('is-open');
+        document.body.classList.remove('ado-door-drawer-open');
+        window.setTimeout(function(){
+          if (!projectDrawer.classList.contains('is-open')) {
+            projectDrawer.hidden = true;
+          }
+          if (!projectBackdrop.classList.contains('is-open')) {
+            projectBackdrop.hidden = true;
+          }
+        }, 180);
+      }
+      function loadDoorDrawer(trigger){
+        if (!projectWorkspace || !projectDrawer || !trigger) {
+          return false;
+        }
+        var templateId = trigger.getAttribute('data-door-template') || '';
+        var template = templateId ? document.getElementById(templateId) : null;
+        var drawerBody = projectWorkspace.querySelector('.ado-door-drawer-body');
+        var drawerTitle = projectWorkspace.querySelector('.ado-door-drawer-title');
+        var drawerSub = projectWorkspace.querySelector('.ado-door-drawer-sub');
+        if (!drawerBody || !drawerTitle || !drawerSub) {
+          return false;
+        }
+        if (template && template.content) {
+          drawerBody.innerHTML = '';
+          drawerBody.appendChild(template.content.cloneNode(true));
+        } else {
+          drawerBody.innerHTML = '<div class="ado-empty">Door details are unavailable.</div>';
+        }
+        drawerTitle.textContent = trigger.getAttribute('data-door-label') || 'Door details';
+        drawerSub.textContent = trigger.getAttribute('data-door-meta') || 'Select a door to review hardware, notes, and install status.';
+        return true;
+      }
+      function openDoorDrawer(trigger){
+        if (!trigger || !loadDoorDrawer(trigger)) {
+          return;
+        }
+        if (projectWorkspace) {
+          projectWorkspace.querySelectorAll('.ado-door-trigger.active').forEach(function(node){ node.classList.remove('active'); });
+        }
+        trigger.classList.add('active');
+        setDoorUrl(trigger.dataset.doorId || '');
+        showDoorDrawer();
+      }
+      function closeDoorDrawer(){
+        if (!projectWorkspace) {
+          return;
+        }
+        projectWorkspace.querySelectorAll('.ado-door-trigger.active').forEach(function(node){ node.classList.remove('active'); });
+        setDoorUrl('');
+        hideDoorDrawer();
+      }
+      async function submitDoorForm(form){
+        var fd = new FormData(form);
+        fd.append('action', 'ado_save_project_door');
+        fd.append('nonce', nonce);
+        var flash = form.querySelector('.ado-door-flash');
+        try {
+          var res = await fetch(ajaxUrl, { method:'POST', body:fd, credentials:'same-origin' });
+          var json = await res.json();
+          if (!json || !json.success) {
+            throw new Error((json && json.data && json.data.message) ? json.data.message : 'Failed to save door update.');
+          }
+          if (flash) {
+            flash.className = 'ado-door-flash ok';
+            flash.textContent = (json.data && json.data.message) ? json.data.message : 'Door update saved.';
+          }
+          window.setTimeout(function(){ window.location.reload(); }, 350);
+        } catch (err) {
+          if (flash) {
+            flash.className = 'ado-door-flash err';
+            flash.textContent = (err && err.message) ? err.message : 'Failed to save door update.';
+          }
+        }
+      }
+      if (projectWorkspace) {
+        var initialDoorId = projectWorkspace.getAttribute('data-selected-door') || '';
+        if (projectDrawer && projectDrawer.classList.contains('is-open')) {
+          document.body.classList.add('ado-door-drawer-open');
+        }
+        if (initialDoorId) {
+          var initialTrigger = findDoorTrigger(initialDoorId);
+          if (initialTrigger) {
+            initialTrigger.classList.add('active');
+          }
+        }
+        projectWorkspace.querySelectorAll('.ado-door-trigger').forEach(function(trigger){
+          trigger.addEventListener('click', function(ev){
+            ev.preventDefault();
+            openDoorDrawer(trigger);
+          });
+        });
+        projectWorkspace.addEventListener('submit', function(ev){
+          var form = ev.target.closest('.ado-door-update-form');
+          if (!form) {
+            return;
+          }
+          ev.preventDefault();
+          submitDoorForm(form);
+        });
+        if (projectBackdrop) {
+          projectBackdrop.addEventListener('click', function(){
+            closeDoorDrawer();
+          });
+        }
+        if (projectDrawer) {
+          var closeButton = projectDrawer.querySelector('.ado-door-close');
+          if (closeButton) {
+            closeButton.addEventListener('click', function(){
+              closeDoorDrawer();
+            });
+          }
+        }
+        document.addEventListener('keydown', function(ev){
+          if (ev.key !== 'Escape') {
+            return;
+          }
+          if (projectDrawer && projectDrawer.classList.contains('is-open')) {
+            closeDoorDrawer();
+          }
+        });
+      }
       document.querySelectorAll('.ado-tech-log-form').forEach(function(form){
         form.addEventListener('submit', function(ev){ ev.preventDefault(); submitForm(form); });
       });
@@ -739,4 +1149,64 @@ add_shortcode('ado_technician_portal_app', static function (): string {
     </script>
     <?php
     return (string) ob_get_clean();
+});
+
+add_action('wp_ajax_ado_save_project_door', static function (): void {
+    if (!is_user_logged_in() || !ado_is_technician()) {
+        wp_send_json_error(['message' => 'Technician access only.'], 403);
+    }
+    check_ajax_referer('ado_tech_nonce', 'nonce');
+
+    $project_id = (int) ($_POST['project_id'] ?? 0);
+    $door_id = sanitize_text_field((string) ($_POST['door_id'] ?? ''));
+    if ($project_id <= 0 || $door_id === '') {
+        wp_send_json_error(['message' => 'Project and door are required.'], 400);
+    }
+
+    $order = wc_get_order($project_id);
+    if (!($order instanceof WC_Order)) {
+        wp_send_json_error(['message' => 'Project not found.'], 404);
+    }
+
+    $user_id = (int) get_current_user_id();
+    $assigned_ids = ado_tp_parse_tech_ids((string) $order->get_meta('_ado_technician_ids'));
+    if (!in_array($user_id, $assigned_ids, true)) {
+        wp_send_json_error(['message' => 'Project not assigned to your account.'], 403);
+    }
+
+    $door = null;
+    foreach (ado_tp_door_rows($order) as $row) {
+        if ((string) ($row['door_id'] ?? '') === $door_id) {
+            $door = $row;
+            break;
+        }
+    }
+    if (!is_array($door)) {
+        wp_send_json_error(['message' => 'Door not found on this project.'], 404);
+    }
+
+    $note = sanitize_textarea_field((string) wp_unslash($_POST['door_note'] ?? ''));
+    $checks_input = isset($_POST['door_checks']) && is_array($_POST['door_checks']) ? (array) $_POST['door_checks'] : [];
+    $check_state = [];
+    foreach (array_keys(ado_tp_project_door_check_labels()) as $key) {
+        $check_state[$key] = !empty($checks_input[$key]);
+    }
+
+    $note_map = $order->get_meta('_ado_quote_door_notes');
+    $note_map = is_array($note_map) ? $note_map : [];
+    $note_map[$door_id] = $note;
+    $order->update_meta_data('_ado_quote_door_notes', $note_map);
+
+    $check_map = $order->get_meta('_ado_tech_door_checks');
+    $check_map = is_array($check_map) ? $check_map : [];
+    $check_map[$door_id] = $check_state;
+    $order->update_meta_data('_ado_tech_door_checks', $check_map);
+
+    $order->save();
+
+    wp_send_json_success([
+        'message' => 'Door update saved.',
+        'project_id' => $project_id,
+        'door_id' => $door_id,
+    ]);
 });
