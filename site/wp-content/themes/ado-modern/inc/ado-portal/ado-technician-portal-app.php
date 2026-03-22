@@ -1292,45 +1292,43 @@ function ado_tp_render_project_door_drawer(array $door, WC_Order $project): stri
         <?php if (!empty($hardware_groups)) { ?>
           <div class="ado-door-hardware-groups">
             <?php foreach ($hardware_groups as $group) { if (!is_array($group)) { continue; } $category_key = trim((string) ($group['category_key'] ?? '')); $category_label = trim((string) ($group['category_label'] ?? '')); if ($category_key === '' || $category_label === '') { continue; } ?>
-              <div class="ado-door-hardware-group">
-                <div class="ado-door-hardware-group-title"><?php echo esc_html($category_label); ?></div>
-                <div class="ado-door-hardware-models">
-                  <?php foreach ((array) ($group['models'] ?? []) as $model) { if (!is_array($model)) { continue; } $model_key = trim((string) ($model['model_key'] ?? '')); $model_label = trim((string) ($model['model_label'] ?? '')); if ($model_key === '' || $model_label === '') { continue; } $entry = isset($hardware_entries[$category_key]['models'][$model_key]) && is_array($hardware_entries[$category_key]['models'][$model_key]) ? (array) $hardware_entries[$category_key]['models'][$model_key] : []; $entry_installed = !empty($entry['installed']); $entry_note = trim((string) ($entry['note'] ?? '')); $entry_media = ado_tp_project_door_normalize_media_entries($entry['media'] ?? []); $entry_id = ado_tp_dom_id('ado-door-hw-', $door_id . '-' . $category_key . '-' . $model_key); ?>
-                    <div class="ado-door-hardware-model" data-hardware-entry>
-                      <div class="ado-door-hardware-model-head">
-                        <strong><?php echo esc_html($model_label); ?></strong>
-                        <?php if ((int) ($model['qty'] ?? 1) > 1) { ?><span class="ado-door-hardware-qty">x<?php echo esc_html((string) (int) ($model['qty'] ?? 1)); ?></span><?php } ?>
-                        <div class="ado-door-hardware-head-actions">
-                          <label class="ado-door-hardware-installed-label">
-                            <input type="checkbox" class="ado-door-hardware-installed" name="<?php echo esc_attr('hardware_installed[' . $category_key . '][' . $model_key . ']'); ?>" value="1" <?php echo $entry_installed ? 'checked' : ''; ?>>
-                            <span>Installed</span>
-                          </label>
-                          <button class="btn btn-ghost btn-sm ado-door-hardware-toggle" type="button" data-target="<?php echo esc_attr($entry_id); ?>">Add note/media</button>
-                        </div>
-                      </div>
-                      <div class="ado-door-hardware-panel" id="<?php echo esc_attr($entry_id); ?>" <?php echo ($entry_note !== '' || !empty($entry_media)) ? '' : 'hidden'; ?>>
-                        <label class="ado-door-field">
-                          <span>Model note</span>
-                          <textarea name="<?php echo esc_attr('hardware_notes[' . $category_key . '][' . $model_key . ']'); ?>" placeholder="Add a note or issue for this hardware model."><?php echo esc_textarea($entry_note); ?></textarea>
+              <div class="ado-door-hardware-group-title"><?php echo esc_html($category_label); ?></div>
+              <div class="ado-door-hardware-models">
+                <?php foreach ((array) ($group['models'] ?? []) as $model) { if (!is_array($model)) { continue; } $model_key = trim((string) ($model['model_key'] ?? '')); $model_label = trim((string) ($model['model_label'] ?? '')); if ($model_key === '' || $model_label === '') { continue; } $entry = isset($hardware_entries[$category_key]['models'][$model_key]) && is_array($hardware_entries[$category_key]['models'][$model_key]) ? (array) $hardware_entries[$category_key]['models'][$model_key] : []; $entry_installed = !empty($entry['installed']); $entry_note = trim((string) ($entry['note'] ?? '')); $entry_media = ado_tp_project_door_normalize_media_entries($entry['media'] ?? []); $entry_id = ado_tp_dom_id('ado-door-hw-', $door_id . '-' . $category_key . '-' . $model_key); ?>
+                  <div class="ado-door-hardware-model" data-hardware-entry>
+                    <div class="ado-door-hardware-model-head">
+                      <strong><?php echo esc_html($model_label); ?></strong>
+                      <?php if ((int) ($model['qty'] ?? 1) > 1) { ?><span class="ado-door-hardware-qty">x<?php echo esc_html((string) (int) ($model['qty'] ?? 1)); ?></span><?php } ?>
+                      <div class="ado-door-hardware-head-actions">
+                        <label class="ado-door-hardware-installed-label">
+                          <input type="checkbox" class="ado-door-hardware-installed" name="<?php echo esc_attr('hardware_installed[' . $category_key . '][' . $model_key . ']'); ?>" value="1" <?php echo $entry_installed ? 'checked' : ''; ?>>
+                          <span>Installed</span>
                         </label>
-                        <label class="ado-door-field">
-                          <span>Photo or video</span>
-                          <input type="file" name="<?php echo esc_attr('hardware_media[' . $category_key . '][' . $model_key . ']'); ?>" accept="image/*,video/*">
-                        </label>
-                        <?php if (!empty($entry_media)) { ?>
-                          <div class="ado-door-existing-media">
-                            <?php foreach ($entry_media as $media) { if (!is_array($media) || trim((string) ($media['url'] ?? '')) === '') { continue; } ?>
-                              <a href="<?php echo esc_url((string) ($media['url'] ?? '')); ?>" target="_blank" rel="noopener">
-                                <strong><?php echo esc_html(trim((string) ($media['name'] ?? 'Media')) !== '' ? (string) ($media['name'] ?? 'Media') : 'Media'); ?></strong>
-                                <small><?php echo esc_html(trim((string) ($media['created_at'] ?? '')) !== '' ? (string) $media['created_at'] : strtoupper((string) ($media['type'] ?? 'file'))); ?></small>
-                              </a>
-                            <?php } ?>
-                          </div>
-                        <?php } ?>
+                        <button class="btn btn-ghost btn-sm ado-door-hardware-toggle" type="button" data-target="<?php echo esc_attr($entry_id); ?>">Add note/media</button>
                       </div>
                     </div>
-                  <?php } ?>
-                </div>
+                    <div class="ado-door-hardware-panel" id="<?php echo esc_attr($entry_id); ?>" <?php echo ($entry_note !== '' || !empty($entry_media)) ? '' : 'hidden'; ?>>
+                      <label class="ado-door-field">
+                        <span>Model note</span>
+                        <textarea name="<?php echo esc_attr('hardware_notes[' . $category_key . '][' . $model_key . ']'); ?>" placeholder="Add a note or issue for this hardware model."><?php echo esc_textarea($entry_note); ?></textarea>
+                      </label>
+                      <label class="ado-door-field">
+                        <span>Photo or video</span>
+                        <input type="file" name="<?php echo esc_attr('hardware_media[' . $category_key . '][' . $model_key . ']'); ?>" accept="image/*,video/*">
+                      </label>
+                      <?php if (!empty($entry_media)) { ?>
+                        <div class="ado-door-existing-media">
+                          <?php foreach ($entry_media as $media) { if (!is_array($media) || trim((string) ($media['url'] ?? '')) === '') { continue; } ?>
+                            <a href="<?php echo esc_url((string) ($media['url'] ?? '')); ?>" target="_blank" rel="noopener">
+                              <strong><?php echo esc_html(trim((string) ($media['name'] ?? 'Media')) !== '' ? (string) ($media['name'] ?? 'Media') : 'Media'); ?></strong>
+                              <small><?php echo esc_html(trim((string) ($media['created_at'] ?? '')) !== '' ? (string) $media['created_at'] : strtoupper((string) ($media['type'] ?? 'file'))); ?></small>
+                            </a>
+                          <?php } ?>
+                        </div>
+                      <?php } ?>
+                    </div>
+                  </div>
+                <?php } ?>
               </div>
             <?php } ?>
           </div>
@@ -1344,12 +1342,13 @@ function ado_tp_render_project_door_drawer(array $door, WC_Order $project): stri
           <span>Test notes</span>
           <textarea class="ado-door-note" name="testing[note]" placeholder="Add test notes for this door."><?php echo esc_textarea($testing_note); ?></textarea>
         </label>
-        <label class="ado-door-field">
+        <label class="ado-door-field ado-door-video-upload-field">
           <span>Final test video</span>
-          <input type="file" name="testing_final_video" accept="video/*">
+          <input class="ado-door-video-upload-input" type="file" name="testing_final_video" accept="video/*">
+          <small class="ado-door-video-upload-note">Upload the final test run video before confirming completion.</small>
         </label>
         <?php if (!empty($final_videos)) { ?>
-          <div class="ado-door-existing-media">
+          <div class="ado-door-existing-media ado-door-testing-video-list">
             <?php foreach ($final_videos as $video) { if (!is_array($video) || trim((string) ($video['url'] ?? '')) === '') { continue; } ?>
               <a href="<?php echo esc_url((string) ($video['url'] ?? '')); ?>" target="_blank" rel="noopener">
                 <strong><?php echo esc_html(trim((string) ($video['name'] ?? 'Final test video')) !== '' ? (string) ($video['name'] ?? 'Final test video') : 'Final test video'); ?></strong>
@@ -1585,7 +1584,7 @@ add_shortcode('ado_technician_portal_app', static function (): string {
 .ado-tech .ado-door-hardware-list{display:flex;flex-direction:column;gap:8px}.ado-tech .ado-door-hardware-item{padding:10px;border:1px solid var(--border);border-radius:8px;background:rgba(255,255,255,.03)}.ado-tech .ado-door-hardware-item strong{display:flex;align-items:center;gap:8px;font-size:13px}.ado-tech .ado-door-hardware-item small{display:block;color:#94a3b8;margin-top:4px}.ado-tech .ado-door-hardware-qty{font-size:10px;padding:2px 6px;border-radius:999px;background:var(--accent-soft);color:var(--accent)}
 .ado-tech .ado-door-overview-blocks{display:grid;grid-template-columns:1fr;gap:10px}.ado-tech .ado-door-overview-block{padding:10px;border:1px solid var(--border);border-radius:8px;background:rgba(255,255,255,.03)}.ado-tech .ado-door-overview-block strong{display:block;font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:#64748b;margin-bottom:6px}.ado-tech .ado-door-overview-link{display:block;padding:8px 10px;border:1px solid var(--border);border-radius:8px;background:rgba(255,255,255,.03);text-decoration:none;color:var(--text)}.ado-tech .ado-door-overview-link span{display:block;font-size:13px;font-weight:600}.ado-tech .ado-door-overview-link small{display:block;color:#94a3b8;margin-top:3px}.ado-tech .ado-door-overview-fallback{margin:0}
 .ado-tech .ado-door-document-list,.ado-tech .ado-door-comment-list,.ado-tech .ado-door-hardware-groups,.ado-tech .ado-door-hardware-models,.ado-tech .ado-door-confirmation-list{display:flex;flex-direction:column;gap:8px}.ado-tech .ado-door-document-list .ado-door-overview-link,.ado-tech .ado-door-comment-item,.ado-tech .ado-door-hardware-group,.ado-tech .ado-door-confirmation{padding:10px;border:1px solid var(--border);border-radius:8px;background:rgba(255,255,255,.02)}.ado-tech .ado-door-comment-item strong,.ado-tech .ado-door-hardware-group-title{display:block;font-size:13px;font-weight:600}.ado-tech .ado-door-comment-item small,.ado-tech .ado-door-hardware-group-title,.ado-tech .ado-door-form-hint{color:#94a3b8}.ado-tech .ado-door-confirmation-head,.ado-tech .ado-door-hardware-model-head{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}.ado-tech .ado-door-confirmation-options{display:flex;gap:10px;flex-wrap:wrap}.ado-tech .ado-door-confirmation-options label,.ado-tech .ado-door-complete{display:flex;align-items:center;gap:8px;font-size:12px}.ado-tech .ado-door-field{display:block;margin-top:10px}.ado-tech .ado-door-field span{display:block;font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:#64748b;margin-bottom:5px}.ado-tech .ado-door-field textarea,.ado-tech .ado-door-field input[type="text"],.ado-tech .ado-door-field input[type="file"]{width:100%;background:rgba(255,255,255,.05);border:1px solid var(--border);border-radius:8px;color:var(--text);padding:10px 12px;font-size:13px}.ado-tech .ado-door-field textarea{min-height:92px;resize:vertical}.ado-tech .ado-door-form-hint{margin-top:8px;font-size:12px;line-height:1.4}.ado-tech .ado-door-hardware-model{padding:10px;border:1px solid var(--border);border-radius:8px;background:rgba(255,255,255,.03)}.ado-tech .ado-door-hardware-model-head strong{font-size:13px}.ado-tech .ado-door-hardware-toggle{white-space:nowrap}.ado-tech .ado-door-hardware-panel{margin-top:10px;padding-top:10px;border-top:1px solid var(--border)}.ado-tech .ado-door-existing-media{display:flex;flex-direction:column;gap:8px;margin-top:10px}.ado-tech .ado-door-existing-media a{display:block;padding:8px 10px;border:1px solid var(--border);border-radius:8px;background:rgba(255,255,255,.03);text-decoration:none;color:var(--text)}.ado-tech .ado-door-existing-media strong{display:block;font-size:13px}.ado-tech .ado-door-existing-media small{display:block;color:#94a3b8;margin-top:3px}.ado-tech .ado-door-note{width:100%;min-height:110px;resize:vertical;background:rgba(255,255,255,.05);border:1px solid var(--border);border-radius:8px;color:var(--text);padding:10px 12px;font-size:13px}.ado-tech .ado-door-actions{display:flex;gap:8px;flex-wrap:wrap;align-items:center}.ado-tech .ado-door-flash{display:none;margin-top:4px;padding:8px 10px;border-radius:8px;font-size:12px}.ado-tech .ado-door-flash.ok{display:block;background:rgba(34,197,94,.15);color:#86efac}.ado-tech .ado-door-flash.err{display:block;background:rgba(239,68,68,.15);color:#fecaca}.ado-tech .ado-door-empty{padding:10px;border:1px dashed var(--border);border-radius:8px;color:#94a3b8}
-.ado-tech .ado-door-hardware-head-actions{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.ado-tech .ado-door-hardware-installed-label{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text)}.ado-tech .ado-door-hardware-installed-label input[type="checkbox"]{margin:0}
+.ado-tech .ado-door-hardware-groups{gap:14px}.ado-tech .ado-door-hardware-group-title{font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:#93c5fd;padding:2px 2px 0}.ado-tech .ado-door-hardware-head-actions{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.ado-tech .ado-door-hardware-installed-label{display:inline-flex;align-items:center;gap:8px;font-size:11px;color:#dbeafe;padding:6px 11px;border-radius:999px;border:1px solid rgba(59,130,246,.45);background:linear-gradient(135deg,rgba(14,116,144,.2),rgba(15,23,42,.55));box-shadow:inset 0 0 0 1px rgba(148,163,184,.08),0 0 0 1px rgba(14,165,233,.08)}.ado-tech .ado-door-hardware-installed-label span{font-weight:700;letter-spacing:.04em;text-transform:uppercase}.ado-tech .ado-door-hardware-installed-label input[type="checkbox"]{appearance:none;-webkit-appearance:none;width:16px;height:16px;margin:0;border:1px solid rgba(148,163,184,.65);border-radius:4px;background:#0b1220;display:grid;place-items:center;transition:border-color .15s ease,box-shadow .15s ease,background .15s ease}.ado-tech .ado-door-hardware-installed-label input[type="checkbox"]::after{content:'';width:8px;height:8px;border-radius:2px;background:linear-gradient(135deg,#22d3ee,#38bdf8);transform:scale(0);transition:transform .15s ease}.ado-tech .ado-door-hardware-installed-label input[type="checkbox"]:checked{border-color:#22d3ee;box-shadow:0 0 0 3px rgba(34,211,238,.2)}.ado-tech .ado-door-hardware-installed-label input[type="checkbox"]:checked::after{transform:scale(1)}.ado-tech .ado-door-video-upload-field{padding:12px;border:1px solid rgba(56,189,248,.35);border-radius:12px;background:linear-gradient(135deg,rgba(14,116,144,.18),rgba(15,23,42,.6))}.ado-tech .ado-door-video-upload-field span{color:#bfdbfe}.ado-tech .ado-door-video-upload-input{color:var(--text);background:rgba(2,6,23,.4)!important;border-color:rgba(56,189,248,.3)!important}.ado-tech .ado-door-video-upload-input::file-selector-button{margin-right:10px;padding:7px 12px;border-radius:999px;border:1px solid rgba(56,189,248,.45);background:rgba(14,116,144,.3);color:#e0f2fe;cursor:pointer}.ado-tech .ado-door-video-upload-note{display:block;margin-top:8px;font-size:11px;color:#93c5fd;line-height:1.35}.ado-tech .ado-door-testing-video-list a{background:linear-gradient(135deg,rgba(14,116,144,.16),rgba(15,23,42,.5));border-color:rgba(56,189,248,.35)}
 body.ado-door-drawer-open{overflow:hidden}
 @media (max-width:840px){.ado-tech .ado-door-meta-grid,.ado-tech .ado-door-overview-blocks,.ado-tech .ado-door-unconfirm-grid{grid-template-columns:1fr}.ado-tech .ado-door-drawer-head{padding:14px}.ado-tech .ado-door-drawer-body{padding:14px}.ado-tech .ado-door-card{padding:10px}}</style>
 
