@@ -1362,9 +1362,7 @@ function ado_tp_render_project_door_drawer(array $door, WC_Order $project): stri
           <span>Confirm hardware installation complete</span>
         </label>
         <div class="ado-door-form-hint">Completion requires every hardware line marked Installed and an existing final test video (or one uploaded with this save).</div>
-        <div class="ado-door-actions" style="margin-top:10px;">
-          <button class="btn btn-primary" type="submit">Save Door Update</button>
-        </div>
+        <div class="ado-door-form-hint" style="margin-top:10px;">Changes save automatically as you update this drawer.</div>
         <div class="ado-door-flash"></div>
       </div>
     </form>
@@ -1779,29 +1777,52 @@ body.ado-door-drawer-open{overflow:hidden}
           }
         });
       }
+      function resolveDoorForm(node){
+        if (!node) {
+          return null;
+        }
+        var form = node.closest('.ado-door-update-form');
+        if (form) {
+          return form;
+        }
+        var formId = '';
+        if (node instanceof HTMLElement) {
+          formId = node.getAttribute('form') || node.getAttribute('data-unconfirm-form') || '';
+        }
+        if (!formId) {
+          return null;
+        }
+        var linked = document.getElementById(formId);
+        return linked && linked.classList.contains('ado-door-update-form') ? linked : null;
+      }
+      function resolveUnconfirmField(form, key, field){
+        if (!form || !key || !field) {
+          return null;
+        }
+        var formId = form.getAttribute('id') || '';
+        var scope = form.parentElement || document;
+        if (!formId) {
+          return form.querySelector(field + '[data-unconfirm-' + (field === 'input' ? 'state' : 'comment') + '=\"' + key + '\"]');
+        }
+        if (field === 'input') {
+          return scope.querySelector('input[data-unconfirm-state=\"' + key + '\"][form=\"' + formId + '\"]');
+        }
+        return scope.querySelector('textarea[data-unconfirm-comment=\"' + key + '\"][form=\"' + formId + '\"]');
+      }
       function syncUnconfirmButton(button){
         if (!button) {
           return;
         }
         var key = button.getAttribute('data-unconfirm-key') || '';
-        var form = button.closest('form');
-        if (!form) {
-          var formId = button.getAttribute('data-unconfirm-form') || '';
-          form = formId ? document.getElementById(formId) : null;
-        }
+        var form = resolveDoorForm(button);
         if (!form || !key) {
           return;
         }
-        var formId = form.getAttribute('id') || '';
-        var scope = form.parentElement || document;
-        var stateInput = formId ? scope.querySelector('input[data-unconfirm-state=\"' + key + '\"][form=\"' + formId + '\"]') : form.querySelector('input[data-unconfirm-state=\"' + key + '\"]');
-        var commentInput = formId ? scope.querySelector('textarea[data-unconfirm-comment=\"' + key + '\"][form=\"' + formId + '\"]') : form.querySelector('textarea[data-unconfirm-comment=\"' + key + '\"]');
+        var stateInput = resolveUnconfirmField(form, key, 'input');
+        var commentInput = resolveUnconfirmField(form, key, 'textarea');
         var wrapHost = button.closest('.ado-door-unconfirm-item');
         var commentWrap = wrapHost ? wrapHost.querySelector('.ado-door-unconfirm-comment-wrap[data-unconfirm-comment-wrap=\"' + key + '\"]') : null;
-        if (!stateInput) {
-          return;
-        }
-        var isUnconfirmed = String(stateInput.value || 'yes') === 'no';
+        var isUnconfirmed = stateInput ? String(stateInput.value || 'yes') === 'no' : button.classList.contains('is-active');
         button.classList.toggle('is-active', isUnconfirmed);
         button.setAttribute('aria-pressed', isUnconfirmed ? 'true' : 'false');
         var statusNode = button.querySelector('[data-unconfirm-status]');
@@ -1824,18 +1845,19 @@ body.ado-door-drawer-open{overflow:hidden}
           return;
         }
         var key = button.getAttribute('data-unconfirm-key') || '';
-        var form = button.closest('form');
-        if (!form) {
-          var formId = button.getAttribute('data-unconfirm-form') || '';
-          form = formId ? document.getElementById(formId) : null;
-        }
+        var form = resolveDoorForm(button);
         if (!form || !key) {
           return;
         }
-        var formId = form.getAttribute('id') || '';
-        var scope = form.parentElement || document;
-        var stateInput = formId ? scope.querySelector('input[data-unconfirm-state=\"' + key + '\"][form=\"' + formId + '\"]') : form.querySelector('input[data-unconfirm-state=\"' + key + '\"]');
+        var stateInput = resolveUnconfirmField(form, key, 'input');
         if (!stateInput) {
+          button.classList.toggle('is-active');
+          button.setAttribute('aria-pressed', button.classList.contains('is-active') ? 'true' : 'false');
+          var wrapHost = button.closest('.ado-door-unconfirm-item');
+          var commentWrap = wrapHost ? wrapHost.querySelector('.ado-door-unconfirm-comment-wrap[data-unconfirm-comment-wrap=\"' + key + '\"]') : null;
+          if (commentWrap) {
+            commentWrap.hidden = !button.classList.contains('is-active');
+          }
           return;
         }
         stateInput.value = String(stateInput.value || 'yes') === 'no' ? 'yes' : 'no';
@@ -1866,8 +1888,8 @@ body.ado-door-drawer-open{overflow:hidden}
           if (!key) {
             continue;
           }
-          var stateInput = formId ? scope.querySelector('input[data-unconfirm-state=\"' + key + '\"][form=\"' + formId + '\"]') : form.querySelector('input[data-unconfirm-state=\"' + key + '\"]');
-          var commentInput = formId ? scope.querySelector('textarea[data-unconfirm-comment=\"' + key + '\"][form=\"' + formId + '\"]') : form.querySelector('textarea[data-unconfirm-comment=\"' + key + '\"]');
+          var stateInput = resolveUnconfirmField(form, key, 'input');
+          var commentInput = resolveUnconfirmField(form, key, 'textarea');
           var labelNode = button.querySelector('strong');
           var label = labelNode ? labelNode.textContent.trim() : 'This item';
           if (stateInput && String(stateInput.value || 'yes') === 'no' && (!commentInput || !String(commentInput.value || '').trim())) {
@@ -1901,6 +1923,21 @@ body.ado-door-drawer-open{overflow:hidden}
         }
         return true;
       }
+      function queueDoorAutosave(form, delay){
+        if (!form) {
+          return;
+        }
+        var wait = typeof delay === 'number' ? delay : 260;
+        var existingTimer = form.getAttribute('data-autosave-timer') || '';
+        if (existingTimer !== '') {
+          window.clearTimeout(parseInt(existingTimer, 10));
+        }
+        var timerId = window.setTimeout(function(){
+          form.setAttribute('data-autosave-timer', '');
+          submitDoorForm(form);
+        }, wait);
+        form.setAttribute('data-autosave-timer', String(timerId));
+      }
       function openDoorDrawer(trigger){
         if (!trigger || !loadDoorDrawer(trigger)) {
           return;
@@ -1921,9 +1958,17 @@ body.ado-door-drawer-open{overflow:hidden}
         hideDoorDrawer();
       }
       async function submitDoorForm(form){
+        if (!form) {
+          return;
+        }
+        if (form.getAttribute('data-saving') === '1') {
+          form.setAttribute('data-pending-save', '1');
+          return;
+        }
         if (!validateDoorForm(form)) {
           return;
         }
+        form.setAttribute('data-saving', '1');
         var fd = new FormData(form);
         fd.append('action', 'ado_save_project_door');
         fd.append('nonce', nonce);
@@ -1933,10 +1978,18 @@ body.ado-door-drawer-open{overflow:hidden}
           if (!json || !json.success) {
             throw new Error((json && json.data && json.data.message) ? json.data.message : 'Failed to save door update.');
           }
+          if (json.data && Object.prototype.hasOwnProperty.call(json.data, 'final_video_count')) {
+            form.setAttribute('data-final-video-count', String(json.data.final_video_count || 0));
+          }
           setDoorFormMessage(form, (json.data && json.data.message) ? json.data.message : 'Door update saved.', true);
-          window.setTimeout(function(){ window.location.reload(); }, 350);
         } catch (err) {
           setDoorFormMessage(form, (err && err.message) ? err.message : 'Failed to save door update.', false);
+        } finally {
+          form.setAttribute('data-saving', '0');
+          if (form.getAttribute('data-pending-save') === '1') {
+            form.setAttribute('data-pending-save', '0');
+            queueDoorAutosave(form, 120);
+          }
         }
       }
       if (projectWorkspace) {
@@ -1961,6 +2014,21 @@ body.ado-door-drawer-open{overflow:hidden}
           if (unconfirmButton) {
             ev.preventDefault();
             toggleUnconfirmButton(unconfirmButton);
+            var unconfirmForm = resolveDoorForm(unconfirmButton);
+            if (unconfirmForm) {
+              var unconfirmKey = unconfirmButton.getAttribute('data-unconfirm-key') || '';
+              var unconfirmState = resolveUnconfirmField(unconfirmForm, unconfirmKey, 'input');
+              var unconfirmComment = resolveUnconfirmField(unconfirmForm, unconfirmKey, 'textarea');
+              var isNo = unconfirmState && String(unconfirmState.value || 'yes') === 'no';
+              if (isNo && (!unconfirmComment || !String(unconfirmComment.value || '').trim())) {
+                setDoorFormMessage(unconfirmForm, 'Add a reason to keep this item unconfirmed.', false);
+                if (unconfirmComment) {
+                  unconfirmComment.focus();
+                }
+                return;
+              }
+              queueDoorAutosave(unconfirmForm, 120);
+            }
             return;
           }
           var hardwareToggle = ev.target.closest('.ado-door-hardware-toggle');
@@ -1970,10 +2038,58 @@ body.ado-door-drawer-open{overflow:hidden}
           }
         });
         projectWorkspace.addEventListener('change', function(ev){
-          var input = ev.target;
-          if (!input || !(input instanceof HTMLInputElement)) {
+          var target = ev.target;
+          if (!target || !(target instanceof Element)) {
             return;
           }
+          var form = resolveDoorForm(target);
+          if (!form) {
+            return;
+          }
+          if (target.matches('.ado-door-hardware-installed, input[name=\"testing[complete]\"], input[name=\"testing_final_video\"], input[name^=\"hardware_media\"]')) {
+            queueDoorAutosave(form, 120);
+            return;
+          }
+          if (target.matches('textarea.ado-door-unconfirm-comment, textarea[name^=\"hardware_notes\"], textarea[name=\"testing[note]\"]')) {
+            if (target.matches('textarea.ado-door-unconfirm-comment') && !String(target.value || '').trim()) {
+              return;
+            }
+            queueDoorAutosave(form, 220);
+          }
+        });
+        projectWorkspace.addEventListener('input', function(ev){
+          var target = ev.target;
+          if (!target || !(target instanceof HTMLTextAreaElement)) {
+            return;
+          }
+          if (!target.matches('textarea.ado-door-unconfirm-comment, textarea[name^=\"hardware_notes\"], textarea[name=\"testing[note]\"]')) {
+            return;
+          }
+          var form = resolveDoorForm(target);
+          if (!form) {
+            return;
+          }
+          if (target.matches('textarea.ado-door-unconfirm-comment') && !String(target.value || '').trim()) {
+            return;
+          }
+          queueDoorAutosave(form, 500);
+        });
+        projectWorkspace.addEventListener('focusout', function(ev){
+          var target = ev.target;
+          if (!target || !(target instanceof HTMLTextAreaElement)) {
+            return;
+          }
+          if (!target.matches('textarea.ado-door-unconfirm-comment, textarea[name^=\"hardware_notes\"], textarea[name=\"testing[note]\"]')) {
+            return;
+          }
+          var form = resolveDoorForm(target);
+          if (!form) {
+            return;
+          }
+          if (target.matches('textarea.ado-door-unconfirm-comment') && !String(target.value || '').trim()) {
+            return;
+          }
+          queueDoorAutosave(form, 80);
         });
         projectWorkspace.addEventListener('submit', function(ev){
           var form = ev.target.closest('.ado-door-update-form');
