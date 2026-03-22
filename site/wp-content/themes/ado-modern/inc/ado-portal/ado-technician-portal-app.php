@@ -1201,13 +1201,32 @@ function ado_tp_render_project_door_drawer(array $door, WC_Order $project): stri
         ],
     ];
 
+    $door_form_id = ado_tp_dom_id('ado-door-form-', $project_id . '-' . $door_id);
+
     ob_start();
     ?>
+    <div class="ado-door-unconfirm-grid">
+      <?php foreach ($confirmations as $key => $confirmation) { $state = (string) ($confirmation['state'] ?? 'yes'); $comment = trim((string) ($confirmation['comment'] ?? '')); $is_unconfirmed = $state === 'no'; $button_label = $key === 'site_preparation' ? 'Unconfirm Site Prep' : ($key === 'hardware_availability' ? 'Unconfirm Hardware Availability' : 'Unconfirm'); ?>
+        <div class="ado-door-unconfirm-item">
+          <button class="ado-door-unconfirm-btn <?php echo $is_unconfirmed ? 'is-active' : ''; ?>" type="button" data-unconfirm-key="<?php echo esc_attr($key); ?>" data-unconfirm-form="<?php echo esc_attr($door_form_id); ?>" aria-pressed="<?php echo $is_unconfirmed ? 'true' : 'false'; ?>">
+            <strong><?php echo esc_html($button_label); ?></strong>
+            <small data-unconfirm-status><?php echo $is_unconfirmed ? 'Currently unconfirmed' : 'Currently confirmed'; ?></small>
+          </button>
+          <input type="hidden" form="<?php echo esc_attr($door_form_id); ?>" name="<?php echo esc_attr($key . '[state]'); ?>" value="<?php echo esc_attr($is_unconfirmed ? 'no' : 'yes'); ?>" data-unconfirm-state="<?php echo esc_attr($key); ?>">
+          <div class="ado-door-unconfirm-comment-wrap" data-unconfirm-comment-wrap="<?php echo esc_attr($key); ?>" <?php echo $is_unconfirmed ? '' : 'hidden'; ?>>
+            <label class="ado-door-field">
+              <span>Explain why this is unconfirmed</span>
+              <textarea class="ado-door-unconfirm-comment" form="<?php echo esc_attr($door_form_id); ?>" name="<?php echo esc_attr($key . '[comment]'); ?>" data-unconfirm-comment="<?php echo esc_attr($key); ?>" placeholder="Add details for why this is unconfirmed."><?php echo esc_textarea($comment); ?></textarea>
+            </label>
+          </div>
+        </div>
+      <?php } ?>
+    </div>
     <div class="ado-door-card ado-door-accordion-card">
       <details class="ado-door-accordion">
         <summary class="ado-door-accordion-summary">
           <h4 class="ado-door-section-title">Information</h4>
-          <span class="ado-door-accordion-icon" aria-hidden="true">▾</span>
+          <span class="ado-door-accordion-icon" aria-hidden="true">&#9662;</span>
         </summary>
       <div class="ado-door-overview-blocks ado-door-accordion-body">
         <div class="ado-door-overview-block">
@@ -1265,22 +1284,9 @@ function ado_tp_render_project_door_drawer(array $door, WC_Order $project): stri
       </div>
       </details>
     </div>
-    <form class="ado-door-update-form" data-project-id="<?php echo esc_attr((string) $project_id); ?>" data-door-id="<?php echo esc_attr($door_id); ?>" data-final-video-count="<?php echo esc_attr((string) count($final_videos)); ?>" enctype="multipart/form-data" novalidate>
+    <form id="<?php echo esc_attr($door_form_id); ?>" class="ado-door-update-form" data-project-id="<?php echo esc_attr((string) $project_id); ?>" data-door-id="<?php echo esc_attr($door_id); ?>" data-final-video-count="<?php echo esc_attr((string) count($final_videos)); ?>" enctype="multipart/form-data" novalidate>
       <input type="hidden" name="project_id" value="<?php echo esc_attr((string) $project_id); ?>">
       <input type="hidden" name="door_id" value="<?php echo esc_attr($door_id); ?>">
-      <div class="ado-door-card">
-        <h4 class="ado-door-section-title">Site prep + hardware availability</h4>
-        <div class="ado-door-unconfirm-grid">
-          <?php foreach ($confirmations as $key => $confirmation) { $state = (string) ($confirmation['state'] ?? 'yes'); $comment = trim((string) ($confirmation['comment'] ?? '')); $is_unconfirmed = $state === 'no'; $button_label = $key === 'site_preparation' ? 'Unconfirm Site Prep' : ($key === 'hardware_availability' ? 'Unconfirm Hardware Availability' : 'Unconfirm'); $saved_comment = $comment !== '' ? $comment : 'Unconfirmed by technician via portal control.'; ?>
-            <button class="ado-door-unconfirm-btn <?php echo $is_unconfirmed ? 'is-active' : ''; ?>" type="button" data-unconfirm-key="<?php echo esc_attr($key); ?>" aria-pressed="<?php echo $is_unconfirmed ? 'true' : 'false'; ?>">
-              <strong><?php echo esc_html($button_label); ?></strong>
-              <small data-unconfirm-status><?php echo $is_unconfirmed ? 'Currently unconfirmed' : 'Currently confirmed'; ?></small>
-            </button>
-            <input type="hidden" name="<?php echo esc_attr($key . '[state]'); ?>" value="<?php echo esc_attr($is_unconfirmed ? 'no' : 'yes'); ?>" data-unconfirm-state="<?php echo esc_attr($key); ?>">
-            <input type="hidden" name="<?php echo esc_attr($key . '[comment]'); ?>" value="<?php echo esc_attr($is_unconfirmed ? $saved_comment : ''); ?>" data-unconfirm-comment="<?php echo esc_attr($key); ?>">
-          <?php } ?>
-        </div>
-      </div>
       <div class="ado-door-card">
         <h4 class="ado-door-section-title">Hardware</h4>
         <?php if (!empty($hardware_groups)) { ?>
@@ -1573,9 +1579,9 @@ add_shortcode('ado_technician_portal_app', static function (): string {
 .ado-tech .ado-door-backdrop{position:fixed;inset:0;background:rgba(2,6,23,.64);opacity:0;pointer-events:none;transition:opacity .16s ease;z-index:9990}.ado-tech .ado-door-backdrop.is-open{opacity:1;pointer-events:auto}
 .ado-tech .ado-door-drawer{position:fixed;top:0;right:0;bottom:0;width:min(92vw,560px);background:var(--surface);border-left:1px solid var(--border);box-shadow:-18px 0 42px rgba(2,6,23,.28);z-index:9991;transform:translateX(100%);transition:transform .2s ease;display:flex;flex-direction:column}.ado-tech .ado-door-drawer.is-open{transform:translateX(0)}body.admin-bar .ado-tech .ado-door-drawer{top:32px}@media (max-width:782px){body.admin-bar .ado-tech .ado-door-drawer{top:46px}.ado-tech .ado-door-drawer{width:100vw}}
 .ado-tech .ado-door-drawer-head{padding:16px 18px;border-bottom:1px solid var(--border);display:flex;align-items:flex-start;justify-content:space-between;gap:12px}.ado-tech .ado-door-drawer-kicker{font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:#64748b}.ado-tech .ado-door-drawer-title{font-family:'Syne',sans-serif;font-size:18px;font-weight:800;margin-top:3px}.ado-tech .ado-door-drawer-sub{font-size:12px;color:#94a3b8;margin-top:4px;line-height:1.4}.ado-tech .ado-door-drawer-body{padding:16px 18px;overflow:auto;flex:1;display:flex;flex-direction:column;gap:14px}
-.ado-tech .ado-door-card{border:1px solid var(--border);border-radius:10px;padding:12px;background:rgba(255,255,255,.02)}.ado-tech .ado-door-section-title{font-family:'Syne',sans-serif;font-size:13px;margin:0 0 10px}.ado-tech .ado-door-meta-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}.ado-tech .ado-door-kv{padding:8px 10px;border:1px solid var(--border);border-radius:8px;background:rgba(255,255,255,.03);font-size:12px}.ado-tech .ado-door-kv strong{display:block;font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:#64748b;margin-bottom:3px}.ado-tech .ado-door-kv small{display:block;color:var(--text)}
-.ado-tech .ado-door-accordion{display:block}.ado-tech .ado-door-accordion-summary{list-style:none;display:flex;align-items:center;justify-content:space-between;gap:10px;cursor:pointer}.ado-tech .ado-door-accordion-summary::-webkit-details-marker{display:none}.ado-tech .ado-door-accordion-summary .ado-door-section-title{margin:0}.ado-tech .ado-door-accordion-icon{color:#94a3b8;font-size:12px;line-height:1;transition:transform .16s ease}.ado-tech .ado-door-accordion[open] .ado-door-accordion-icon{transform:rotate(180deg)}.ado-tech .ado-door-accordion-body{margin-top:10px}
-.ado-tech .ado-door-unconfirm-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.ado-tech .ado-door-unconfirm-btn{width:100%;text-align:left;display:flex;flex-direction:column;gap:4px;padding:12px;border:1px solid var(--border);border-radius:10px;background:rgba(255,255,255,.03);color:var(--text);cursor:pointer;transition:border-color .15s ease,background .15s ease,transform .15s ease}.ado-tech .ado-door-unconfirm-btn:hover{border-color:rgba(249,115,22,.45);background:rgba(249,115,22,.08)}.ado-tech .ado-door-unconfirm-btn.is-active{border-color:rgba(249,115,22,.65);background:rgba(249,115,22,.16)}.ado-tech .ado-door-unconfirm-btn strong{font-size:12px;letter-spacing:.02em}.ado-tech .ado-door-unconfirm-btn small{color:#94a3b8;font-size:11px}
+.ado-tech .ado-door-card{border:1px solid var(--border);border-radius:10px;padding:12px;background:rgba(255,255,255,.02)}.ado-tech .ado-door-section-title{font-family:'Syne',sans-serif;font-size:13px;margin:0 0 10px;color:var(--text)}.ado-tech .ado-door-meta-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}.ado-tech .ado-door-kv{padding:8px 10px;border:1px solid var(--border);border-radius:8px;background:rgba(255,255,255,.03);font-size:12px}.ado-tech .ado-door-kv strong{display:block;font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:#64748b;margin-bottom:3px}.ado-tech .ado-door-kv small{display:block;color:var(--text)}
+.ado-tech .ado-door-accordion{display:block}.ado-tech .ado-door-accordion-summary{list-style:none;display:flex;align-items:center;justify-content:space-between;gap:10px;cursor:pointer;color:var(--text)}.ado-tech .ado-door-accordion-summary::-webkit-details-marker{display:none}.ado-tech .ado-door-accordion-summary .ado-door-section-title{margin:0}.ado-tech .ado-door-accordion-icon{color:#94a3b8;font-size:12px;line-height:1;transition:transform .16s ease}.ado-tech .ado-door-accordion[open] .ado-door-accordion-icon{transform:rotate(180deg)}.ado-tech .ado-door-accordion-body{margin-top:10px}
+.ado-tech .ado-door-unconfirm-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.ado-tech .ado-door-unconfirm-item{display:flex;flex-direction:column;gap:8px}.ado-tech .ado-door-unconfirm-btn{width:100%;text-align:left;display:flex;flex-direction:column;gap:4px;padding:12px;border:1px solid var(--border);border-radius:10px;background:rgba(255,255,255,.03);color:var(--text);font:inherit;cursor:pointer;transition:border-color .15s ease,background .15s ease,transform .15s ease}.ado-tech .ado-door-unconfirm-btn:hover{border-color:rgba(249,115,22,.45);background:rgba(249,115,22,.08)}.ado-tech .ado-door-unconfirm-btn.is-active{border-color:rgba(249,115,22,.65);background:rgba(249,115,22,.16)}.ado-tech .ado-door-unconfirm-btn strong{font-size:12px;letter-spacing:.02em;color:var(--text)}.ado-tech .ado-door-unconfirm-btn small{color:#94a3b8;font-size:11px}.ado-tech .ado-door-unconfirm-comment-wrap{padding:10px;border:1px solid var(--border);border-radius:10px;background:rgba(255,255,255,.02)}.ado-tech .ado-door-unconfirm-comment{color:var(--text)}.ado-tech .ado-door-unconfirm-comment::placeholder{color:#94a3b8;opacity:1}
 .ado-tech .ado-door-hardware-list{display:flex;flex-direction:column;gap:8px}.ado-tech .ado-door-hardware-item{padding:10px;border:1px solid var(--border);border-radius:8px;background:rgba(255,255,255,.03)}.ado-tech .ado-door-hardware-item strong{display:flex;align-items:center;gap:8px;font-size:13px}.ado-tech .ado-door-hardware-item small{display:block;color:#94a3b8;margin-top:4px}.ado-tech .ado-door-hardware-qty{font-size:10px;padding:2px 6px;border-radius:999px;background:var(--accent-soft);color:var(--accent)}
 .ado-tech .ado-door-overview-blocks{display:grid;grid-template-columns:1fr;gap:10px}.ado-tech .ado-door-overview-block{padding:10px;border:1px solid var(--border);border-radius:8px;background:rgba(255,255,255,.03)}.ado-tech .ado-door-overview-block strong{display:block;font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:#64748b;margin-bottom:6px}.ado-tech .ado-door-overview-link{display:block;padding:8px 10px;border:1px solid var(--border);border-radius:8px;background:rgba(255,255,255,.03);text-decoration:none;color:var(--text)}.ado-tech .ado-door-overview-link span{display:block;font-size:13px;font-weight:600}.ado-tech .ado-door-overview-link small{display:block;color:#94a3b8;margin-top:3px}.ado-tech .ado-door-overview-fallback{margin:0}
 .ado-tech .ado-door-document-list,.ado-tech .ado-door-comment-list,.ado-tech .ado-door-hardware-groups,.ado-tech .ado-door-hardware-models,.ado-tech .ado-door-confirmation-list{display:flex;flex-direction:column;gap:8px}.ado-tech .ado-door-document-list .ado-door-overview-link,.ado-tech .ado-door-comment-item,.ado-tech .ado-door-hardware-group,.ado-tech .ado-door-confirmation{padding:10px;border:1px solid var(--border);border-radius:8px;background:rgba(255,255,255,.02)}.ado-tech .ado-door-comment-item strong,.ado-tech .ado-door-hardware-group-title{display:block;font-size:13px;font-weight:600}.ado-tech .ado-door-comment-item small,.ado-tech .ado-door-hardware-group-title,.ado-tech .ado-door-form-hint{color:#94a3b8}.ado-tech .ado-door-confirmation-head,.ado-tech .ado-door-hardware-model-head{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}.ado-tech .ado-door-confirmation-options{display:flex;gap:10px;flex-wrap:wrap}.ado-tech .ado-door-confirmation-options label,.ado-tech .ado-door-complete{display:flex;align-items:center;gap:8px;font-size:12px}.ado-tech .ado-door-field{display:block;margin-top:10px}.ado-tech .ado-door-field span{display:block;font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:#64748b;margin-bottom:5px}.ado-tech .ado-door-field textarea,.ado-tech .ado-door-field input[type="text"],.ado-tech .ado-door-field input[type="file"]{width:100%;background:rgba(255,255,255,.05);border:1px solid var(--border);border-radius:8px;color:var(--text);padding:10px 12px;font-size:13px}.ado-tech .ado-door-field textarea{min-height:92px;resize:vertical}.ado-tech .ado-door-form-hint{margin-top:8px;font-size:12px;line-height:1.4}.ado-tech .ado-door-hardware-model{padding:10px;border:1px solid var(--border);border-radius:8px;background:rgba(255,255,255,.03)}.ado-tech .ado-door-hardware-model-head strong{font-size:13px}.ado-tech .ado-door-hardware-toggle{white-space:nowrap}.ado-tech .ado-door-hardware-panel{margin-top:10px;padding-top:10px;border-top:1px solid var(--border)}.ado-tech .ado-door-existing-media{display:flex;flex-direction:column;gap:8px;margin-top:10px}.ado-tech .ado-door-existing-media a{display:block;padding:8px 10px;border:1px solid var(--border);border-radius:8px;background:rgba(255,255,255,.03);text-decoration:none;color:var(--text)}.ado-tech .ado-door-existing-media strong{display:block;font-size:13px}.ado-tech .ado-door-existing-media small{display:block;color:#94a3b8;margin-top:3px}.ado-tech .ado-door-note{width:100%;min-height:110px;resize:vertical;background:rgba(255,255,255,.05);border:1px solid var(--border);border-radius:8px;color:var(--text);padding:10px 12px;font-size:13px}.ado-tech .ado-door-actions{display:flex;gap:8px;flex-wrap:wrap;align-items:center}.ado-tech .ado-door-flash{display:none;margin-top:4px;padding:8px 10px;border-radius:8px;font-size:12px}.ado-tech .ado-door-flash.ok{display:block;background:rgba(34,197,94,.15);color:#86efac}.ado-tech .ado-door-flash.err{display:block;background:rgba(239,68,68,.15);color:#fecaca}.ado-tech .ado-door-empty{padding:10px;border:1px dashed var(--border);border-radius:8px;color:#94a3b8}
@@ -1763,9 +1769,6 @@ body.ado-door-drawer-open{overflow:hidden}
         if (!root) {
           return;
         }
-        root.querySelectorAll('.ado-door-confirmation').forEach(function(row){
-          syncDoorConfirmation(row);
-        });
         root.querySelectorAll('.ado-door-unconfirm-btn').forEach(function(button){
           syncUnconfirmButton(button);
         });
@@ -1783,11 +1786,19 @@ body.ado-door-drawer-open{overflow:hidden}
         }
         var key = button.getAttribute('data-unconfirm-key') || '';
         var form = button.closest('form');
+        if (!form) {
+          var formId = button.getAttribute('data-unconfirm-form') || '';
+          form = formId ? document.getElementById(formId) : null;
+        }
         if (!form || !key) {
           return;
         }
-        var stateInput = form.querySelector('input[data-unconfirm-state=\"' + key + '\"]');
-        var commentInput = form.querySelector('input[data-unconfirm-comment=\"' + key + '\"]');
+        var formId = form.getAttribute('id') || '';
+        var scope = form.parentElement || document;
+        var stateInput = formId ? scope.querySelector('input[data-unconfirm-state=\"' + key + '\"][form=\"' + formId + '\"]') : form.querySelector('input[data-unconfirm-state=\"' + key + '\"]');
+        var commentInput = formId ? scope.querySelector('textarea[data-unconfirm-comment=\"' + key + '\"][form=\"' + formId + '\"]') : form.querySelector('textarea[data-unconfirm-comment=\"' + key + '\"]');
+        var wrapHost = button.closest('.ado-door-unconfirm-item');
+        var commentWrap = wrapHost ? wrapHost.querySelector('.ado-door-unconfirm-comment-wrap[data-unconfirm-comment-wrap=\"' + key + '\"]') : null;
         if (!stateInput) {
           return;
         }
@@ -1798,12 +1809,14 @@ body.ado-door-drawer-open{overflow:hidden}
         if (statusNode) {
           statusNode.textContent = isUnconfirmed ? 'Currently unconfirmed' : 'Currently confirmed';
         }
+        if (commentWrap) {
+          commentWrap.hidden = !isUnconfirmed;
+        }
         if (commentInput) {
-          if (isUnconfirmed && !String(commentInput.value || '').trim()) {
-            commentInput.value = 'Unconfirmed by technician via portal control.';
-          }
+          commentInput.required = isUnconfirmed;
           if (!isUnconfirmed) {
             commentInput.value = '';
+            commentInput.setCustomValidity('');
           }
         }
       }
@@ -1813,10 +1826,16 @@ body.ado-door-drawer-open{overflow:hidden}
         }
         var key = button.getAttribute('data-unconfirm-key') || '';
         var form = button.closest('form');
+        if (!form) {
+          var formId = button.getAttribute('data-unconfirm-form') || '';
+          form = formId ? document.getElementById(formId) : null;
+        }
         if (!form || !key) {
           return;
         }
-        var stateInput = form.querySelector('input[data-unconfirm-state=\"' + key + '\"]');
+        var formId = form.getAttribute('id') || '';
+        var scope = form.parentElement || document;
+        var stateInput = formId ? scope.querySelector('input[data-unconfirm-state=\"' + key + '\"][form=\"' + formId + '\"]') : form.querySelector('input[data-unconfirm-state=\"' + key + '\"]');
         if (!stateInput) {
           return;
         }
@@ -1836,29 +1855,28 @@ body.ado-door-drawer-open{overflow:hidden}
         button.setAttribute('aria-expanded', panel.hidden ? 'false' : 'true');
       }
       function validateDoorForm(form){
-        form.querySelectorAll('.ado-door-unconfirm-btn').forEach(function(button){
+        var formId = form.getAttribute('id') || '';
+        var scope = form.parentElement || document;
+        var unconfirmButtons = formId ? scope.querySelectorAll('.ado-door-unconfirm-btn[data-unconfirm-form=\"' + formId + '\"]') : [];
+        unconfirmButtons.forEach(function(button){
           syncUnconfirmButton(button);
         });
-        var confirmations = form.querySelectorAll('.ado-door-confirmation');
-        for (var i = 0; i < confirmations.length; i++) {
-          var row = confirmations[i];
-          syncDoorConfirmation(row);
-          var checked = row.querySelector('input[type="radio"]:checked');
-          if (!checked) {
-            setDoorFormMessage(form, 'Please choose Yes or No for each confirmation.', false);
-            return false;
+        for (var i = 0; i < unconfirmButtons.length; i++) {
+          var button = unconfirmButtons[i];
+          var key = button.getAttribute('data-unconfirm-key') || '';
+          if (!key) {
+            continue;
           }
-          if (String(checked.value || 'yes') === 'no') {
-            var comment = row.querySelector('.ado-door-confirmation-comment');
-            var labelNode = row.querySelector('strong');
-            var label = labelNode ? labelNode.textContent.trim() : 'This confirmation';
-            if (!comment || !comment.value.trim()) {
-              setDoorFormMessage(form, label + ' requires a comment when marked No.', false);
-              if (comment) {
-                comment.focus();
-              }
-              return false;
+          var stateInput = formId ? scope.querySelector('input[data-unconfirm-state=\"' + key + '\"][form=\"' + formId + '\"]') : form.querySelector('input[data-unconfirm-state=\"' + key + '\"]');
+          var commentInput = formId ? scope.querySelector('textarea[data-unconfirm-comment=\"' + key + '\"][form=\"' + formId + '\"]') : form.querySelector('textarea[data-unconfirm-comment=\"' + key + '\"]');
+          var labelNode = button.querySelector('strong');
+          var label = labelNode ? labelNode.textContent.trim() : 'This item';
+          if (stateInput && String(stateInput.value || 'yes') === 'no' && (!commentInput || !String(commentInput.value || '').trim())) {
+            setDoorFormMessage(form, label + ' requires a reason.', false);
+            if (commentInput) {
+              commentInput.focus();
             }
+            return false;
           }
         }
         var complete = form.querySelector('input[name="testing[complete]"]');
@@ -1956,9 +1974,6 @@ body.ado-door-drawer-open{overflow:hidden}
           var input = ev.target;
           if (!input || !(input instanceof HTMLInputElement)) {
             return;
-          }
-          if (input.matches('.ado-door-confirmation input[type="radio"]')) {
-            syncDoorConfirmation(input.closest('.ado-door-confirmation'));
           }
         });
         projectWorkspace.addEventListener('submit', function(ev){
