@@ -664,6 +664,7 @@ function ado_tp_process_project_door_save(WC_Order $order, string $door_id, arra
     $door_items = (array) ($door['items'] ?? []);
     $hardware_groups = ado_tp_project_door_hardware_groups($door_items);
     $hardware_inputs = isset($post['hardware_notes']) && is_array($post['hardware_notes']) ? (array) $post['hardware_notes'] : [];
+    $hardware_installed_inputs = isset($post['hardware_installed']) && is_array($post['hardware_installed']) ? (array) $post['hardware_installed'] : [];
     $hardware_files = isset($files['hardware_media']) && is_array($files['hardware_media']) ? (array) $files['hardware_media'] : [];
     $workflow_media = [];
 
@@ -684,6 +685,8 @@ function ado_tp_process_project_door_save(WC_Order $order, string $door_id, arra
 
     $existing_hardware_entries = isset($door_state['hardware_entries']) && is_array($door_state['hardware_entries']) ? (array) $door_state['hardware_entries'] : [];
     $saved_hardware_models = 0;
+    $total_hardware_models = 0;
+    $installed_hardware_models = 0;
 
     foreach ($hardware_groups as $group) {
         if (!is_array($group)) {
@@ -710,11 +713,16 @@ function ado_tp_process_project_door_save(WC_Order $order, string $door_id, arra
             if ($model_key === '' || $model_label === '') {
                 continue;
             }
+            $total_hardware_models++;
             $incoming_note = sanitize_textarea_field((string) wp_unslash((string) ($hardware_inputs[$category_key][$model_key] ?? '')));
             $existing_entry = isset($existing_hardware_entries[$category_key]['models'][$model_key]) && is_array($existing_hardware_entries[$category_key]['models'][$model_key]) ? (array) $existing_hardware_entries[$category_key]['models'][$model_key] : [];
+            $incoming_installed = !empty($hardware_installed_inputs[$category_key][$model_key]);
             $saved_note = trim((string) ($existing_entry['note'] ?? ''));
             if ($incoming_note !== '') {
                 $saved_note = $incoming_note;
+            }
+            if ($incoming_installed) {
+                $installed_hardware_models++;
             }
 
             $media = isset($existing_entry['media']) && is_array($existing_entry['media']) ? ado_tp_project_door_normalize_media_entries($existing_entry['media']) : [];
@@ -728,10 +736,11 @@ function ado_tp_process_project_door_save(WC_Order $order, string $door_id, arra
                 $workflow_media[] = $upload['name'];
             }
 
-            if ($saved_note !== '' || !empty($media) || !empty($existing_entry)) {
+            if ($incoming_installed || $saved_note !== '' || !empty($media) || !empty($existing_entry)) {
                 $door_state['hardware_entries'][$category_key]['models'][$model_key] = [
                     'model_key' => $model_key,
                     'model_label' => $model_label,
+                    'installed' => $incoming_installed,
                     'note' => $saved_note,
                     'media' => $media,
                     'updated_at' => wp_date('c'),
@@ -757,6 +766,9 @@ function ado_tp_process_project_door_save(WC_Order $order, string $door_id, arra
     }
     if ($testing_complete && empty($existing_videos)) {
         return ['ok' => false, 'code' => 400, 'message' => 'Final test video is required before confirming installation complete.'];
+    }
+    if ($testing_complete && $total_hardware_models > 0 && $installed_hardware_models < $total_hardware_models) {
+        return ['ok' => false, 'code' => 400, 'message' => 'Every hardware line must be marked Installed before confirming installation complete.'];
     }
 
     $door_state['testing']['note'] = $testing_note;
@@ -791,6 +803,8 @@ function ado_tp_process_project_door_save(WC_Order $order, string $door_id, arra
         'workflow' => $door_state,
         'hardware_groups' => count($hardware_groups),
         'hardware_models_saved' => $saved_hardware_models,
+        'hardware_models_total' => $total_hardware_models,
+        'hardware_models_installed' => $installed_hardware_models,
         'final_video_count' => count($existing_videos),
         'uploaded_media' => $workflow_media,
     ];
@@ -1280,12 +1294,18 @@ function ado_tp_render_project_door_drawer(array $door, WC_Order $project): stri
               <div class="ado-door-hardware-group">
                 <div class="ado-door-hardware-group-title"><?php echo esc_html($category_label); ?></div>
                 <div class="ado-door-hardware-models">
-                  <?php foreach ((array) ($group['models'] ?? []) as $model) { if (!is_array($model)) { continue; } $model_key = trim((string) ($model['model_key'] ?? '')); $model_label = trim((string) ($model['model_label'] ?? '')); if ($model_key === '' || $model_label === '') { continue; } $entry = isset($hardware_entries[$category_key]['models'][$model_key]) && is_array($hardware_entries[$category_key]['models'][$model_key]) ? (array) $hardware_entries[$category_key]['models'][$model_key] : []; $entry_note = trim((string) ($entry['note'] ?? '')); $entry_media = ado_tp_project_door_normalize_media_entries($entry['media'] ?? []); $entry_id = ado_tp_dom_id('ado-door-hw-', $door_id . '-' . $category_key . '-' . $model_key); ?>
+                  <?php foreach ((array) ($group['models'] ?? []) as $model) { if (!is_array($model)) { continue; } $model_key = trim((string) ($model['model_key'] ?? '')); $model_label = trim((string) ($model['model_label'] ?? '')); if ($model_key === '' || $model_label === '') { continue; } $entry = isset($hardware_entries[$category_key]['models'][$model_key]) && is_array($hardware_entries[$category_key]['models'][$model_key]) ? (array) $hardware_entries[$category_key]['models'][$model_key] : []; $entry_installed = !empty($entry['installed']); $entry_note = trim((string) ($entry['note'] ?? '')); $entry_media = ado_tp_project_door_normalize_media_entries($entry['media'] ?? []); $entry_id = ado_tp_dom_id('ado-door-hw-', $door_id . '-' . $category_key . '-' . $model_key); ?>
                     <div class="ado-door-hardware-model" data-hardware-entry>
                       <div class="ado-door-hardware-model-head">
                         <strong><?php echo esc_html($model_label); ?></strong>
                         <?php if ((int) ($model['qty'] ?? 1) > 1) { ?><span class="ado-door-hardware-qty">x<?php echo esc_html((string) (int) ($model['qty'] ?? 1)); ?></span><?php } ?>
-                        <button class="btn btn-ghost btn-sm ado-door-hardware-toggle" type="button" data-target="<?php echo esc_attr($entry_id); ?>">Add note/media</button>
+                        <div class="ado-door-hardware-head-actions">
+                          <label class="ado-door-hardware-installed-label">
+                            <input type="checkbox" class="ado-door-hardware-installed" name="<?php echo esc_attr('hardware_installed[' . $category_key . '][' . $model_key . ']'); ?>" value="1" <?php echo $entry_installed ? 'checked' : ''; ?>>
+                            <span>Installed</span>
+                          </label>
+                          <button class="btn btn-ghost btn-sm ado-door-hardware-toggle" type="button" data-target="<?php echo esc_attr($entry_id); ?>">Add note/media</button>
+                        </div>
                       </div>
                       <div class="ado-door-hardware-panel" id="<?php echo esc_attr($entry_id); ?>" <?php echo ($entry_note !== '' || !empty($entry_media)) ? '' : 'hidden'; ?>>
                         <label class="ado-door-field">
@@ -1341,7 +1361,7 @@ function ado_tp_render_project_door_drawer(array $door, WC_Order $project): stri
           <input type="checkbox" name="testing[complete]" value="1" <?php echo $testing_complete ? 'checked' : ''; ?>>
           <span>Confirm hardware installation complete</span>
         </label>
-        <div class="ado-door-form-hint">Completion requires an existing final test video or one uploaded with this save.</div>
+        <div class="ado-door-form-hint">Completion requires every hardware line marked Installed and an existing final test video (or one uploaded with this save).</div>
         <div class="ado-door-actions" style="margin-top:10px;">
           <button class="btn btn-primary" type="submit">Save Door Update</button>
         </div>
@@ -1562,6 +1582,7 @@ add_shortcode('ado_technician_portal_app', static function (): string {
 .ado-tech .ado-door-hardware-list{display:flex;flex-direction:column;gap:8px}.ado-tech .ado-door-hardware-item{padding:10px;border:1px solid var(--border);border-radius:8px;background:rgba(255,255,255,.03)}.ado-tech .ado-door-hardware-item strong{display:flex;align-items:center;gap:8px;font-size:13px}.ado-tech .ado-door-hardware-item small{display:block;color:#94a3b8;margin-top:4px}.ado-tech .ado-door-hardware-qty{font-size:10px;padding:2px 6px;border-radius:999px;background:var(--accent-soft);color:var(--accent)}
 .ado-tech .ado-door-overview-blocks{display:grid;grid-template-columns:1fr;gap:10px}.ado-tech .ado-door-overview-block{padding:10px;border:1px solid var(--border);border-radius:8px;background:rgba(255,255,255,.03)}.ado-tech .ado-door-overview-block strong{display:block;font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:#64748b;margin-bottom:6px}.ado-tech .ado-door-overview-link{display:block;padding:8px 10px;border:1px solid var(--border);border-radius:8px;background:rgba(255,255,255,.03);text-decoration:none;color:var(--text)}.ado-tech .ado-door-overview-link span{display:block;font-size:13px;font-weight:600}.ado-tech .ado-door-overview-link small{display:block;color:#94a3b8;margin-top:3px}.ado-tech .ado-door-overview-fallback{margin:0}
 .ado-tech .ado-door-document-list,.ado-tech .ado-door-comment-list,.ado-tech .ado-door-hardware-groups,.ado-tech .ado-door-hardware-models,.ado-tech .ado-door-confirmation-list{display:flex;flex-direction:column;gap:8px}.ado-tech .ado-door-document-list .ado-door-overview-link,.ado-tech .ado-door-comment-item,.ado-tech .ado-door-hardware-group,.ado-tech .ado-door-confirmation{padding:10px;border:1px solid var(--border);border-radius:8px;background:rgba(255,255,255,.02)}.ado-tech .ado-door-comment-item strong,.ado-tech .ado-door-hardware-group-title{display:block;font-size:13px;font-weight:600}.ado-tech .ado-door-comment-item small,.ado-tech .ado-door-hardware-group-title,.ado-tech .ado-door-form-hint{color:#94a3b8}.ado-tech .ado-door-confirmation-head,.ado-tech .ado-door-hardware-model-head{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}.ado-tech .ado-door-confirmation-options{display:flex;gap:10px;flex-wrap:wrap}.ado-tech .ado-door-confirmation-options label,.ado-tech .ado-door-complete{display:flex;align-items:center;gap:8px;font-size:12px}.ado-tech .ado-door-field{display:block;margin-top:10px}.ado-tech .ado-door-field span{display:block;font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:#64748b;margin-bottom:5px}.ado-tech .ado-door-field textarea,.ado-tech .ado-door-field input[type="text"],.ado-tech .ado-door-field input[type="file"]{width:100%;background:rgba(255,255,255,.05);border:1px solid var(--border);border-radius:8px;color:var(--text);padding:10px 12px;font-size:13px}.ado-tech .ado-door-field textarea{min-height:92px;resize:vertical}.ado-tech .ado-door-form-hint{margin-top:8px;font-size:12px;line-height:1.4}.ado-tech .ado-door-hardware-model{padding:10px;border:1px solid var(--border);border-radius:8px;background:rgba(255,255,255,.03)}.ado-tech .ado-door-hardware-model-head strong{font-size:13px}.ado-tech .ado-door-hardware-toggle{white-space:nowrap}.ado-tech .ado-door-hardware-panel{margin-top:10px;padding-top:10px;border-top:1px solid var(--border)}.ado-tech .ado-door-existing-media{display:flex;flex-direction:column;gap:8px;margin-top:10px}.ado-tech .ado-door-existing-media a{display:block;padding:8px 10px;border:1px solid var(--border);border-radius:8px;background:rgba(255,255,255,.03);text-decoration:none;color:var(--text)}.ado-tech .ado-door-existing-media strong{display:block;font-size:13px}.ado-tech .ado-door-existing-media small{display:block;color:#94a3b8;margin-top:3px}.ado-tech .ado-door-note{width:100%;min-height:110px;resize:vertical;background:rgba(255,255,255,.05);border:1px solid var(--border);border-radius:8px;color:var(--text);padding:10px 12px;font-size:13px}.ado-tech .ado-door-actions{display:flex;gap:8px;flex-wrap:wrap;align-items:center}.ado-tech .ado-door-flash{display:none;margin-top:4px;padding:8px 10px;border-radius:8px;font-size:12px}.ado-tech .ado-door-flash.ok{display:block;background:rgba(34,197,94,.15);color:#86efac}.ado-tech .ado-door-flash.err{display:block;background:rgba(239,68,68,.15);color:#fecaca}.ado-tech .ado-door-empty{padding:10px;border:1px dashed var(--border);border-radius:8px;color:#94a3b8}
+.ado-tech .ado-door-hardware-head-actions{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.ado-tech .ado-door-hardware-installed-label{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text)}.ado-tech .ado-door-hardware-installed-label input[type="checkbox"]{margin:0}
 body.ado-door-drawer-open{overflow:hidden}
 @media (max-width:840px){.ado-tech .ado-door-meta-grid,.ado-tech .ado-door-overview-blocks{grid-template-columns:1fr}.ado-tech .ado-door-drawer-head{padding:14px}.ado-tech .ado-door-drawer-body{padding:14px}.ado-tech .ado-door-card{padding:10px}}</style>
 
@@ -1793,6 +1814,14 @@ body.ado-door-drawer-open{overflow:hidden}
         }
         var complete = form.querySelector('input[name="testing[complete]"]');
         if (complete && complete.checked) {
+          var hardwareChecks = form.querySelectorAll('input.ado-door-hardware-installed[type="checkbox"]');
+          for (var j = 0; j < hardwareChecks.length; j++) {
+            if (!hardwareChecks[j].checked) {
+              setDoorFormMessage(form, 'Every hardware line must be marked Installed before confirming hardware installation complete.', false);
+              hardwareChecks[j].focus();
+              return false;
+            }
+          }
           var existingCount = parseInt(form.getAttribute('data-final-video-count') || '0', 10) || 0;
           var videoInput = form.querySelector('input[name="testing_final_video"]');
           var hasNewVideo = !!(videoInput && videoInput.files && videoInput.files.length > 0);
