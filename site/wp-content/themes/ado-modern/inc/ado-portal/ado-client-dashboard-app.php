@@ -56,6 +56,46 @@ function ado_cd_order_name(WC_Order $order): string {
     return 'Project #' . (string) $order->get_id();
 }
 
+function ado_cd_order_project_address(WC_Order $order): string {
+    if (function_exists('ado_order_project_address')) {
+        $project_address = trim((string) ado_order_project_address($order));
+        if ($project_address !== '') {
+            return $project_address;
+        }
+    }
+
+    $build_address = static function (array $parts): string {
+        $filtered = array_values(array_filter(array_map(static function ($value): string {
+            return trim((string) $value);
+        }, $parts), static function (string $value): bool {
+            return $value !== '';
+        }));
+        return trim(implode(', ', $filtered));
+    };
+
+    $shipping_address = $build_address([
+        $order->get_shipping_address_1(),
+        $order->get_shipping_address_2(),
+        $order->get_shipping_city(),
+        $order->get_shipping_state(),
+        $order->get_shipping_postcode(),
+        $order->get_shipping_country(),
+    ]);
+    if ($shipping_address !== '') {
+        return $shipping_address;
+    }
+
+    $billing_address = $build_address([
+        $order->get_billing_address_1(),
+        $order->get_billing_address_2(),
+        $order->get_billing_city(),
+        $order->get_billing_state(),
+        $order->get_billing_postcode(),
+        $order->get_billing_country(),
+    ]);
+    return $billing_address;
+}
+
 function ado_cd_order_door_count(WC_Order $order): int {
     $project_doors = $order->get_meta('_ado_project_doors');
     if (is_array($project_doors) && $project_doors) {
@@ -184,19 +224,62 @@ function ado_cd_parse_technician_ids(string $raw): array {
     return array_values(array_map('intval', array_keys($rows)));
 }
 
+function ado_cd_forced_technician_id(): int {
+    $forced_id = 2;
+    $constant_keys = [
+        'ADO_SCHEDULING_TECHNICIAN_ID',
+        'ADO_DEFAULT_TECHNICIAN_ID',
+    ];
+    foreach ($constant_keys as $constant_key) {
+        if (defined($constant_key)) {
+            $candidate = (int) constant($constant_key);
+            if ($candidate > 0) {
+                $forced_id = $candidate;
+                break;
+            }
+        }
+    }
+    $env_keys = [
+        'ADO_SCHEDULING_TECHNICIAN_ID',
+        'ADO_DEFAULT_TECHNICIAN_ID',
+    ];
+    foreach ($env_keys as $env_key) {
+        $value = getenv($env_key);
+        if ($value === false) {
+            continue;
+        }
+        $candidate = (int) $value;
+        if ($candidate > 0) {
+            $forced_id = $candidate;
+            break;
+        }
+    }
+    return (int) apply_filters('ado_cd_forced_technician_id', $forced_id);
+}
+
+function ado_cd_assigned_technician_ids(WC_Order $order): array {
+    // Launch override: route all projects to one technician until dispatcher rules are introduced.
+    $forced_id = ado_cd_forced_technician_id();
+    $assigned = array_map('intval', (array) apply_filters('ado_cd_assigned_technician_ids', [$forced_id], $order));
+    $assigned = array_values(array_unique(array_filter($assigned, static function (int $technician_id): bool {
+        return $technician_id > 0;
+    })));
+    return array_values(array_map('intval', $assigned));
+}
+
 function ado_cd_schedule_slot_options(): array {
     return [
-        'morning' => 'Morning (8:00 AM - 11:00 AM)',
-        'midday' => 'Midday (11:00 AM - 2:00 PM)',
-        'afternoon' => 'Afternoon (2:00 PM - 5:00 PM)',
+        'morning' => 'Morning (9:00 AM - 11:00 AM)',
+        'midday' => 'Midday (11:00 AM - 1:00 PM)',
+        'afternoon' => 'Afternoon (1:00 PM - 4:00 PM)',
     ];
 }
 
 function ado_cd_schedule_slot_windows(): array {
     return [
-        'morning' => ['label' => 'Morning (8:00 AM - 11:00 AM)', 'start' => '08:00', 'end' => '11:00'],
-        'midday' => ['label' => 'Midday (11:00 AM - 2:00 PM)', 'start' => '11:00', 'end' => '14:00'],
-        'afternoon' => ['label' => 'Afternoon (2:00 PM - 5:00 PM)', 'start' => '14:00', 'end' => '17:00'],
+        'morning' => ['label' => 'Morning (9:00 AM - 11:00 AM)', 'start' => '09:00', 'end' => '11:00'],
+        'midday' => ['label' => 'Midday (11:00 AM - 1:00 PM)', 'start' => '11:00', 'end' => '13:00'],
+        'afternoon' => ['label' => 'Afternoon (1:00 PM - 4:00 PM)', 'start' => '13:00', 'end' => '16:00'],
     ];
 }
 
@@ -219,24 +302,59 @@ function ado_cd_schedule_slot_key_for_visit(string $visit_raw): ?string {
     if ($minutes < 660) {
         return 'morning';
     }
-    if ($minutes < 840) {
+    if ($minutes < 780) {
         return 'midday';
     }
     return 'afternoon';
 }
 
 function ado_cd_schedule_timezone(): DateTimeZone {
-    $timezone_name = function_exists('wp_timezone_string') ? (string) wp_timezone_string() : '';
+    $timezone_name = '';
+    $constant_keys = [
+        'ADO_SCHEDULING_TIMEZONE',
+        'ADO_GOOGLE_SCHEDULING_TIMEZONE',
+    ];
+    foreach ($constant_keys as $constant_key) {
+        if (defined($constant_key)) {
+            $value = trim((string) constant($constant_key));
+            if ($value !== '') {
+                $timezone_name = $value;
+                break;
+            }
+        }
+    }
+    if ($timezone_name === '') {
+        $env_keys = [
+            'ADO_SCHEDULING_TIMEZONE',
+            'ADO_GOOGLE_SCHEDULING_TIMEZONE',
+            'TZ',
+        ];
+        foreach ($env_keys as $env_key) {
+            $value = getenv($env_key);
+            if ($value === false) {
+                continue;
+            }
+            $value = trim((string) $value);
+            if ($value !== '') {
+                $timezone_name = $value;
+                break;
+            }
+        }
+    }
+    if ($timezone_name === '') {
+        $timezone_name = function_exists('wp_timezone_string') ? (string) wp_timezone_string() : '';
+    }
     if ($timezone_name === '') {
         $timezone_name = (string) get_option('timezone_string');
     }
     if ($timezone_name === '') {
-        $timezone_name = 'UTC';
+        $timezone_name = 'America/Toronto';
     }
+    $timezone_name = trim((string) apply_filters('ado_cd_schedule_timezone_name', $timezone_name));
     try {
         return new DateTimeZone($timezone_name);
     } catch (Exception $exception) {
-        return new DateTimeZone('UTC');
+        return new DateTimeZone('America/Toronto');
     }
 }
 
@@ -265,60 +383,582 @@ function ado_cd_schedule_business_day_rows(int $window_days = 14): array {
     return $rows;
 }
 
-function ado_cd_google_calendar_api_key(): string {
-    $constants = [
-        'ADO_GOOGLE_CALENDAR_API_KEY',
-        'GOOGLE_CALENDAR_API_KEY',
-        'ADO_GOOGLE_API_KEY',
-        'GOOGLE_API_KEY',
+function ado_cd_schedule_availability_window_days(): int {
+    $window_days = 60;
+    $constant_keys = [
+        'ADO_SCHEDULING_WINDOW_DAYS',
+        'ADO_GOOGLE_AVAILABILITY_WINDOW_DAYS',
     ];
-    foreach ($constants as $constant_name) {
-        if (defined($constant_name)) {
-            $value = trim((string) constant($constant_name));
-            if ($value !== '') {
-                return trim((string) apply_filters('ado_cd_google_calendar_api_key', $value));
-            }
+    foreach ($constant_keys as $constant_key) {
+        if (!defined($constant_key)) {
+            continue;
+        }
+        $candidate = (int) constant($constant_key);
+        if ($candidate > 0) {
+            $window_days = $candidate;
+            break;
         }
     }
-
     $env_keys = [
-        'ADO_GOOGLE_CALENDAR_API_KEY',
-        'GOOGLE_CALENDAR_API_KEY',
-        'ADO_GOOGLE_API_KEY',
-        'GOOGLE_API_KEY',
+        'ADO_SCHEDULING_WINDOW_DAYS',
+        'ADO_GOOGLE_AVAILABILITY_WINDOW_DAYS',
     ];
     foreach ($env_keys as $env_key) {
         $value = getenv($env_key);
-        if ($value !== false) {
-            $value = trim((string) $value);
+        if ($value === false) {
+            continue;
+        }
+        $candidate = (int) $value;
+        if ($candidate > 0) {
+            $window_days = $candidate;
+            break;
+        }
+    }
+    return max(30, min(60, (int) apply_filters('ado_cd_schedule_availability_window_days', $window_days)));
+}
+
+function ado_cd_google_default_calendar_id_for_technician(int $technician_id): string {
+    if ($technician_id !== ado_cd_forced_technician_id()) {
+        return '';
+    }
+    $default_calendar_id = 'info.ttincorporated@gmail.com';
+    $constant_keys = [
+        'ADO_SCHEDULING_CALENDAR_ID',
+        'ADO_GOOGLE_SCHEDULING_CALENDAR_ID',
+    ];
+    foreach ($constant_keys as $constant_key) {
+        if (defined($constant_key)) {
+            $value = trim((string) constant($constant_key));
             if ($value !== '') {
-                return trim((string) apply_filters('ado_cd_google_calendar_api_key', $value));
+                $default_calendar_id = $value;
+                break;
             }
         }
     }
-
-    $settings = get_option('adxp_portals_settings', []);
-    if (is_array($settings)) {
-        $value = trim((string) ($settings['gcal_api_key'] ?? ''));
-        if ($value !== '') {
-            return trim((string) apply_filters('ado_cd_google_calendar_api_key', $value));
-        }
-    }
-
-    $option_keys = [
-        'ado_google_calendar_api_key',
-        'ado_google_api_key',
-        'google_calendar_api_key',
-        'gcal_api_key',
+    $env_keys = [
+        'ADO_SCHEDULING_CALENDAR_ID',
+        'ADO_GOOGLE_SCHEDULING_CALENDAR_ID',
     ];
-    foreach ($option_keys as $option_key) {
-        $value = trim((string) get_option($option_key, ''));
+    foreach ($env_keys as $env_key) {
+        $value = getenv($env_key);
+        if ($value === false) {
+            continue;
+        }
+        $value = trim((string) $value);
         if ($value !== '') {
-            return trim((string) apply_filters('ado_cd_google_calendar_api_key', $value));
+            $default_calendar_id = $value;
+            break;
+        }
+    }
+    return trim((string) apply_filters('ado_cd_default_google_calendar_id_for_technician', $default_calendar_id, $technician_id));
+}
+
+function ado_cd_google_service_account_raw_json(): string {
+    $constant_keys = [
+        'ADO_GOOGLE_SERVICE_ACCOUNT_JSON',
+        'GOOGLE_SERVICE_ACCOUNT_JSON',
+    ];
+    foreach ($constant_keys as $constant_key) {
+        if (!defined($constant_key)) {
+            continue;
+        }
+        $value = trim((string) constant($constant_key));
+        if ($value !== '') {
+            return $value;
+        }
+    }
+    $env_json_keys = [
+        'ADO_GOOGLE_SERVICE_ACCOUNT_JSON',
+        'GOOGLE_SERVICE_ACCOUNT_JSON',
+    ];
+    foreach ($env_json_keys as $env_key) {
+        $value = getenv($env_key);
+        if ($value === false) {
+            continue;
+        }
+        $value = trim((string) $value);
+        if ($value !== '') {
+            return $value;
+        }
+    }
+    $constant_path_keys = [
+        'ADO_GOOGLE_SERVICE_ACCOUNT_FILE',
+        'GOOGLE_APPLICATION_CREDENTIALS',
+    ];
+    foreach ($constant_path_keys as $constant_key) {
+        if (!defined($constant_key)) {
+            continue;
+        }
+        $path = trim((string) constant($constant_key));
+        if ($path !== '' && is_readable($path)) {
+            $raw = @file_get_contents($path);
+            if (is_string($raw) && trim($raw) !== '') {
+                return $raw;
+            }
+        }
+    }
+    $env_path_keys = [
+        'ADO_GOOGLE_SERVICE_ACCOUNT_FILE',
+        'GOOGLE_APPLICATION_CREDENTIALS',
+    ];
+    foreach ($env_path_keys as $env_key) {
+        $path = getenv($env_key);
+        if ($path === false) {
+            continue;
+        }
+        $path = trim((string) $path);
+        if ($path === '' || !is_readable($path)) {
+            continue;
+        }
+        $raw = @file_get_contents($path);
+        if (is_string($raw) && trim($raw) !== '') {
+            return $raw;
+        }
+    }
+    return '';
+}
+
+function ado_cd_google_service_account_credentials(): array {
+    $raw = ado_cd_google_service_account_raw_json();
+    if ($raw === '') {
+        return [];
+    }
+    $decoded = json_decode($raw, true);
+    if (!is_array($decoded)) {
+        return [];
+    }
+    $client_email = trim((string) ($decoded['client_email'] ?? ''));
+    $private_key = trim((string) ($decoded['private_key'] ?? ''));
+    $token_uri = trim((string) ($decoded['token_uri'] ?? 'https://oauth2.googleapis.com/token'));
+    if ($client_email === '' || $private_key === '' || $token_uri === '') {
+        return [];
+    }
+    return [
+        'client_email' => $client_email,
+        'private_key' => $private_key,
+        'token_uri' => $token_uri,
+        'project_id' => trim((string) ($decoded['project_id'] ?? '')),
+    ];
+}
+
+function ado_cd_google_expected_service_account_email(): string {
+    $email = 'scheduler@booking-calendar-491901.iam.gserviceaccount.com';
+    $constant_keys = [
+        'ADO_GOOGLE_SERVICE_ACCOUNT_EMAIL',
+        'GOOGLE_SERVICE_ACCOUNT_EMAIL',
+    ];
+    foreach ($constant_keys as $constant_key) {
+        if (!defined($constant_key)) {
+            continue;
+        }
+        $value = trim((string) constant($constant_key));
+        if ($value !== '') {
+            $email = $value;
+            break;
+        }
+    }
+    $env_keys = [
+        'ADO_GOOGLE_SERVICE_ACCOUNT_EMAIL',
+        'GOOGLE_SERVICE_ACCOUNT_EMAIL',
+    ];
+    foreach ($env_keys as $env_key) {
+        $value = getenv($env_key);
+        if ($value === false) {
+            continue;
+        }
+        $value = trim((string) $value);
+        if ($value !== '') {
+            $email = $value;
+            break;
+        }
+    }
+    return strtolower($email);
+}
+
+function ado_cd_google_base64url(string $value): string {
+    return rtrim(strtr(base64_encode($value), '+/', '-_'), '=');
+}
+
+function ado_cd_google_service_account_access_token(array $credentials, string $scope = 'https://www.googleapis.com/auth/calendar'): array {
+    $client_email = trim((string) ($credentials['client_email'] ?? ''));
+    $private_key = trim((string) ($credentials['private_key'] ?? ''));
+    $token_uri = trim((string) ($credentials['token_uri'] ?? ''));
+    $scope = trim($scope);
+    if ($scope === '') {
+        $scope = 'https://www.googleapis.com/auth/calendar';
+    }
+    if ($client_email === '' || $private_key === '' || $token_uri === '') {
+        return ['access_token' => '', 'error' => 'Google service account credentials are missing required fields.'];
+    }
+
+    $cache_key = 'ado_cd_google_sa_token_' . md5($client_email . '|' . $token_uri . '|' . $scope);
+    $cached = get_transient($cache_key);
+    if (is_array($cached)) {
+        $cached_token = trim((string) ($cached['access_token'] ?? ''));
+        $cached_expires_at = (int) ($cached['expires_at'] ?? 0);
+        if ($cached_token !== '' && $cached_expires_at > (time() + 60)) {
+            return ['access_token' => $cached_token, 'error' => ''];
         }
     }
 
-    return trim((string) apply_filters('ado_cd_google_calendar_api_key', ''));
+    if (!function_exists('openssl_sign')) {
+        return ['access_token' => '', 'error' => 'OpenSSL is not available for Google service account authentication.'];
+    }
+
+    $now = time();
+    $jwt_header = wp_json_encode(['alg' => 'RS256', 'typ' => 'JWT']);
+    $jwt_payload = wp_json_encode([
+        'iss' => $client_email,
+        'scope' => $scope,
+        'aud' => $token_uri,
+        'iat' => $now,
+        'exp' => $now + 3600,
+    ]);
+    if (!is_string($jwt_header) || !is_string($jwt_payload) || $jwt_header === '' || $jwt_payload === '') {
+        return ['access_token' => '', 'error' => 'Google service account JWT payload encoding failed.'];
+    }
+
+    $signing_input = ado_cd_google_base64url($jwt_header) . '.' . ado_cd_google_base64url($jwt_payload);
+    $signature = '';
+    $signed = @openssl_sign($signing_input, $signature, $private_key, 'sha256WithRSAEncryption');
+    if (!$signed || !is_string($signature) || $signature === '') {
+        return ['access_token' => '', 'error' => 'Google service account JWT signing failed.'];
+    }
+
+    $assertion = $signing_input . '.' . ado_cd_google_base64url($signature);
+    $response = wp_remote_post($token_uri, [
+        'timeout' => 20,
+        'headers' => ['Content-Type' => 'application/x-www-form-urlencoded'],
+        'body' => [
+            'grant_type' => 'urn:ietf:params:oauth:grant-type:jwt-bearer',
+            'assertion' => $assertion,
+        ],
+    ]);
+    if (is_wp_error($response)) {
+        return ['access_token' => '', 'error' => 'Google service account token fetch failed: ' . $response->get_error_message()];
+    }
+
+    $response_code = (int) wp_remote_retrieve_response_code($response);
+    $response_body = (string) wp_remote_retrieve_body($response);
+    $decoded = json_decode($response_body, true);
+    if ($response_code < 200 || $response_code >= 300) {
+        $error_message = trim((string) ($decoded['error_description'] ?? ($decoded['error']['message'] ?? ($decoded['error'] ?? 'Token endpoint returned a non-success response.'))));
+        return ['access_token' => '', 'error' => 'Google service account token fetch failed' . ($response_code > 0 ? ' (' . $response_code . ')' : '') . ': ' . $error_message];
+    }
+
+    $access_token = trim((string) ($decoded['access_token'] ?? ''));
+    if ($access_token === '') {
+        return ['access_token' => '', 'error' => 'Google service account token response did not include an access token.'];
+    }
+
+    $expires_in = max(300, (int) ($decoded['expires_in'] ?? 3600));
+    set_transient($cache_key, [
+        'access_token' => $access_token,
+        'expires_at' => (time() + $expires_in),
+    ], max(60, $expires_in - 60));
+
+    return ['access_token' => $access_token, 'error' => ''];
+}
+
+function ado_cd_google_freebusy_access_token(): array {
+    $credentials = ado_cd_google_service_account_credentials();
+    if (!$credentials) {
+        return [
+            'status' => 'missing_credentials',
+            'access_token' => '',
+            'message' => 'Live Google availability is currently unavailable because service account credentials are not configured (use environment JSON or a secure server file path).',
+        ];
+    }
+    $expected_email = ado_cd_google_expected_service_account_email();
+    $credentials_email = strtolower(trim((string) ($credentials['client_email'] ?? '')));
+    if ($expected_email !== '' && $credentials_email !== '' && $credentials_email !== $expected_email) {
+        return [
+            'status' => 'fetch_error',
+            'access_token' => '',
+            'message' => 'Live Google availability credentials loaded a different service account email than expected.',
+        ];
+    }
+    $token_result = ado_cd_google_service_account_access_token($credentials);
+    $access_token = trim((string) ($token_result['access_token'] ?? ''));
+    if ($access_token === '') {
+        return [
+            'status' => 'fetch_error',
+            'access_token' => '',
+            'message' => 'Live Google availability could not authenticate with the Google service account: ' . trim((string) ($token_result['error'] ?? 'unknown error')),
+        ];
+    }
+    return [
+        'status' => 'ok',
+        'access_token' => $access_token,
+        'message' => '',
+    ];
+}
+
+function ado_cd_google_booking_write_context(WC_Order $order): array {
+    $assigned_technician_ids = ado_cd_assigned_technician_ids($order);
+    if (!$assigned_technician_ids) {
+        return [
+            'ok' => false,
+            'message' => 'No assigned technician is available for Google calendar booking.',
+            'calendar_id' => '',
+            'access_token' => '',
+        ];
+    }
+    $mapping = ado_cd_google_calendar_mapping($assigned_technician_ids);
+    $calendar_ids = array_values(array_filter(array_map('strval', (array) ($mapping['calendar_ids'] ?? []))));
+    if (!$calendar_ids || !empty($mapping['missing_technician_ids'])) {
+        return [
+            'ok' => false,
+            'message' => 'Assigned technician Google calendar mapping is missing.',
+            'calendar_id' => '',
+            'access_token' => '',
+        ];
+    }
+    $auth = ado_cd_google_freebusy_access_token();
+    if (($auth['status'] ?? 'fetch_error') !== 'ok') {
+        return [
+            'ok' => false,
+            'message' => trim((string) ($auth['message'] ?? 'Google authentication failed.')),
+            'calendar_id' => '',
+            'access_token' => '',
+        ];
+    }
+    return [
+        'ok' => true,
+        'message' => '',
+        'calendar_id' => trim((string) $calendar_ids[0]),
+        'access_token' => trim((string) ($auth['access_token'] ?? '')),
+    ];
+}
+
+function ado_cd_google_booking_event_payload(WC_Order $order, string $schedule_date, array $door_labels, string $note = ''): array {
+    $timezone_name = ado_cd_schedule_timezone_name();
+    $start_dt = $schedule_date . 'T09:00:00';
+    $end_dt = $schedule_date . 'T16:00:00';
+    $door_labels = array_values(array_filter(array_map('strval', $door_labels)));
+    $door_line = $door_labels ? implode(', ', $door_labels) : 'Door booking';
+    $summary = trim((string) ado_cd_order_name($order));
+    if ($summary === '') {
+        $summary = 'Project #' . (string) $order->get_id();
+    }
+    if (strlen($summary) > 255) {
+        $summary = substr($summary, 0, 252) . '...';
+    }
+    $description = $door_line;
+    $project_address = trim((string) ado_cd_order_project_address($order));
+    $payload = [
+        'summary' => $summary,
+        'description' => $description,
+        'start' => [
+            'dateTime' => $start_dt,
+            'timeZone' => $timezone_name,
+        ],
+        'end' => [
+            'dateTime' => $end_dt,
+            'timeZone' => $timezone_name,
+        ],
+    ];
+    if ($project_address !== '') {
+        $payload['location'] = $project_address;
+    }
+    return $payload;
+}
+
+function ado_cd_google_create_booking_event(WC_Order $order, string $schedule_date, array $door_labels, string $note = ''): array {
+    $context = ado_cd_google_booking_write_context($order);
+    if (empty($context['ok'])) {
+        return [
+            'ok' => false,
+            'message' => (string) ($context['message'] ?? 'Google booking context is unavailable.'),
+            'calendar_id' => '',
+            'event_id' => '',
+            'event_link' => '',
+        ];
+    }
+
+    $calendar_id = trim((string) ($context['calendar_id'] ?? ''));
+    $access_token = trim((string) ($context['access_token'] ?? ''));
+    if ($calendar_id === '' || $access_token === '') {
+        return [
+            'ok' => false,
+            'message' => 'Google booking context is missing calendar or access token.',
+            'calendar_id' => '',
+            'event_id' => '',
+            'event_link' => '',
+        ];
+    }
+
+    $payload = ado_cd_google_booking_event_payload($order, $schedule_date, $door_labels, $note);
+    $response = wp_remote_post(
+        'https://www.googleapis.com/calendar/v3/calendars/' . rawurlencode($calendar_id) . '/events?sendUpdates=none',
+        [
+            'headers' => [
+                'Authorization' => 'Bearer ' . $access_token,
+                'Content-Type' => 'application/json',
+            ],
+            'timeout' => 20,
+            'body' => wp_json_encode($payload),
+        ]
+    );
+    if (is_wp_error($response)) {
+        return [
+            'ok' => false,
+            'message' => 'Google calendar booking creation failed: ' . $response->get_error_message(),
+            'calendar_id' => $calendar_id,
+            'event_id' => '',
+            'event_link' => '',
+        ];
+    }
+    $code = (int) wp_remote_retrieve_response_code($response);
+    $body = (string) wp_remote_retrieve_body($response);
+    $decoded = json_decode($body, true);
+    if ($code < 200 || $code >= 300 || !is_array($decoded)) {
+        $error_message = trim((string) ($decoded['error']['message'] ?? 'Google calendar returned a non-success response.'));
+        return [
+            'ok' => false,
+            'message' => 'Google calendar booking creation failed' . ($code > 0 ? ' (' . $code . ')' : '') . ': ' . $error_message,
+            'calendar_id' => $calendar_id,
+            'event_id' => '',
+            'event_link' => '',
+        ];
+    }
+    return [
+        'ok' => true,
+        'message' => '',
+        'calendar_id' => $calendar_id,
+        'event_id' => trim((string) ($decoded['id'] ?? '')),
+        'event_link' => trim((string) ($decoded['htmlLink'] ?? '')),
+    ];
+}
+
+function ado_cd_google_update_booking_event(WC_Order $order, string $calendar_id, string $event_id, string $schedule_date, array $door_labels, string $note = ''): array {
+    $calendar_id = trim($calendar_id);
+    $event_id = trim($event_id);
+    if ($calendar_id === '' || $event_id === '') {
+        return [
+            'ok' => false,
+            'message' => 'Google calendar booking reference is missing for update.',
+            'calendar_id' => $calendar_id,
+            'event_id' => $event_id,
+            'event_link' => '',
+        ];
+    }
+    $context = ado_cd_google_booking_write_context($order);
+    if (empty($context['ok'])) {
+        return [
+            'ok' => false,
+            'message' => (string) ($context['message'] ?? 'Google booking context is unavailable.'),
+            'calendar_id' => $calendar_id,
+            'event_id' => $event_id,
+            'event_link' => '',
+        ];
+    }
+    $access_token = trim((string) ($context['access_token'] ?? ''));
+    if ($access_token === '') {
+        return [
+            'ok' => false,
+            'message' => 'Google booking context is missing access token.',
+            'calendar_id' => $calendar_id,
+            'event_id' => $event_id,
+            'event_link' => '',
+        ];
+    }
+    $payload = ado_cd_google_booking_event_payload($order, $schedule_date, $door_labels, $note);
+    $response = wp_remote_request(
+        'https://www.googleapis.com/calendar/v3/calendars/' . rawurlencode($calendar_id) . '/events/' . rawurlencode($event_id) . '?sendUpdates=none',
+        [
+            'method' => 'PATCH',
+            'headers' => [
+                'Authorization' => 'Bearer ' . $access_token,
+                'Content-Type' => 'application/json',
+            ],
+            'timeout' => 20,
+            'body' => wp_json_encode($payload),
+        ]
+    );
+    if (is_wp_error($response)) {
+        return [
+            'ok' => false,
+            'message' => 'Google calendar booking update failed: ' . $response->get_error_message(),
+            'calendar_id' => $calendar_id,
+            'event_id' => $event_id,
+            'event_link' => '',
+        ];
+    }
+    $code = (int) wp_remote_retrieve_response_code($response);
+    $body = (string) wp_remote_retrieve_body($response);
+    $decoded = json_decode($body, true);
+    if ($code < 200 || $code >= 300 || !is_array($decoded)) {
+        $error_message = trim((string) ($decoded['error']['message'] ?? 'Google calendar returned a non-success response.'));
+        return [
+            'ok' => false,
+            'message' => 'Google calendar booking update failed' . ($code > 0 ? ' (' . $code . ')' : '') . ': ' . $error_message,
+            'calendar_id' => $calendar_id,
+            'event_id' => $event_id,
+            'event_link' => '',
+        ];
+    }
+    return [
+        'ok' => true,
+        'message' => '',
+        'calendar_id' => $calendar_id,
+        'event_id' => trim((string) ($decoded['id'] ?? $event_id)),
+        'event_link' => trim((string) ($decoded['htmlLink'] ?? '')),
+    ];
+}
+
+function ado_cd_google_cancel_booking_event(WC_Order $order, string $calendar_id, string $event_id): array {
+    $calendar_id = trim($calendar_id);
+    $event_id = trim($event_id);
+    if ($calendar_id === '' || $event_id === '') {
+        return [
+            'ok' => false,
+            'message' => 'Google calendar booking reference is missing.',
+        ];
+    }
+    $context = ado_cd_google_booking_write_context($order);
+    if (empty($context['ok'])) {
+        return [
+            'ok' => false,
+            'message' => (string) ($context['message'] ?? 'Google booking context is unavailable.'),
+        ];
+    }
+    $access_token = trim((string) ($context['access_token'] ?? ''));
+    if ($access_token === '') {
+        return [
+            'ok' => false,
+            'message' => 'Google calendar cancellation failed: access token is missing.',
+        ];
+    }
+    $response = wp_remote_request(
+        'https://www.googleapis.com/calendar/v3/calendars/' . rawurlencode($calendar_id) . '/events/' . rawurlencode($event_id) . '?sendUpdates=none',
+        [
+            'method' => 'DELETE',
+            'headers' => [
+                'Authorization' => 'Bearer ' . $access_token,
+            ],
+            'timeout' => 20,
+        ]
+    );
+    if (is_wp_error($response)) {
+        return [
+            'ok' => false,
+            'message' => 'Google calendar cancellation failed: ' . $response->get_error_message(),
+        ];
+    }
+    $code = (int) wp_remote_retrieve_response_code($response);
+    if ($code === 404 || $code === 410) {
+        return ['ok' => true, 'message' => ''];
+    }
+    if ($code < 200 || $code >= 300) {
+        $decoded = json_decode((string) wp_remote_retrieve_body($response), true);
+        $error_message = trim((string) ($decoded['error']['message'] ?? 'Google calendar returned a non-success response.'));
+        return [
+            'ok' => false,
+            'message' => 'Google calendar cancellation failed' . ($code > 0 ? ' (' . $code . ')' : '') . ': ' . $error_message,
+        ];
+    }
+    return ['ok' => true, 'message' => ''];
 }
 
 function ado_cd_google_calendar_mapping(array $assigned_technician_ids): array {
@@ -330,6 +970,9 @@ function ado_cd_google_calendar_mapping(array $assigned_technician_ids): array {
             continue;
         }
         $calendar_id = trim((string) get_user_meta($technician_id, '_ado_google_calendar_id', true));
+        if ($calendar_id === '') {
+            $calendar_id = ado_cd_google_default_calendar_id_for_technician($technician_id);
+        }
         $calendar_id = trim((string) apply_filters('ado_cd_google_calendar_id_for_technician', $calendar_id, $technician_id));
         if ($calendar_id === '') {
             $missing_technician_ids[] = $technician_id;
@@ -372,6 +1015,19 @@ function ado_cd_google_freebusy_busy_blocks(array $calendar_payloads): array {
     return $busy_blocks;
 }
 
+function ado_cd_google_time_range_label(int $start_ts, int $end_ts, DateTimeZone $timezone): string {
+    if ($end_ts <= $start_ts) {
+        return '';
+    }
+    try {
+        $start = (new DateTimeImmutable('@' . $start_ts))->setTimezone($timezone);
+        $end = (new DateTimeImmutable('@' . $end_ts))->setTimezone($timezone);
+    } catch (Exception $exception) {
+        return '';
+    }
+    return $start->format('g:i A') . ' - ' . $end->format('g:i A');
+}
+
 function ado_cd_google_availability_finalize(array $result, WC_Order $order, int $window_days): array {
     $result['source'] = trim((string) ($result['source'] ?? 'google_freebusy'));
     if ($result['source'] === '') {
@@ -400,7 +1056,7 @@ function ado_cd_google_availability_finalize(array $result, WC_Order $order, int
     return apply_filters('ado_cd_google_availability_adapter_result', $result, $order, $window_days);
 }
 
-function ado_cd_google_availability_adapter(WC_Order $order, int $window_days = 14): array {
+function ado_cd_google_availability_adapter(WC_Order $order, int $window_days = 60): array {
     $result = [
         'state' => 'fetch_error',
         'message' => 'Live Google availability could not be loaded right now.',
@@ -415,7 +1071,7 @@ function ado_cd_google_availability_adapter(WC_Order $order, int $window_days = 
         'slots' => [],
     ];
 
-    $assigned_technician_ids = ado_cd_parse_technician_ids((string) $order->get_meta('_ado_technician_ids'));
+    $assigned_technician_ids = ado_cd_assigned_technician_ids($order);
     $result['assigned_technician_ids'] = $assigned_technician_ids;
     if (!$assigned_technician_ids) {
         $result['state'] = 'no_assigned_technician';
@@ -434,12 +1090,13 @@ function ado_cd_google_availability_adapter(WC_Order $order, int $window_days = 
         return ado_cd_google_availability_finalize($result, $order, $window_days);
     }
 
-    $api_key = ado_cd_google_calendar_api_key();
-    if ($api_key === '') {
-        $result['state'] = 'missing_credentials';
-        $result['message'] = 'Live Google availability is currently unavailable because Google Calendar credentials are not configured.';
+    $auth = ado_cd_google_freebusy_access_token();
+    if (($auth['status'] ?? 'fetch_error') !== 'ok') {
+        $result['state'] = sanitize_key((string) ($auth['status'] ?? 'fetch_error'));
+        $result['message'] = trim((string) ($auth['message'] ?? 'Live Google availability is currently unavailable.'));
         return ado_cd_google_availability_finalize($result, $order, $window_days);
     }
+    $access_token = trim((string) ($auth['access_token'] ?? ''));
 
     $day_rows = ado_cd_schedule_business_day_rows($window_days);
     if (!$day_rows) {
@@ -450,116 +1107,127 @@ function ado_cd_google_availability_adapter(WC_Order $order, int $window_days = 
 
     $first_day = $day_rows[0];
     $last_day = $day_rows[count($day_rows) - 1];
-    $response = wp_remote_post(
-        'https://www.googleapis.com/calendar/v3/freeBusy?key=' . rawurlencode($api_key),
-        [
-            'headers' => ['Content-Type' => 'application/json'],
-            'timeout' => 20,
-            'body' => wp_json_encode([
-                'timeMin' => $first_day['day_start']->format(DateTimeInterface::RFC3339),
-                'timeMax' => $last_day['day_end']->format(DateTimeInterface::RFC3339),
-                'timeZone' => $result['timezone'],
-                'items' => array_map(static function (string $calendar_id): array {
-                    return ['id' => $calendar_id];
-                }, $result['calendar_ids']),
-            ]),
-        ]
-    );
-
-    if (is_wp_error($response)) {
-        $result['state'] = 'fetch_error';
-        $result['message'] = 'Live Google availability could not be loaded right now: ' . $response->get_error_message();
-        return ado_cd_google_availability_finalize($result, $order, $window_days);
-    }
-
-    $response_code = (int) wp_remote_retrieve_response_code($response);
-    $response_body = (string) wp_remote_retrieve_body($response);
-    if ($response_code < 200 || $response_code >= 300) {
-        $decoded_error = json_decode($response_body, true);
-        $error_message = trim((string) ($decoded_error['error']['message'] ?? ''));
-        $result['state'] = 'fetch_error';
-        $result['message'] = 'Live Google availability request failed'
-            . ($response_code > 0 ? ' (' . $response_code . ')' : '')
-            . ($error_message !== '' ? ': ' . $error_message : '.');
-        return ado_cd_google_availability_finalize($result, $order, $window_days);
-    }
-
-    $decoded = json_decode($response_body, true);
-    if (!is_array($decoded)) {
-        $result['state'] = 'fetch_error';
-        $result['message'] = 'Live Google availability returned an unreadable response.';
-        return ado_cd_google_availability_finalize($result, $order, $window_days);
-    }
-
-    $calendar_payloads = (array) ($decoded['calendars'] ?? []);
-    if (!$calendar_payloads) {
-        $result['state'] = 'fetch_error';
-        $result['message'] = 'Live Google availability returned no calendar payload.';
-        return ado_cd_google_availability_finalize($result, $order, $window_days);
-    }
-
-    $calendar_errors = [];
-    foreach ($result['calendar_ids'] as $calendar_id) {
-        foreach ((array) (($calendar_payloads[$calendar_id] ?? [])['errors'] ?? []) as $error_row) {
-            $reason = trim((string) ($error_row['reason'] ?? ''));
-            if ($reason !== '') {
-                $calendar_errors[] = $calendar_id . ': ' . $reason;
-            }
-        }
-    }
-    if ($calendar_errors) {
-        $result['state'] = 'fetch_error';
-        $result['message'] = 'Live Google availability could not read every assigned calendar: ' . implode('; ', $calendar_errors);
-        return ado_cd_google_availability_finalize($result, $order, $window_days);
-    }
-
-    $busy_blocks = ado_cd_google_freebusy_busy_blocks($calendar_payloads);
-    $slot_windows = ado_cd_schedule_slot_windows();
+    $time_min_raw = $first_day['day_start']->format(DateTimeInterface::RFC3339);
+    $time_max_raw = $last_day['day_end']->format(DateTimeInterface::RFC3339);
     $timezone = ado_cd_schedule_timezone();
     $slots = [];
-
-    foreach ($day_rows as $day_row) {
-        foreach ($slot_windows as $slot_key => $slot_window) {
-            try {
-                $slot_start = new DateTimeImmutable($day_row['date_key'] . ' ' . (string) ($slot_window['start'] ?? '00:00'), $timezone);
-                $slot_end = new DateTimeImmutable($day_row['date_key'] . ' ' . (string) ($slot_window['end'] ?? '23:59'), $timezone);
-            } catch (Exception $exception) {
-                continue;
+    $dedupe_map = [];
+    foreach ($result['calendar_ids'] as $calendar_id) {
+        $page_token = '';
+        $page_guard = 0;
+        do {
+            $events_url = 'https://www.googleapis.com/calendar/v3/calendars/' . rawurlencode((string) $calendar_id) . '/events'
+                . '?singleEvents=true'
+                . '&orderBy=startTime'
+                . '&maxResults=2500'
+                . '&timeMin=' . rawurlencode($time_min_raw)
+                . '&timeMax=' . rawurlencode($time_max_raw)
+                . '&timeZone=' . rawurlencode((string) $result['timezone']);
+            if ($page_token !== '') {
+                $events_url .= '&pageToken=' . rawurlencode($page_token);
             }
-            if ($slot_end <= $slot_start) {
-                continue;
+            $events_response = wp_remote_get($events_url, [
+                'headers' => [
+                    'Authorization' => 'Bearer ' . $access_token,
+                ],
+                'timeout' => 20,
+            ]);
+            if (is_wp_error($events_response)) {
+                $result['state'] = 'fetch_error';
+                $result['message'] = 'Live Google calendar events could not be loaded right now: ' . $events_response->get_error_message();
+                return ado_cd_google_availability_finalize($result, $order, $window_days);
+            }
+            $events_response_code = (int) wp_remote_retrieve_response_code($events_response);
+            $events_response_body = (string) wp_remote_retrieve_body($events_response);
+            $events_decoded = json_decode($events_response_body, true);
+            if ($events_response_code < 200 || $events_response_code >= 300 || !is_array($events_decoded)) {
+                $error_message = trim((string) ($events_decoded['error']['message'] ?? ''));
+                $result['state'] = 'fetch_error';
+                $result['message'] = 'Live Google calendar events request failed'
+                    . ($events_response_code > 0 ? ' (' . $events_response_code . ')' : '')
+                    . ($error_message !== '' ? ': ' . $error_message : '.');
+                return ado_cd_google_availability_finalize($result, $order, $window_days);
             }
 
-            $is_busy = false;
-            foreach ($busy_blocks as $busy_block) {
-                if ((int) ($busy_block['start_ts'] ?? 0) < $slot_end->getTimestamp() && (int) ($busy_block['end_ts'] ?? 0) > $slot_start->getTimestamp()) {
-                    $is_busy = true;
-                    break;
+            foreach ((array) ($events_decoded['items'] ?? []) as $event_row) {
+                if (!is_array($event_row)) {
+                    continue;
                 }
-            }
-            if ($is_busy) {
-                continue;
+                if (strtolower(trim((string) ($event_row['status'] ?? ''))) === 'cancelled') {
+                    continue;
+                }
+                $start_dt_raw = trim((string) (($event_row['start']['dateTime'] ?? '')));
+                $end_dt_raw = trim((string) (($event_row['end']['dateTime'] ?? '')));
+                $start_date_raw = trim((string) (($event_row['start']['date'] ?? '')));
+                $is_all_day = $start_dt_raw === '' && $start_date_raw !== '';
+                try {
+                    if ($is_all_day) {
+                        $event_start = new DateTimeImmutable($start_date_raw . ' 00:00:00', $timezone);
+                        $end_date_raw = trim((string) (($event_row['end']['date'] ?? '')));
+                        $event_end = $end_date_raw !== ''
+                            ? new DateTimeImmutable($end_date_raw . ' 00:00:00', $timezone)
+                            : $event_start->modify('+1 day');
+                    } else {
+                        if ($start_dt_raw === '') {
+                            continue;
+                        }
+                        $event_start = (new DateTimeImmutable($start_dt_raw))->setTimezone($timezone);
+                        $event_end = $end_dt_raw !== ''
+                            ? (new DateTimeImmutable($end_dt_raw))->setTimezone($timezone)
+                            : $event_start;
+                    }
+                } catch (Exception $exception) {
+                    continue;
+                }
+                if ($event_end <= $event_start) {
+                    continue;
+                }
+
+                $event_start_ts = $event_start->getTimestamp();
+                $event_end_ts = $event_end->getTimestamp();
+                $event_key = trim((string) ($event_row['id'] ?? '')) . '|' . $event_start_ts . '|' . $event_end_ts . '|' . (string) $calendar_id;
+                if (isset($dedupe_map[$event_key])) {
+                    continue;
+                }
+                $dedupe_map[$event_key] = true;
+
+                $event_title = trim((string) ($event_row['summary'] ?? ''));
+                if ($event_title === '') {
+                    $event_title = 'Untitled Event';
+                }
+                $slots[] = [
+                    'date_key' => $event_start->format('Y-m-d'),
+                    'date_label' => $event_start->format('D, M j'),
+                    'slot_key' => 'event-' . md5($event_key),
+                    'slot_label' => $event_title,
+                    'slot_time_range' => $is_all_day ? 'All day' : ado_cd_google_time_range_label($event_start_ts, $event_end_ts, $timezone),
+                    'slot_start' => $event_start->format(DateTimeInterface::RFC3339),
+                    'slot_end' => $event_end->format(DateTimeInterface::RFC3339),
+                    'timezone' => $result['timezone'],
+                    'source' => 'google_calendar_events',
+                    'fetched_at' => $result['fetched_at'],
+                ];
             }
 
-            $slots[] = [
-                'date_key' => (string) ($day_row['date_key'] ?? ''),
-                'date_label' => (string) ($day_row['date_label'] ?? ''),
-                'slot_key' => (string) $slot_key,
-                'slot_label' => (string) ($slot_window['label'] ?? $slot_key),
-                'slot_start' => $slot_start->format(DateTimeInterface::RFC3339),
-                'slot_end' => $slot_end->format(DateTimeInterface::RFC3339),
-                'timezone' => $result['timezone'],
-                'source' => 'google_freebusy',
-                'fetched_at' => $result['fetched_at'],
-            ];
+            $page_token = trim((string) ($events_decoded['nextPageToken'] ?? ''));
+            $page_guard++;
+        } while ($page_token !== '' && $page_guard < 20);
+        if ($page_token !== '') {
+            $result['state'] = 'fetch_error';
+            $result['message'] = 'Live Google calendar events pagination exceeded safe limits.';
+            return ado_cd_google_availability_finalize($result, $order, $window_days);
         }
     }
+    usort($slots, static function (array $left, array $right): int {
+        return strcmp((string) ($left['slot_start'] ?? ''), (string) ($right['slot_start'] ?? ''));
+    });
 
     $result['state'] = 'ok';
     $result['message'] = $slots
-        ? 'Live availability is shown from Google Calendar free/busy.'
-        : 'No live availability was returned from Google Calendar for the next 14 business days.';
+        ? 'Existing Google Calendar events are shown below by title and time range.'
+        : 'No Google Calendar events were found for the current booking window.';
     $result['slots'] = $slots;
+    $result['source'] = 'google_calendar_events';
 
     return ado_cd_google_availability_finalize($result, $order, $window_days);
 }
@@ -583,6 +1251,132 @@ function ado_cd_schedule_request_state(WC_Order $order): array {
         'requested_by_user' => $requested_by,
         'requested_at' => $requested_at,
     ];
+}
+
+function ado_cd_client_schedule_bookings(WC_Order $order): array {
+    $rows = $order->get_meta('_ado_client_schedule_bookings');
+    if (!is_array($rows)) {
+        return [];
+    }
+    $normalized = [];
+    foreach ($rows as $row) {
+        if (!is_array($row)) {
+            continue;
+        }
+        $booking_id = trim((string) ($row['booking_id'] ?? ''));
+        if ($booking_id === '') {
+            $booking_id = 'ado_booking_' . wp_generate_uuid4();
+        }
+        $schedule_date = trim((string) ($row['schedule_date'] ?? ''));
+        if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $schedule_date)) {
+            continue;
+        }
+        $door_ids = [];
+        foreach ((array) ($row['door_ids'] ?? []) as $door_id) {
+            $door_id = sanitize_text_field((string) $door_id);
+            if ($door_id === '') {
+                continue;
+            }
+            $door_ids[$door_id] = true;
+        }
+        $status = strtolower(trim((string) ($row['status'] ?? 'active')));
+        if (!in_array($status, ['active', 'cancelled'], true)) {
+            $status = 'active';
+        }
+        $normalized[] = [
+            'booking_id' => $booking_id,
+            'schedule_date' => $schedule_date,
+            'door_ids' => array_values(array_keys($door_ids)),
+            'status' => $status,
+            'note' => sanitize_textarea_field((string) ($row['note'] ?? '')),
+            'created_at' => trim((string) ($row['created_at'] ?? '')),
+            'created_by' => (int) ($row['created_by'] ?? 0),
+            'created_by_client_id' => (int) ($row['created_by_client_id'] ?? ($row['created_by'] ?? 0)),
+            'created_by_name' => sanitize_text_field((string) ($row['created_by_name'] ?? '')),
+            'created_by_email' => sanitize_email((string) ($row['created_by_email'] ?? '')),
+            'cancelled_at' => trim((string) ($row['cancelled_at'] ?? '')),
+            'cancelled_by' => (int) ($row['cancelled_by'] ?? 0),
+            'calendar_id' => trim((string) ($row['calendar_id'] ?? '')),
+            'google_event_id' => trim((string) ($row['google_event_id'] ?? '')),
+            'google_event_link' => trim((string) ($row['google_event_link'] ?? '')),
+        ];
+    }
+    return $normalized;
+}
+
+function ado_cd_booking_is_owned_by_client(array $booking_row, int $client_user_id, ?WP_User $client_user = null): bool {
+    if ($client_user_id <= 0) {
+        return false;
+    }
+    $owner_ids = [
+        (int) ($booking_row['created_by_client_id'] ?? 0),
+        (int) ($booking_row['created_by'] ?? 0),
+    ];
+    foreach ($owner_ids as $owner_id) {
+        if ($owner_id > 0 && $owner_id === $client_user_id) {
+            return true;
+        }
+    }
+    $booking_email = strtolower(trim((string) ($booking_row['created_by_email'] ?? '')));
+    $client_email = '';
+    if ($client_user instanceof WP_User) {
+        $client_email = strtolower(trim((string) $client_user->user_email));
+    }
+    return $booking_email !== '' && $client_email !== '' && $booking_email === $client_email;
+}
+
+function ado_cd_client_schedule_active_bookings(WC_Order $order): array {
+    $rows = [];
+    foreach (ado_cd_client_schedule_bookings($order) as $booking) {
+        if ((string) ($booking['status'] ?? '') !== 'active') {
+            continue;
+        }
+        $rows[] = $booking;
+    }
+    return $rows;
+}
+
+function ado_cd_client_schedule_active_booked_door_ids(WC_Order $order): array {
+    $rows = [];
+    foreach (ado_cd_client_schedule_active_bookings($order) as $booking) {
+        foreach ((array) ($booking['door_ids'] ?? []) as $door_id) {
+            $door_id = sanitize_text_field((string) $door_id);
+            if ($door_id === '') {
+                continue;
+            }
+            $rows[$door_id] = true;
+        }
+    }
+    return array_values(array_keys($rows));
+}
+
+function ado_cd_client_booking_reference(array $orders, string $booking_id): ?array {
+    $booking_id = trim($booking_id);
+    if ($booking_id === '') {
+        return null;
+    }
+    foreach ($orders as $order) {
+        if (!($order instanceof WC_Order)) {
+            continue;
+        }
+        $bookings = ado_cd_client_schedule_bookings($order);
+        foreach ($bookings as $index => $booking_row) {
+            if (!is_array($booking_row)) {
+                continue;
+            }
+            if ((string) ($booking_row['booking_id'] ?? '') !== $booking_id) {
+                continue;
+            }
+            return [
+                'order' => $order,
+                'order_id' => (int) $order->get_id(),
+                'bookings' => $bookings,
+                'index' => (int) $index,
+                'booking' => $booking_row,
+            ];
+        }
+    }
+    return null;
 }
 
 function ado_cd_scope_payload(WC_Order $order): array {
@@ -937,6 +1731,422 @@ function ado_cd_client_door_feedback_state(WC_Order $order, string $door_id): ar
     $defaults['documents'] = $documents;
 
     return $defaults;
+}
+
+function ado_cd_site_readiness_sections(): array {
+    return [
+        'opening_ready' => [
+            'title' => 'Opening is fully ready',
+            'purpose' => 'Confirm the technician is arriving to a finished, installable opening, not an active rough opening. Jambs and doors are by others/customer, which means the opening itself must already be in place.',
+            'items' => [
+                'door_id_matches_drawings' => 'Door number / opening ID is confirmed and matches drawings/submittal.',
+                'handing_confirmed' => 'Correct handing is confirmed: LH, RH, LHR, RHR, single, pair, in-swing, out-swing.',
+                'opening_size_matches_drawings' => 'Opening width and height match approved shop drawings.',
+                'header_height_clearance_ok' => 'Header height and clearances match operator requirements.',
+                'jambs_installed_and_anchored' => 'Jambs are installed, anchored, and not loose.',
+                'frame_plumb_square_true' => 'Frame is plumb, square, and true.',
+                'header_level_and_structural' => 'Header is level and structurally sound.',
+                'mounting_surface_complete' => 'Mounting surface is complete and free of drywall gaps, voids, or unfinished blocking.',
+                'reinforcement_installed' => 'Required reinforcement/backing is installed where operator and peripherals mount.',
+                'no_pending_opening_work' => 'No pending glazing, framing, or aluminum storefront work remains at the opening.',
+                'finish_surfaces_complete' => 'Finish surfaces that affect mounting locations are complete.',
+                'ceiling_access_clear' => 'Ceiling/soffit condition above the opening will not block cover removal or service access.',
+            ],
+        ],
+        'manual_operation_ready' => [
+            'title' => 'Door and hardware operate correctly manually',
+            'purpose' => 'The operator should automate a properly functioning door, not compensate for a bad door installation. The technician assumes the installed door assembly is ready for setup.',
+            'items' => [
+                'door_leaf_installed' => 'Door leaf is installed and secured.',
+                'hinges_aligned' => 'Hinges/pivots are correct, tight, and properly aligned.',
+                'full_manual_swing' => 'Door swings freely through full travel by hand.',
+                'no_binding' => 'Door does not bind at head, jamb, threshold, floor, or weatherstrip.',
+                'door_closes_consistently' => 'Door closes fully and consistently without sticking.',
+                'reveal_gaps_consistent' => 'Reveal gaps are consistent.',
+                'threshold_no_interference' => 'Threshold is installed and does not interfere with swing.',
+                'bottom_pivot_area_complete' => 'Bottom pivot/floor closer area is complete where applicable.',
+                'manual_closer_coordinated' => 'Existing manual closer, if any, has been coordinated with the operator scope.',
+                'lockset_manual_operation_ok' => 'Lockset/latch engages and releases correctly by hand.',
+                'seals_not_obstructing' => 'Weatherstripping, sweeps, astragals, coordinators, and seals do not obstruct operation.',
+                'pair_doors_aligned' => 'Pair doors are aligned and meeting edges are correct.',
+            ],
+        ],
+        'electrical_power_ready' => [
+            'title' => 'Electrical power is roughed in and available',
+            'purpose' => 'The technician should not arrive to discover there is no power, wrong voltage, or no way to energize the operator. Technicians expect to coordinate automatic door operators connections to power supplies and related devices.',
+            'items' => [
+                'power_requirements_confirmed' => 'Correct power requirement has been confirmed from approved submittal or manufacturer cut sheet.',
+                'dedicated_branch_installed' => 'Dedicated branch circuit is installed where required.',
+                'correct_voltage_present' => 'Correct voltage is present at the operator location.',
+                'disconnect_known' => 'Disconnecting means / breaker identification is known.',
+                'junction_location_correct' => 'Junction box or power stub-out is at the correct location.',
+                'conductors_ready' => 'Conductors are pulled, labeled, and terminated or ready for termination.',
+                'circuit_live_tested' => 'Circuit has been tested live by electrician.',
+                'no_temporary_power' => 'No temporary power is being relied on for final install.',
+                'ceiling_access_for_power' => 'Ceiling closure or millwork will not block access to the power connection.',
+                'related_device_power_ready' => 'Power for related devices/power supplies is also available if part of the system.',
+            ],
+        ],
+        'low_voltage_ready' => [
+            'title' => 'Low-voltage pathways and device rough-in are complete',
+            'purpose' => 'Push plates, sensors, key switches, program switches, annunciators, and other accessories need conduit, boxes, and cable paths ready before install. Technicians expect the right wires or pull strings and device boxes at the right locations.',
+            'items' => [
+                'all_accessories_identified' => 'Every accessory in scope has been identified from approved submittal.',
+                'device_boxes_installed' => 'Device box locations are installed for push plates / switches / controls.',
+                'conduit_paths_installed' => 'Conduit pathways are installed from operator to each field device where required.',
+                'cable_or_pullstring_pulled' => 'Pull string or low-voltage cable has been pulled as specified.',
+                'cable_type_matches_requirement' => 'Pull string or cable type matches the project requirement.',
+                'spare_capacity_present' => 'Spare conductors or extra capacity is present if required by project standard.',
+                'wires_labeled' => 'Wires are labeled at both ends.',
+                'pathways_complete' => 'Pathways are complete through walls, frames, ceiling spaces, and mullions.',
+                'no_system_conflicts' => 'No pathway conflicts remain with security, fire alarm, or glazing.',
+                'surface_raceway_approved' => 'Surface raceway requirements have been approved if conduit is not concealed.',
+                'mounting_heights_coordinated' => 'Device mounting heights and accessibility locations have been coordinated.',
+            ],
+        ],
+        'locks_and_sequencing' => [
+            'title' => 'Locks, electrified hardware, and release sequencing are coordinated',
+            'purpose' => 'This is one of the biggest sources of failed trips. The lock system must be coordinated and, where required for proper operation, a time-delay relay must be provided so the automatic operator activates only after the electric lock releases.',
+            'items' => [
+                'electrified_lock_reviewed' => 'Opening has been reviewed for maglock, electric strike, ELR, shear lock, latch retraction, or other electrified locking.',
+                'lock_model_known' => 'Lock hardware model and function are known.',
+                'sequence_defined_in_writing' => 'Sequence of operation has been defined in writing.',
+                'operator_signal_known' => 'Operator signal source is known.',
+                'lock_release_signal_known' => 'Lock release signal source is known.',
+                'time_delay_provided' => 'Time delay relay is provided if required.',
+                'access_control_interface_coordinated' => 'Card reader / access control interface has been coordinated.',
+                'monitoring_contacts_coordinated' => 'Request-to-exit / door position / latch monitoring contacts are coordinated where required.',
+                'fail_safe_mode_confirmed' => 'Fail-safe vs fail-secure behavior has been confirmed.',
+                'fire_alarm_requirements_known' => 'Fire alarm interface requirements are known.',
+                'shared_written_sequence' => 'Security integrator and automatic door installer have the same written sequence.',
+                'timing_test_ready' => 'Any special unlock-before-open timing has been tested or is ready to be tested.',
+            ],
+        ],
+        'systems_integration_defined' => [
+            'title' => 'Other systems integration is defined',
+            'purpose' => 'The operator may need to interface with fire alarm, building security, access control, intercom, or emergency egress logic. Integration with other systems may be required for a complete working installation depending on scope.',
+            'items' => [
+                'fire_alarm_interaction_known' => 'Fire alarm interaction requirement is known.',
+                'access_control_interaction_known' => 'Access control interaction requirement is known.',
+                'intercom_interaction_known' => 'Intercom or nurse call interaction requirement is known if applicable.',
+                'no_unfinished_trade_dependency' => 'Automatic operator is not being expected to solve another trade\'s unfinished integration.',
+                'interface_owners_assigned' => 'Responsible trade for each interface is assigned.',
+                'io_points_identified' => 'Required dry contacts / outputs / inputs have been identified.',
+                'integration_drawings_available' => 'Integration drawings or riser details are available on site.',
+                'test_participants_identified' => 'Functional test participants are identified: electrician, security, fire alarm, door tech, PM.',
+                'startup_owner_assigned' => 'Final startup/testing responsibility is assigned.',
+                'after_hours_window_scheduled' => 'After-hours access/testing windows are scheduled if needed.',
+                'owner_rep_alignment' => 'Building owner rep knows which systems must be live for testing.',
+            ],
+        ],
+        'peripheral_locations_finalized' => [
+            'title' => 'Peripheral mounting locations are finalized and field-approved',
+            'purpose' => 'Safety devices and activation devices cannot be placed casually. AAADM notes ANSI/BHMA standards define installation, sensing-device, and safety requirements, so device placement must align with approved design and safe operation.',
+            'items' => [
+                'push_plate_locations_marked' => 'Push plate locations are decided and marked.',
+                'push_plate_heights_compliant' => 'Push plate heights comply with project accessibility requirements.',
+                'sensor_locations_clear' => 'Safety sensor locations are decided and unobstructed.',
+                'approach_and_swing_reviewed' => 'Approach side and swing side conditions have been reviewed.',
+                'program_controls_accessible' => 'Program switch / key switch / reset controls are located and accessible.',
+                'no_coverage_conflicts' => 'Bollards, walls, columns, furniture, and planters do not conflict with device coverage.',
+                'no_nuisance_activation_risk' => 'Device locations do not create nuisance activations from adjacent pedestrian traffic.',
+                'guide_rails_provided' => 'Guide rails or barriers are provided where called for.',
+                'mounting_surfaces_final' => 'Mounting surfaces are final and suitable for the device type.',
+                'signage_locations_reserved' => 'Signage locations are reserved and visible.',
+                'owner_preferences_documented' => 'Owner/user preference items are documented before install day.',
+            ],
+        ],
+        'flooring_and_elevations_complete' => [
+            'title' => 'Flooring, thresholds, and finished elevations are complete',
+            'purpose' => 'Final floor conditions affect clearances, bottom pivots, sensor geometry, and true operation of the opening. Bottom-pivot preparation and door hanging dependencies rely on completed opening/floor conditions.',
+            'items' => [
+                'final_flooring_installed' => 'Final flooring is installed at both sides of the opening.',
+                'transitions_complete' => 'Floor height transitions are complete.',
+                'threshold_installed' => 'Threshold is installed and secured.',
+                'no_temp_floor_masking' => 'No temporary floor protection is masking final elevations.',
+                'pivot_work_complete' => 'Floor closer pocket / bottom pivot work is complete where applicable.',
+                'no_floor_interference' => 'Carpet, tile, mat wells, ramps, and reducers do not interfere with swing or sensor zones.',
+                'floor_level_within_tolerance' => 'Floor is level across the door path within acceptable project tolerances.',
+                'floor_accessory_locations_final' => 'Any floor-mounted accessory locations are finalized.',
+                'ffe_matches_submittal' => 'Finished floor elevation matches what the submittal assumed.',
+                'no_future_floor_change_planned' => 'No future flooring change is planned after install.',
+            ],
+        ],
+        'signage_and_compliance_planned' => [
+            'title' => 'Signage, labels, and compliance items are planned',
+            'purpose' => 'Automatic doors need required labels/signage and a compliant final setup. ANSI/BHMA standards and manufacturer requirements govern installation, safety labels, and final setup.',
+            'items' => [
+                'door_and_operator_type_identified' => 'Correct door type and operator type have been identified for compliance review.',
+                'safety_labels_in_scope' => 'Required safety decals/labels are included in the project scope.',
+                'signage_owner_assigned' => 'Signage responsibility is assigned: door vendor, GC, or owner.',
+                'program_modes_known' => 'Program mode requirements are known: off / hold open / auto / one-way, etc.',
+                'accessibility_method_understood' => 'Accessibility requirements for activation method are understood.',
+                'glass_markings_complete' => 'Glass/vision panel markings required by other codes are complete.',
+                'graphics_wont_interfere' => 'No branding film, frosting, or graphics will interfere with required labels or sensors.',
+                'inspection_requirements_known' => 'Final inspection requirement is known: internal QA, AAADM inspection, owner witness test, AHJ, or all applicable parties.',
+                'om_and_training_assigned' => 'O&M manuals and training expectations are assigned.',
+                'warranty_closeout_defined' => 'Warranty closeout expectations are defined.',
+            ],
+        ],
+        'safe_access_available' => [
+            'title' => 'Safe, unobstructed access for installation and testing is available',
+            'purpose' => 'Even when the opening is technically ready, the visit fails if the technician cannot safely work, access power, open covers, test the door path, or use ladders/lifts. This is basic site-readiness, not just product-readiness.',
+            'items' => [
+                'opening_released_for_work' => 'Opening is released for work on the scheduled day.',
+                'no_trade_conflicts' => 'No conflicting trades will occupy the area.',
+                'safe_access_equipment_available' => 'Safe access equipment is available if needed: ladder, lift, scaffold.',
+                'lighting_adequate' => 'Work area lighting is adequate.',
+                'ceiling_access_unobstructed' => 'Ceiling/header access is unobstructed.',
+                'path_clear_of_storage' => 'Door swing path and approach areas are free of material storage.',
+                'test_area_control_available' => 'Area can be temporarily controlled for testing.',
+                'hazardous_adjacent_work_isolated' => 'Dusty, wet, or hazardous adjacent work is complete or isolated.',
+                'power_available_for_testing' => 'Power can remain on for startup and testing.',
+                'access_and_escort_arranged' => 'Building access / lockout / escort requirements are arranged.',
+                'site_contact_available' => 'PM or site contact will be available during the visit.',
+                'required_permissions_scheduled' => 'Required shutdowns or security permissions are scheduled.',
+            ],
+        ],
+    ];
+}
+
+function ado_cd_site_readiness_submission_counts(array $definition, array $sections): array {
+    $total_items = 0;
+    $checked_items = 0;
+    foreach ($definition as $section_key => $section_row) {
+        $section_state = is_array($sections[$section_key] ?? null) ? (array) $sections[$section_key] : [];
+        $section_items = is_array($section_state['items'] ?? null) ? (array) $section_state['items'] : [];
+        foreach ((array) ($section_row['items'] ?? []) as $item_key => $_item_label) {
+            $total_items++;
+            if (!empty($section_items[$item_key])) {
+                $checked_items++;
+            }
+        }
+    }
+    return [
+        'total_items' => $total_items,
+        'checked_items' => $checked_items,
+    ];
+}
+
+function ado_cd_site_readiness_submissions(WC_Order $order): array {
+    $definition = ado_cd_site_readiness_sections();
+    $stored = $order->get_meta('_ado_site_readiness_checklist');
+    $stored = is_array($stored) ? $stored : [];
+    $available_door_ids = [];
+    foreach (ado_cd_order_doors($order) as $door_row) {
+        if (!is_array($door_row)) {
+            continue;
+        }
+        $door_id = sanitize_text_field((string) ($door_row['door_id'] ?? ''));
+        if ($door_id === '') {
+            continue;
+        }
+        $available_door_ids[$door_id] = true;
+    }
+
+    $normalize_submission = static function (array $submission_row, string $fallback_id) use ($definition, $available_door_ids): array {
+        $submission_id = preg_replace('/[^a-zA-Z0-9_\-]/', '', sanitize_text_field((string) ($submission_row['submission_id'] ?? '')));
+        if (!is_string($submission_id)) {
+            $submission_id = '';
+        }
+        if ($submission_id === '') {
+            $submission_id = $fallback_id;
+        }
+        $submission_door_lookup = [];
+        foreach ((array) ($submission_row['door_ids'] ?? []) as $submission_door_id_raw) {
+            $submission_door_id = sanitize_text_field((string) $submission_door_id_raw);
+            if ($submission_door_id === '' || !isset($available_door_ids[$submission_door_id])) {
+                continue;
+            }
+            $submission_door_lookup[$submission_door_id] = true;
+        }
+        $submission_sections = is_array($submission_row['sections'] ?? null) ? (array) $submission_row['sections'] : [];
+        $normalized_sections = [];
+        foreach ($definition as $section_key => $section_row) {
+            $input_section = is_array($submission_sections[$section_key] ?? null) ? (array) $submission_sections[$section_key] : [];
+            $input_items = is_array($input_section['items'] ?? null) ? (array) $input_section['items'] : [];
+            $normalized_items = [];
+            foreach ((array) ($section_row['items'] ?? []) as $item_key => $_item_label) {
+                $normalized_items[$item_key] = !empty($input_items[$item_key]);
+            }
+            $normalized_sections[$section_key] = [
+                'items' => $normalized_items,
+                'note' => sanitize_textarea_field((string) ($input_section['note'] ?? '')),
+            ];
+        }
+        return [
+            'submission_id' => $submission_id,
+            'door_ids' => array_values(array_keys($submission_door_lookup)),
+            'sections' => $normalized_sections,
+            'updated_at' => trim((string) ($submission_row['updated_at'] ?? '')),
+            'updated_by' => (int) ($submission_row['updated_by'] ?? 0),
+        ];
+    };
+
+    $normalized_submissions = [];
+    $stored_submissions = is_array($stored['submissions'] ?? null) ? (array) $stored['submissions'] : [];
+    if ($stored_submissions) {
+        foreach ($stored_submissions as $submission_index => $submission_row) {
+            if (!is_array($submission_row)) {
+                continue;
+            }
+            $fallback_id = 'sr_' . (string) ($submission_index + 1);
+            $normalized_submissions[] = $normalize_submission($submission_row, $fallback_id);
+        }
+    } elseif (is_array($stored['sections'] ?? null) || is_array($stored['door_ids'] ?? null)) {
+        $legacy_fallback_id = 'sr_legacy_1';
+        $legacy_submission = [
+            'submission_id' => trim((string) ($stored['submission_id'] ?? $legacy_fallback_id)),
+            'door_ids' => (array) ($stored['door_ids'] ?? []),
+            'sections' => (array) ($stored['sections'] ?? []),
+            'updated_at' => trim((string) ($stored['updated_at'] ?? '')),
+            'updated_by' => (int) ($stored['updated_by'] ?? 0),
+        ];
+        $normalized_submissions[] = $normalize_submission($legacy_submission, $legacy_fallback_id);
+    }
+
+    return array_values($normalized_submissions);
+}
+
+function ado_cd_site_readiness_state(WC_Order $order, string $requested_submission_id = ''): array {
+    $definition = ado_cd_site_readiness_sections();
+    $stored = $order->get_meta('_ado_site_readiness_checklist');
+    $stored = is_array($stored) ? $stored : [];
+    $active_submission_id = preg_replace('/[^a-zA-Z0-9_\-]/', '', sanitize_text_field((string) ($stored['active_submission_id'] ?? '')));
+    if (!is_string($active_submission_id)) {
+        $active_submission_id = '';
+    }
+    $requested_submission_id = preg_replace('/[^a-zA-Z0-9_\-]/', '', sanitize_text_field($requested_submission_id));
+    if (!is_string($requested_submission_id)) {
+        $requested_submission_id = '';
+    }
+    $submissions = ado_cd_site_readiness_submissions($order);
+    $door_label_lookup = [];
+    foreach (ado_cd_order_doors($order) as $door_row) {
+        if (!is_array($door_row)) {
+            continue;
+        }
+        $door_id = sanitize_text_field((string) ($door_row['door_id'] ?? ''));
+        if ($door_id === '') {
+            continue;
+        }
+        $door_label = trim((string) ($door_row['door_label'] ?? ('Door ' . $door_id)));
+        if ($door_label === '') {
+            $door_label = 'Door ' . $door_id;
+        }
+        $door_label_lookup[$door_id] = $door_label;
+    }
+    $selected_submission = null;
+    foreach ([$requested_submission_id, $active_submission_id] as $candidate_submission_id) {
+        $candidate_submission_id = trim((string) $candidate_submission_id);
+        if ($candidate_submission_id === '') {
+            continue;
+        }
+        foreach ($submissions as $submission_row) {
+            if ((string) ($submission_row['submission_id'] ?? '') !== $candidate_submission_id) {
+                continue;
+            }
+            $selected_submission = $submission_row;
+            break 2;
+        }
+    }
+    if (!is_array($selected_submission) && $submissions) {
+        $selected_submission = (array) $submissions[0];
+    }
+    if (!is_array($selected_submission)) {
+        $empty_sections = [];
+        foreach ($definition as $section_key => $section_row) {
+            $empty_items = [];
+            foreach ((array) ($section_row['items'] ?? []) as $item_key => $_item_label) {
+                $empty_items[$item_key] = false;
+            }
+            $empty_sections[$section_key] = [
+                'items' => $empty_items,
+                'note' => '',
+            ];
+        }
+        $selected_submission = [
+            'submission_id' => '',
+            'door_ids' => [],
+            'sections' => $empty_sections,
+            'updated_at' => '',
+            'updated_by' => 0,
+        ];
+    }
+    $selected_sections = is_array($selected_submission['sections'] ?? null) ? (array) $selected_submission['sections'] : [];
+    $selected_counts = ado_cd_site_readiness_submission_counts($definition, $selected_sections);
+    $submission_summaries = [];
+    foreach ($submissions as $submission_index => $submission_row) {
+        if (!is_array($submission_row)) {
+            continue;
+        }
+        $summary_sections = is_array($submission_row['sections'] ?? null) ? (array) $submission_row['sections'] : [];
+        $summary_counts = ado_cd_site_readiness_submission_counts($definition, $summary_sections);
+        $summary_door_labels_map = [];
+        foreach ((array) ($submission_row['door_ids'] ?? []) as $summary_door_id_raw) {
+            $summary_door_id = sanitize_text_field((string) $summary_door_id_raw);
+            if ($summary_door_id === '' || isset($summary_door_labels_map[$summary_door_id])) {
+                continue;
+            }
+            $summary_door_labels_map[$summary_door_id] = (string) ($door_label_lookup[$summary_door_id] ?? ('Door ' . $summary_door_id));
+        }
+        $summary_door_labels = array_values($summary_door_labels_map);
+        $submission_summaries[] = [
+            'submission_id' => trim((string) ($submission_row['submission_id'] ?? '')),
+            'updated_at' => trim((string) ($submission_row['updated_at'] ?? '')),
+            'updated_by' => (int) ($submission_row['updated_by'] ?? 0),
+            'door_count' => count($summary_door_labels),
+            'door_labels' => $summary_door_labels,
+            'door_list' => implode(', ', $summary_door_labels),
+            'checked_items' => (int) ($summary_counts['checked_items'] ?? 0),
+            'total_items' => (int) ($summary_counts['total_items'] ?? 0),
+            'index' => (int) $submission_index,
+        ];
+    }
+
+    return [
+        'submission_id' => trim((string) ($selected_submission['submission_id'] ?? '')),
+        'door_ids' => array_values((array) ($selected_submission['door_ids'] ?? [])),
+        'sections' => $selected_sections,
+        'updated_at' => trim((string) ($selected_submission['updated_at'] ?? '')),
+        'updated_by' => (int) ($selected_submission['updated_by'] ?? 0),
+        'checked_items' => (int) ($selected_counts['checked_items'] ?? 0),
+        'total_items' => (int) ($selected_counts['total_items'] ?? 0),
+        'submissions' => $submission_summaries,
+        'all_submissions' => $submissions,
+    ];
+}
+
+function ado_cd_site_readiness_booking_gate(WC_Order $order): array {
+    $definition = ado_cd_site_readiness_sections();
+    $submissions = ado_cd_site_readiness_submissions($order);
+    $ready_door_lookup = [];
+    foreach ($submissions as $submission_row) {
+        if (!is_array($submission_row)) {
+            continue;
+        }
+        $submission_sections = is_array($submission_row['sections'] ?? null) ? (array) $submission_row['sections'] : [];
+        $submission_counts = ado_cd_site_readiness_submission_counts($definition, $submission_sections);
+        $is_saved = trim((string) ($submission_row['updated_at'] ?? '')) !== '';
+        $is_complete = (int) ($submission_counts['total_items'] ?? 0) > 0
+            && (int) ($submission_counts['checked_items'] ?? 0) >= (int) ($submission_counts['total_items'] ?? 0);
+        if (!$is_saved || !$is_complete) {
+            continue;
+        }
+        foreach ((array) ($submission_row['door_ids'] ?? []) as $door_id_raw) {
+            $door_id = sanitize_text_field((string) $door_id_raw);
+            if ($door_id === '') {
+                continue;
+            }
+            $ready_door_lookup[$door_id] = true;
+        }
+    }
+    return [
+        'door_lookup' => $ready_door_lookup,
+        'door_ids' => array_values(array_keys($ready_door_lookup)),
+        'is_ready_for_booking' => count($ready_door_lookup) > 0,
+        'submission_count' => count($submissions),
+    ];
 }
 
 function ado_cd_project_door_workflow_defaults(): array {
@@ -1621,8 +2831,10 @@ function ado_cd_render_project_workspace(array $orders, int $selected_project_id
     }
 
     $project_id = (int) $project->get_id();
+    $current_client_user_id = (int) get_current_user_id();
+    $current_client_user = wp_get_current_user();
     $project_name = ado_cd_order_name($project);
-    $project_address = function_exists('ado_order_project_address') ? trim((string) ado_order_project_address($project)) : '';
+    $project_address = ado_cd_order_project_address($project);
     $stage = ado_cd_order_stage_label($project);
     $door_count = ado_cd_order_door_count($project);
     $next_visit_raw = trim((string) $project->get_meta('_ado_next_visit_date'));
@@ -1641,6 +2853,313 @@ function ado_cd_render_project_workspace(array $orders, int $selected_project_id
     $critical_notes = trim((string) $project->get_meta('_ado_critical_notes'));
     $po_number = trim((string) $project->get_meta('_ado_po_number'));
     $project_doors = ado_cd_order_doors($project);
+    $project_door_lookup = [];
+    foreach ($project_doors as $door_row) {
+        if (!is_array($door_row)) {
+            continue;
+        }
+        $door_id = trim((string) ($door_row['door_id'] ?? ''));
+        if ($door_id === '') {
+            continue;
+        }
+        $project_door_lookup[$door_id] = [
+            'door_label' => trim((string) ($door_row['door_label'] ?? ('Door ' . $door_id))),
+            'door_meta' => trim(implode(' | ', array_filter([
+                trim((string) ($door_row['model'] ?? '')),
+                trim((string) ($door_row['location'] ?? '')),
+            ]))),
+        ];
+    }
+    $site_readiness_sections = ado_cd_site_readiness_sections();
+    $requested_site_readiness_submission_id = sanitize_text_field((string) ($_GET['site_readiness_submission_id'] ?? ''));
+    $site_readiness_state = ado_cd_site_readiness_state($project, $requested_site_readiness_submission_id);
+    $site_readiness_total_count = (int) ($site_readiness_state['total_items'] ?? 0);
+    $site_readiness_confirmed_count = (int) ($site_readiness_state['checked_items'] ?? 0);
+    $site_readiness_section_count = count($site_readiness_sections);
+    $site_readiness_updated_at = trim((string) ($site_readiness_state['updated_at'] ?? ''));
+    $site_readiness_submission_id = trim((string) ($site_readiness_state['submission_id'] ?? ''));
+    $site_readiness_submission_rows = is_array($site_readiness_state['submissions'] ?? null) ? (array) $site_readiness_state['submissions'] : [];
+    $site_readiness_submission_payload = [];
+    foreach ((array) ($site_readiness_state['all_submissions'] ?? []) as $site_readiness_submission_row) {
+        if (!is_array($site_readiness_submission_row)) {
+            continue;
+        }
+        $site_readiness_submission_row_id = sanitize_text_field((string) ($site_readiness_submission_row['submission_id'] ?? ''));
+        if ($site_readiness_submission_row_id === '') {
+            continue;
+        }
+        $site_readiness_submission_payload[$site_readiness_submission_row_id] = [
+            'submission_id' => $site_readiness_submission_row_id,
+            'door_ids' => array_values((array) ($site_readiness_submission_row['door_ids'] ?? [])),
+            'sections' => is_array($site_readiness_submission_row['sections'] ?? null) ? (array) $site_readiness_submission_row['sections'] : [],
+            'updated_at' => trim((string) ($site_readiness_submission_row['updated_at'] ?? '')),
+            'updated_by' => (int) ($site_readiness_submission_row['updated_by'] ?? 0),
+        ];
+    }
+    $site_readiness_selected_door_ids = [];
+    foreach ((array) ($site_readiness_state['door_ids'] ?? []) as $site_readiness_selected_door_id) {
+        $site_readiness_selected_door_id = sanitize_text_field((string) $site_readiness_selected_door_id);
+        if ($site_readiness_selected_door_id === '' || !isset($project_door_lookup[$site_readiness_selected_door_id])) {
+            continue;
+        }
+        $site_readiness_selected_door_ids[$site_readiness_selected_door_id] = true;
+    }
+    $site_readiness_selected_door_lookup = array_fill_keys(array_values(array_keys($site_readiness_selected_door_ids)), true);
+    $site_readiness_door_picker_rows = [];
+    foreach ($project_door_lookup as $project_door_id => $project_door_row) {
+        $door_label = trim((string) ($project_door_row['door_label'] ?? ('Door ' . $project_door_id)));
+        $door_meta = trim((string) ($project_door_row['door_meta'] ?? ''));
+        $site_readiness_door_picker_rows[] = [
+            'door_id' => (string) $project_door_id,
+            'door_label' => $door_label,
+            'door_meta' => $door_meta,
+            'door_search' => strtolower(trim((string) $project_door_id . ' ' . $door_label . ' ' . $door_meta)),
+            'is_selected' => isset($site_readiness_selected_door_lookup[(string) $project_door_id]),
+        ];
+    }
+    $site_readiness_selected_door_count = count($site_readiness_selected_door_lookup);
+    $site_readiness_total_doors = count($site_readiness_door_picker_rows);
+    $active_schedule_bookings = ado_cd_client_schedule_active_bookings($project);
+    $active_schedule_bookings_by_date = [];
+    $active_booked_door_ids_map = [];
+    foreach ($active_schedule_bookings as $booking_row) {
+        $booking_date = trim((string) ($booking_row['schedule_date'] ?? ''));
+        if ($booking_date === '') {
+            continue;
+        }
+        $booking_door_ids = [];
+        foreach ((array) ($booking_row['door_ids'] ?? []) as $booking_door_id) {
+            $booking_door_id = sanitize_text_field((string) $booking_door_id);
+            if ($booking_door_id === '' || !isset($project_door_lookup[$booking_door_id])) {
+                continue;
+            }
+            $booking_door_ids[] = $booking_door_id;
+            $active_booked_door_ids_map[$booking_door_id] = true;
+        }
+        if (!$booking_door_ids) {
+            continue;
+        }
+        $active_schedule_bookings_by_date[$booking_date][] = [
+            'booking_id' => trim((string) ($booking_row['booking_id'] ?? '')),
+            'schedule_date' => $booking_date,
+            'door_ids' => $booking_door_ids,
+            'note' => trim((string) ($booking_row['note'] ?? '')),
+            'created_at' => trim((string) ($booking_row['created_at'] ?? '')),
+            'created_by_client_id' => (int) ($booking_row['created_by_client_id'] ?? ($booking_row['created_by'] ?? 0)),
+            'created_by_name' => trim((string) ($booking_row['created_by_name'] ?? '')),
+            'created_by_email' => trim((string) ($booking_row['created_by_email'] ?? '')),
+            'calendar_id' => trim((string) ($booking_row['calendar_id'] ?? '')),
+            'google_event_id' => trim((string) ($booking_row['google_event_id'] ?? '')),
+            'google_event_link' => trim((string) ($booking_row['google_event_link'] ?? '')),
+        ];
+    }
+    $booking_picker_doors = [];
+    $booking_picker_seen = [];
+    $client_verified_bookings_by_date = [];
+    $client_verified_booking_seen = [];
+    foreach ($orders as $client_order_row) {
+        if (!($client_order_row instanceof WC_Order)) {
+            continue;
+        }
+        $source_project_id = (int) $client_order_row->get_id();
+        $source_project_name = ado_cd_order_name($client_order_row);
+        $source_project_door_lookup = [];
+        $source_active_booked_door_ids_map = array_fill_keys(ado_cd_client_schedule_active_booked_door_ids($client_order_row), true);
+        $source_site_readiness_gate = ado_cd_site_readiness_booking_gate($client_order_row);
+        $source_site_readiness_door_lookup = is_array($source_site_readiness_gate['door_lookup'] ?? null)
+            ? (array) $source_site_readiness_gate['door_lookup']
+            : [];
+        $source_site_ready_for_booking = !empty($source_site_readiness_gate['is_ready_for_booking']);
+        foreach (ado_cd_order_doors($client_order_row) as $source_door_row) {
+            if (!is_array($source_door_row)) {
+                continue;
+            }
+            $source_door_id = sanitize_text_field((string) ($source_door_row['door_id'] ?? ''));
+            if ($source_door_id === '') {
+                continue;
+            }
+            $source_door_label = trim((string) ($source_door_row['door_label'] ?? ('Door ' . $source_door_id)));
+            $source_door_meta = trim(implode(' | ', array_filter([
+                trim((string) ($source_door_row['model'] ?? '')),
+                trim((string) ($source_door_row['location'] ?? '')),
+            ])));
+            $source_project_door_lookup[$source_door_id] = [
+                'door_label' => $source_door_label,
+                'door_meta' => $source_door_meta,
+            ];
+            $picker_key = $source_project_id . '::' . $source_door_id;
+            if (!isset($booking_picker_seen[$picker_key])) {
+                $booking_picker_seen[$picker_key] = true;
+                $booking_picker_doors[] = [
+                    'project_id' => $source_project_id,
+                    'project_name' => $source_project_name,
+                    'door_id' => $source_door_id,
+                    'door_label' => $source_door_label,
+                    'door_meta' => $source_door_meta,
+                    'is_booked' => isset($source_active_booked_door_ids_map[$source_door_id]),
+                    'is_site_ready_for_booking' => $source_site_ready_for_booking && isset($source_site_readiness_door_lookup[$source_door_id]),
+                ];
+            }
+        }
+        foreach (ado_cd_client_schedule_active_bookings($client_order_row) as $verified_booking_row) {
+            if (!is_array($verified_booking_row)) {
+                continue;
+            }
+            if (!ado_cd_booking_is_owned_by_client($verified_booking_row, $current_client_user_id, $current_client_user instanceof WP_User ? $current_client_user : null)) {
+                continue;
+            }
+            $verified_booking_date = trim((string) ($verified_booking_row['schedule_date'] ?? ''));
+            if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $verified_booking_date)) {
+                continue;
+            }
+            $verified_booking_id = trim((string) ($verified_booking_row['booking_id'] ?? ''));
+            $verified_door_ids = [];
+            $verified_door_labels = [];
+            foreach ((array) ($verified_booking_row['door_ids'] ?? []) as $verified_door_id) {
+                $verified_door_id = sanitize_text_field((string) $verified_door_id);
+                if ($verified_door_id === '') {
+                    continue;
+                }
+                $verified_door_ids[] = $verified_door_id;
+                $verified_door_labels[] = (string) (($source_project_door_lookup[$verified_door_id]['door_label'] ?? '') !== '' ? $source_project_door_lookup[$verified_door_id]['door_label'] : ('Door ' . $verified_door_id));
+            }
+            if (!$verified_door_labels) {
+                continue;
+            }
+            $dedupe_key = $verified_booking_id !== ''
+                ? ('booking:' . $verified_booking_id)
+                : ('project:' . $source_project_id . '|date:' . $verified_booking_date . '|doors:' . implode(',', $verified_door_ids));
+            if (isset($client_verified_booking_seen[$dedupe_key])) {
+                continue;
+            }
+            $client_verified_booking_seen[$dedupe_key] = true;
+            $client_verified_bookings_by_date[$verified_booking_date][] = [
+                'booking_id' => $verified_booking_id,
+                'project_id' => $source_project_id,
+                'project_name' => $source_project_name,
+                'door_summary' => trim(implode(', ', array_filter($verified_door_labels))),
+                'is_editable_booking' => true,
+            ];
+        }
+    }
+    $booking_day_rows_for_js = [];
+    $booking_day_rows_seen = [];
+    foreach ($active_schedule_bookings_by_date as $booking_date => $booking_rows) {
+        $booking_day_rows_for_js[$booking_date] = [];
+        foreach ((array) $booking_rows as $booking_row) {
+            if (!is_array($booking_row)) {
+                continue;
+            }
+            $door_labels = [];
+            foreach ((array) ($booking_row['door_ids'] ?? []) as $booking_door_id) {
+                $booking_door_id = sanitize_text_field((string) $booking_door_id);
+                if ($booking_door_id === '') {
+                    continue;
+                }
+                $door_labels[] = (string) ($project_door_lookup[$booking_door_id]['door_label'] ?? ('Door ' . $booking_door_id));
+            }
+            if (!$door_labels) {
+                continue;
+            }
+            $booking_id = trim((string) ($booking_row['booking_id'] ?? ''));
+            $booking_dedupe_key = $booking_id !== ''
+                ? ('booking:' . $booking_id)
+                : ('project:' . $project_id . '|date:' . $booking_date . '|doors:' . implode(',', array_values((array) ($booking_row['door_ids'] ?? []))));
+            if (isset($booking_day_rows_seen[$booking_dedupe_key])) {
+                continue;
+            }
+            $booking_day_rows_seen[$booking_dedupe_key] = true;
+            $booking_owner_id = (int) ($booking_row['created_by_client_id'] ?? 0);
+            $booking_day_rows_for_js[$booking_date][] = [
+                'booking_id' => $booking_id,
+                'schedule_date' => trim((string) ($booking_row['schedule_date'] ?? $booking_date)),
+                'door_ids' => array_values((array) ($booking_row['door_ids'] ?? [])),
+                'door_labels' => $door_labels,
+                'note' => trim((string) ($booking_row['note'] ?? '')),
+                'created_at' => trim((string) ($booking_row['created_at'] ?? '')),
+                'created_by_client_id' => $booking_owner_id,
+                'created_by_name' => trim((string) ($booking_row['created_by_name'] ?? '')),
+                'created_by_email' => trim((string) ($booking_row['created_by_email'] ?? '')),
+                'calendar_id' => trim((string) ($booking_row['calendar_id'] ?? '')),
+                'google_event_id' => trim((string) ($booking_row['google_event_id'] ?? '')),
+                'google_event_link' => trim((string) ($booking_row['google_event_link'] ?? '')),
+                'is_own_booking' => $booking_owner_id > 0 && $booking_owner_id === $current_client_user_id,
+                'project_id' => $project_id,
+                'project_name' => $project_name,
+            ];
+        }
+    }
+    foreach ($orders as $client_order_row) {
+        if (!($client_order_row instanceof WC_Order)) {
+            continue;
+        }
+        $source_project_id = (int) $client_order_row->get_id();
+        $source_project_name = ado_cd_order_name($client_order_row);
+        $source_project_door_lookup = [];
+        foreach (ado_cd_order_doors($client_order_row) as $source_door_row) {
+            if (!is_array($source_door_row)) {
+                continue;
+            }
+            $source_door_id = sanitize_text_field((string) ($source_door_row['door_id'] ?? ''));
+            if ($source_door_id === '') {
+                continue;
+            }
+            $source_project_door_lookup[$source_door_id] = trim((string) ($source_door_row['door_label'] ?? ('Door ' . $source_door_id)));
+        }
+        foreach (ado_cd_client_schedule_active_bookings($client_order_row) as $booking_row) {
+            if (!is_array($booking_row)) {
+                continue;
+            }
+            if (!ado_cd_booking_is_owned_by_client($booking_row, $current_client_user_id, $current_client_user instanceof WP_User ? $current_client_user : null)) {
+                continue;
+            }
+            $booking_date = trim((string) ($booking_row['schedule_date'] ?? ''));
+            if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $booking_date)) {
+                continue;
+            }
+            $door_ids = [];
+            $door_labels = [];
+            foreach ((array) ($booking_row['door_ids'] ?? []) as $booking_door_id) {
+                $booking_door_id = sanitize_text_field((string) $booking_door_id);
+                if ($booking_door_id === '') {
+                    continue;
+                }
+                $door_ids[] = $booking_door_id;
+                $door_labels[] = (string) ($source_project_door_lookup[$booking_door_id] ?? ('Door ' . $booking_door_id));
+            }
+            if (!$door_ids || !$door_labels) {
+                continue;
+            }
+            $booking_id = trim((string) ($booking_row['booking_id'] ?? ''));
+            $booking_dedupe_key = $booking_id !== ''
+                ? ('booking:' . $booking_id)
+                : ('project:' . $source_project_id . '|date:' . $booking_date . '|doors:' . implode(',', $door_ids));
+            if (isset($booking_day_rows_seen[$booking_dedupe_key])) {
+                continue;
+            }
+            $booking_day_rows_seen[$booking_dedupe_key] = true;
+            if (!isset($booking_day_rows_for_js[$booking_date]) || !is_array($booking_day_rows_for_js[$booking_date])) {
+                $booking_day_rows_for_js[$booking_date] = [];
+            }
+            $booking_day_rows_for_js[$booking_date][] = [
+                'booking_id' => $booking_id,
+                'schedule_date' => $booking_date,
+                'door_ids' => $door_ids,
+                'door_labels' => $door_labels,
+                'note' => trim((string) ($booking_row['note'] ?? '')),
+                'created_at' => trim((string) ($booking_row['created_at'] ?? '')),
+                'created_by_client_id' => (int) ($booking_row['created_by_client_id'] ?? ($booking_row['created_by'] ?? 0)),
+                'created_by_name' => trim((string) ($booking_row['created_by_name'] ?? '')),
+                'created_by_email' => trim((string) ($booking_row['created_by_email'] ?? '')),
+                'calendar_id' => trim((string) ($booking_row['calendar_id'] ?? '')),
+                'google_event_id' => trim((string) ($booking_row['google_event_id'] ?? '')),
+                'google_event_link' => trim((string) ($booking_row['google_event_link'] ?? '')),
+                'is_own_booking' => true,
+                'project_id' => $source_project_id,
+                'project_name' => $source_project_name,
+            ];
+        }
+    }
     $selected_door_id = sanitize_text_field((string) ($_GET['door_id'] ?? ''));
     $selected_door = null;
     foreach ($project_doors as $door) {
@@ -1655,12 +3174,154 @@ function ado_cd_render_project_workspace(array $orders, int $selected_project_id
     }
     $initial_tab = $selected_door_id !== '' ? 'doors' : 'overview';
     $has_confirmed_visit = $next_visit_raw !== '';
-    $availability = ado_cd_google_availability_adapter($project, 14);
+    $availability_window_days = ado_cd_schedule_availability_window_days();
+    $availability = ado_cd_google_availability_adapter($project, $availability_window_days);
     $availability_state = (string) ($availability['state'] ?? 'fetch_error');
     $availability_slots = (array) ($availability['slots'] ?? []);
     $availability_source = trim((string) ($availability['source'] ?? ''));
     $availability_fetched_at = trim((string) ($availability['fetched_at'] ?? ''));
     $availability_message = trim((string) ($availability['message'] ?? ''));
+    $availability_slots_by_date = [];
+    foreach ($availability_slots as $slot_row) {
+        if (!is_array($slot_row)) {
+            continue;
+        }
+        $date_key = trim((string) ($slot_row['date_key'] ?? ''));
+        if ($date_key === '') {
+            $slot_start_ts = strtotime(trim((string) ($slot_row['slot_start'] ?? '')));
+            if ($slot_start_ts !== false) {
+                $date_key = wp_date('Y-m-d', (int) $slot_start_ts);
+            }
+        }
+        if ($date_key === '') {
+            continue;
+        }
+        $slot_label_raw = trim((string) ($slot_row['slot_label'] ?? ($slot_row['slot_key'] ?? '')));
+        $slot_label = trim((string) preg_replace('/\s*\(.+\)$/', '', $slot_label_raw));
+        $slot_time = trim((string) ($slot_row['slot_time_range'] ?? ''));
+        if ($slot_time === '' && preg_match('/\(([^)]+)\)/', $slot_label_raw, $matches)) {
+            $slot_time = trim((string) ($matches[1] ?? ''));
+        }
+        if ($slot_time === '') {
+            $slot_time = trim((string) ($slot_row['slot_start'] ?? ''));
+        }
+        if (strtolower($slot_label) === 'available') {
+            $slot_label = '';
+        }
+        $availability_slots_by_date[$date_key][] = [
+            'label' => $slot_label,
+            'time' => $slot_time,
+            'slot_start' => trim((string) ($slot_row['slot_start'] ?? '')),
+        ];
+    }
+    ksort($availability_slots_by_date);
+    foreach ($availability_slots_by_date as $date_key => $slot_rows) {
+        usort($slot_rows, static function (array $left, array $right): int {
+            return strcmp((string) ($left['slot_start'] ?? ''), (string) ($right['slot_start'] ?? ''));
+        });
+        $availability_slots_by_date[$date_key] = $slot_rows;
+    }
+    foreach ($client_verified_bookings_by_date as $booking_date => $verified_booking_rows) {
+        if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', (string) $booking_date)) {
+            continue;
+        }
+        if (!(is_array($verified_booking_rows) && $verified_booking_rows)) {
+            continue;
+        }
+        $own_booking_slots = [];
+        foreach ($verified_booking_rows as $verified_booking_row) {
+            if (!is_array($verified_booking_row)) {
+                continue;
+            }
+            $slot_project_name = trim((string) ($verified_booking_row['project_name'] ?? ''));
+            if ($slot_project_name === '') {
+                $slot_project_name = 'Project #' . (string) ((int) ($verified_booking_row['project_id'] ?? 0));
+            }
+            $door_summary = trim((string) ($verified_booking_row['door_summary'] ?? ''));
+            $booking_id = trim((string) ($verified_booking_row['booking_id'] ?? ''));
+            $own_booking_slots[] = [
+                'label' => $slot_project_name,
+                'time' => '9:00 AM - 4:00 PM',
+                'slot_start' => $booking_date . 'T09:00:00',
+                'slot_key' => 'client-booking-own-' . ($booking_id !== '' ? $booking_id : md5($booking_date . '|' . $slot_project_name . '|' . $door_summary)),
+                'source' => 'client_schedule_booking',
+                'is_own_booking' => true,
+                'is_editable_booking' => !empty($verified_booking_row['is_editable_booking']),
+                'door_summary' => $door_summary,
+            ];
+        }
+        if ($own_booking_slots) {
+            $availability_slots_by_date[$booking_date] = $own_booking_slots;
+        }
+    }
+    foreach ($active_schedule_bookings_by_date as $booking_date => $booking_rows) {
+        if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', (string) $booking_date)) {
+            continue;
+        }
+        if (!(is_array($booking_rows) && $booking_rows)) {
+            continue;
+        }
+        if (isset($availability_slots_by_date[$booking_date]) && (array) $availability_slots_by_date[$booking_date]) {
+            continue;
+        }
+        $availability_slots_by_date[$booking_date][] = [
+            'label' => 'Booked',
+            'time' => '9:00 AM - 4:00 PM',
+            'slot_start' => $booking_date . 'T09:00:00',
+            'slot_key' => 'client-booking-' . md5($booking_date),
+            'source' => 'client_schedule_booking',
+            'is_own_booking' => false,
+        ];
+    }
+    foreach ($availability_slots_by_date as $date_key => $slot_rows) {
+        usort($slot_rows, static function (array $left, array $right): int {
+            return strcmp((string) ($left['slot_start'] ?? ''), (string) ($right['slot_start'] ?? ''));
+        });
+        $availability_slots_by_date[$date_key] = $slot_rows;
+    }
+    $schedule_timezone = ado_cd_schedule_timezone();
+    $schedule_today_key = wp_date('Y-m-d', null, $schedule_timezone);
+    $availability_calendar_months = [];
+    if ($availability_slots_by_date) {
+        $availability_day_keys = array_keys($availability_slots_by_date);
+        sort($availability_day_keys);
+        $start_month_ts = strtotime((string) reset($availability_day_keys));
+        $end_month_ts = strtotime((string) end($availability_day_keys));
+        if ($start_month_ts !== false && $end_month_ts !== false) {
+            $month_cursor = strtotime(wp_date('Y-m-01', (int) $start_month_ts));
+            $month_end = strtotime(wp_date('Y-m-01', (int) $end_month_ts));
+            while ($month_cursor !== false && $month_end !== false && $month_cursor <= $month_end) {
+                $month_key = wp_date('Y-m', (int) $month_cursor);
+                $days_in_month = (int) wp_date('t', (int) $month_cursor);
+                $first_weekday = (int) wp_date('w', (int) $month_cursor);
+                $cells = [];
+                for ($weekday = 0; $weekday < $first_weekday; $weekday++) {
+                    $cells[] = null;
+                }
+                for ($day = 1; $day <= $days_in_month; $day++) {
+                    $day_key = $month_key . '-' . str_pad((string) $day, 2, '0', STR_PAD_LEFT);
+                    $day_ts = strtotime($day_key . ' 12:00:00');
+                    $day_is_weekday = $day_ts !== false ? ((int) wp_date('N', (int) $day_ts) <= 5) : true;
+                    $day_is_past = strcmp($day_key, $schedule_today_key) < 0;
+                    $cells[] = [
+                        'day_number' => $day,
+                        'day_key' => $day_key,
+                        'is_weekday' => $day_is_weekday,
+                        'is_past' => $day_is_past,
+                        'slots' => (array) ($availability_slots_by_date[$day_key] ?? []),
+                    ];
+                }
+                while (count($cells) % 7 !== 0) {
+                    $cells[] = null;
+                }
+                $availability_calendar_months[] = [
+                    'month_label' => wp_date('F Y', (int) $month_cursor),
+                    'weeks' => array_chunk($cells, 7),
+                ];
+                $month_cursor = strtotime('+1 month', (int) $month_cursor);
+            }
+        }
+    }
 
     ob_start();
     ?>
@@ -1722,8 +3383,46 @@ function ado_cd_render_project_workspace(array $orders, int $selected_project_id
         </article>
       </div>
       <article class="ado-card ado-schedule-request-card">
-        <div class="ado-card-head"><span class="ado-card-title">Book Technician Visit</span></div>
+        <div class="ado-card-head">
+          <span class="ado-card-title">Book Technician Visit</span>
+          <button class="ado-btn primary" type="button" data-site-readiness-confirm style="white-space:nowrap;">Confirm Site Readiness</button>
+        </div>
         <div class="ado-schedule-request-body">
+          <div class="ado-site-readiness-submittal-row">
+            <div class="ado-site-readiness-submittal-strip" data-site-readiness-submittal-strip>
+              <?php if ($site_readiness_submission_rows) { ?>
+                  <?php foreach ($site_readiness_submission_rows as $site_readiness_submission_row) { ?>
+                      <?php
+                      $submission_row_id = sanitize_text_field((string) ($site_readiness_submission_row['submission_id'] ?? ''));
+                      if ($submission_row_id === '') {
+                          continue;
+                      }
+                      $submission_row_index = (int) ($site_readiness_submission_row['index'] ?? 0);
+                      $submission_row_checked_items = (int) ($site_readiness_submission_row['checked_items'] ?? 0);
+                      $submission_row_total_items = (int) ($site_readiness_submission_row['total_items'] ?? 0);
+                      $submission_row_door_list = trim((string) ($site_readiness_submission_row['door_list'] ?? ''));
+                      if ($submission_row_door_list === '') {
+                          $submission_row_door_list = 'No doors selected';
+                      }
+                      $submission_row_updated_at = trim((string) ($site_readiness_submission_row['updated_at'] ?? ''));
+                      $submission_row_label = 'Submittal ' . (string) ($submission_row_index + 1);
+                      $submission_row_meta = $submission_row_checked_items . '/' . $submission_row_total_items . ' checked | ' . $submission_row_door_list;
+                      if ($submission_row_updated_at !== '') {
+                          $submission_row_meta .= ' | ' . $submission_row_updated_at;
+                      }
+                      $submission_row_is_active = $submission_row_id === $site_readiness_submission_id;
+                      ?>
+              <button class="ado-site-readiness-submittal-btn <?php echo $submission_row_is_active ? 'is-active' : ''; ?>" type="button" data-site-readiness-open-submission="<?php echo esc_attr($submission_row_id); ?>">
+                <strong><?php echo esc_html($submission_row_label); ?></strong>
+                <small><?php echo esc_html($submission_row_meta); ?></small>
+              </button>
+                  <?php } ?>
+              <?php } else { ?>
+              <div class="ado-site-readiness-submittal-empty">No site readiness submittals saved yet.</div>
+              <?php } ?>
+            </div>
+          </div>
+          <script type="application/json" data-site-readiness-submissions-json><?php echo wp_json_encode($site_readiness_submission_payload); ?></script>
           <?php if ($has_confirmed_visit) { ?>
           <div class="ado-schedule-confirmed"><strong>Confirmed visit:</strong> <?php echo esc_html($next_visit); ?></div>
           <?php } else { ?>
@@ -1733,23 +3432,318 @@ function ado_cd_render_project_workspace(array $orders, int $selected_project_id
           <?php if ($availability_state !== 'ok') { ?>
           <div class="ado-schedule-note"><?php echo esc_html($availability_message !== '' ? $availability_message : 'Live Google availability is unavailable right now.'); ?></div>
           <?php } elseif (!$availability_slots) { ?>
-          <div class="ado-schedule-note"><?php echo esc_html($availability_message !== '' ? $availability_message : 'No live availability was returned from Google Calendar for the next 14 business days.'); ?></div>
+          <div class="ado-schedule-note"><?php echo esc_html($availability_message !== '' ? $availability_message : 'No live availability was returned from Google Calendar for the current booking window.'); ?></div>
           <?php } else { ?>
-          <div class="ado-schedule-note">Read-only live availability is shown below from the assigned technician Google Calendar mapping.</div>
-          <fieldset class="ado-schedule-slot-list" disabled aria-disabled="true">
-            <?php foreach ($availability_slots as $slot_row) { ?>
-            <label class="ado-schedule-slot-option">
-              <input type="radio" name="bookable_slot_<?php echo esc_attr((string) $project_id); ?>" disabled>
-              <span class="ado-schedule-slot-copy">
-                <strong><?php echo esc_html((string) ($slot_row['date_label'] ?? '')); ?></strong>
-                <small><?php echo esc_html((string) ($slot_row['slot_label'] ?? '')); ?></small>
-              </span>
-            </label>
+          <div class="ado-schedule-note">Google Calendar events and booked doors are shown below from the assigned technician calendar mapping.</div>
+          <div class="ado-schedule-calendar-wrap" data-schedule-calendar aria-hidden="true">
+            <?php if (!$availability_calendar_months) { ?>
+            <div class="ado-schedule-day-empty">Live slots were returned but could not be grouped into a monthly calendar view yet.</div>
             <?php } ?>
-          </fieldset>
+            <?php if ($availability_calendar_months) { ?>
+            <div class="ado-schedule-calendar-head">
+              <div class="ado-schedule-calendar-nav">
+                <button class="ado-schedule-month-nav" type="button" data-calendar-nav="prev" aria-label="Previous month">&#8249;</button>
+                <strong class="ado-schedule-month-title" data-calendar-current-label><?php echo esc_html((string) ($availability_calendar_months[0]['month_label'] ?? '')); ?></strong>
+                <button class="ado-schedule-month-nav" type="button" data-calendar-nav="next" aria-label="Next month">&#8250;</button>
+              </div>
+              <span class="ado-schedule-month-sub">Google-style Month View (Read Only)</span>
+            </div>
+            <?php } ?>
+            <?php foreach ($availability_calendar_months as $month_index => $month_row) { ?>
+            <section class="ado-schedule-month" data-calendar-month data-month-label="<?php echo esc_attr((string) ($month_row['month_label'] ?? '')); ?>" <?php echo $month_index === 0 ? '' : 'hidden'; ?>>
+              <div class="ado-schedule-month-scroll">
+                <div class="ado-schedule-month-track">
+                  <div class="ado-schedule-weekdays">
+                    <div>Sun</div><div>Mon</div><div>Tue</div><div>Wed</div><div>Thu</div><div>Fri</div><div>Sat</div>
+                  </div>
+                  <div class="ado-schedule-month-grid">
+                    <?php foreach ((array) ($month_row['weeks'] ?? []) as $week_row) { ?>
+                        <?php foreach ((array) $week_row as $day_row) { ?>
+                            <?php if (!is_array($day_row)) { ?>
+                    <div class="ado-schedule-day is-empty" aria-hidden="true"></div>
+                            <?php } else { ?>
+                                <?php $day_slots = (array) ($day_row['slots'] ?? []); ?>
+                                <?php
+                                $day_key = trim((string) ($day_row['day_key'] ?? ''));
+                                $day_is_past = !empty($day_row['is_past']);
+                                $day_has_own_booking = false;
+                                foreach ($day_slots as $day_slot_probe) {
+                                    if (!empty($day_slot_probe['is_own_booking'])) {
+                                        $day_has_own_booking = true;
+                                    }
+                                    if ($day_has_own_booking) {
+                                        break;
+                                    }
+                                }
+                                $day_state = $day_is_past ? 'past' : ($day_has_own_booking ? 'own-booked' : ($day_slots ? 'booked' : 'available'));
+                                $day_css_state = $day_is_past ? 'is-past' : ($day_has_own_booking ? 'is-own-booked' : ($day_slots ? 'is-booked' : 'is-available'));
+                                $day_is_interactive = !$day_is_past && ($day_state === 'available' || $day_has_own_booking);
+                                $day_label = '';
+                                if ($day_key !== '') {
+                                    $day_ts = strtotime($day_key . ' 12:00:00');
+                                    if ($day_ts !== false) {
+                                        $day_label = wp_date('D, M j, Y', (int) $day_ts);
+                                    }
+                                }
+                                $day_aria_label = 'Open booking panel';
+                                if ($day_label !== '') {
+                                    if ($day_is_past) {
+                                        $day_aria_label = $day_label . ' is in the past and not bookable';
+                                    } elseif ($day_state === 'booked') {
+                                        $day_aria_label = $day_label . ' is booked and unavailable';
+                                    } else {
+                                        $day_aria_label = 'Open booking for ' . $day_label;
+                                    }
+                                }
+                                ?>
+                    <div class="ado-schedule-day <?php echo esc_attr($day_css_state); ?>" data-calendar-day data-day-key="<?php echo esc_attr($day_key); ?>" data-day-state="<?php echo esc_attr($day_state); ?>" data-day-editable="<?php echo $day_has_own_booking ? '1' : '0'; ?>" data-day-label="<?php echo esc_attr($day_label); ?>" <?php if (!$day_is_interactive) { ?>aria-disabled="true"<?php } else { ?>role="button" tabindex="0"<?php } ?> aria-label="<?php echo esc_attr($day_aria_label); ?>">
+                      <div class="ado-schedule-day-number">
+                        <span><?php echo esc_html((string) ($day_row['day_number'] ?? '')); ?></span>
+                                <?php if ($day_slots) { ?><span class="ado-schedule-day-badge"><?php echo esc_html((string) count($day_slots)); ?></span><?php } ?>
+                      </div>
+                                <?php if ($day_slots) { ?>
+                      <div class="ado-schedule-day-slots">
+                                    <?php foreach ($day_slots as $day_slot) { ?>
+                        <span class="ado-schedule-slot-chip">
+                                        <?php
+                                        $is_own_booking_slot = !empty($day_slot['is_own_booking']);
+                                        if ($is_own_booking_slot) {
+                                            $slot_title = trim((string) ($day_slot['label'] ?? ''));
+                                            $door_summary = trim((string) ($day_slot['door_summary'] ?? ''));
+                                            echo esc_html($slot_title !== '' ? $slot_title : $project_name);
+                                            if ($door_summary !== '') {
+                                                echo '<small>' . esc_html($door_summary) . '</small>';
+                                            } else {
+                                                echo '<small>' . esc_html__('Booked doors', 'ado-modern') . '</small>';
+                                            }
+                                        } else {
+                                            echo esc_html__('Booked', 'ado-modern');
+                                        }
+                                        ?>
+                        </span>
+                                    <?php } ?>
+                      </div>
+                                <?php } else { ?>
+                      <div class="ado-schedule-day-empty"><?php echo esc_html($day_is_past ? 'Past date' : 'Available to book'); ?></div>
+                                <?php } ?>
+                    </div>
+                            <?php } ?>
+                        <?php } ?>
+                    <?php } ?>
+                  </div>
+                </div>
+              </div>
+            </section>
+            <?php } ?>
+          </div>
+          <div class="ado-schedule-booking-backdrop" data-booking-backdrop hidden></div>
+          <aside class="ado-schedule-booking-drawer" data-booking-drawer hidden aria-hidden="true">
+            <div class="ado-schedule-booking-head">
+              <div>
+                <div class="ado-schedule-booking-kicker">Book Technician Visit</div>
+                <div class="ado-schedule-booking-title" data-booking-day-label>Pick a day</div>
+                <div class="ado-schedule-booking-sub" data-booking-day-state>Select a day in the calendar to start booking.</div>
+              </div>
+              <button class="ado-btn ado-schedule-booking-close" type="button" data-booking-close>Close</button>
+            </div>
+            <div class="ado-schedule-booking-body">
+              <form class="ado-schedule-booking-form" data-booking-form>
+                <input type="hidden" name="project_id" value="<?php echo esc_attr((string) $project_id); ?>">
+                <input type="hidden" name="schedule_date" data-booking-date-input value="">
+                <label class="ado-schedule-booking-field"><span>Selected Day</span><input type="text" data-booking-date-display value="" readonly></label>
+                <div class="ado-schedule-booking-field">
+                  <span>Select Doors (max 2)</span>
+                  <div class="ado-schedule-door-count" data-booking-door-count>Choose up to two doors for this day.</div>
+                  <div class="ado-schedule-door-toolbar">
+                    <input class="ado-schedule-door-search" type="search" data-booking-door-search placeholder="Search door number, model, or location">
+                    <button class="ado-btn" type="button" data-booking-door-clear hidden>Clear</button>
+                  </div>
+                  <div class="ado-schedule-door-selected" data-booking-door-selected hidden></div>
+                  <div class="ado-schedule-door-picker-wrap">
+                  <div class="ado-schedule-door-picker" data-booking-door-picker>
+                    <?php foreach ($booking_picker_doors as $booking_door) { ?>
+                        <?php
+                        $door_option_project_id = (int) ($booking_door['project_id'] ?? $project_id);
+                        $door_option_project_name = trim((string) ($booking_door['project_name'] ?? ''));
+                        $door_option_id = trim((string) ($booking_door['door_id'] ?? ''));
+                        if ($door_option_id === '') {
+                            continue;
+                        }
+                        $door_option_label = trim((string) ($booking_door['door_label'] ?? ('Door ' . $door_option_id)));
+                        $door_option_meta = trim((string) ($booking_door['door_meta'] ?? ''));
+                        $door_option_booked = !empty($booking_door['is_booked']);
+                        $door_option_site_ready = !empty($booking_door['is_site_ready_for_booking']);
+                        $door_option_is_current_project = $door_option_project_id === $project_id;
+                        $door_option_search = strtolower(trim($door_option_id . ' ' . $door_option_label . ' ' . $door_option_meta . ' ' . $door_option_project_name));
+                        $door_option_hidden = !$door_option_is_current_project || $door_option_booked;
+                        $door_option_disabled = $door_option_hidden || !$door_option_site_ready;
+                        $door_option_meta_label = trim(implode(' | ', array_filter([
+                            $door_option_meta,
+                            $door_option_project_name !== '' ? $door_option_project_name : '',
+                        ])));
+                        ?>
+                    <label class="ado-schedule-door-option <?php echo $door_option_hidden ? 'is-hidden ' : ''; ?><?php echo $door_option_booked ? 'is-booked ' : ''; ?><?php echo !$door_option_site_ready ? 'is-readiness-pending' : ''; ?>" data-booking-door-option data-door-id="<?php echo esc_attr($door_option_id); ?>" data-door-project-id="<?php echo esc_attr((string) $door_option_project_id); ?>" data-door-booked="<?php echo $door_option_booked ? '1' : '0'; ?>" data-door-readiness-ready="<?php echo $door_option_site_ready ? '1' : '0'; ?>" data-door-label="<?php echo esc_attr($door_option_label); ?>" data-door-search="<?php echo esc_attr($door_option_search); ?>">
+                      <input type="checkbox" name="door_ids[]" value="<?php echo esc_attr($door_option_id); ?>" data-booking-door-input <?php echo $door_option_disabled ? 'disabled' : ''; ?>>
+                      <span class="ado-schedule-door-option-copy">
+                        <strong><?php echo esc_html($door_option_label); ?></strong>
+                        <small><?php echo esc_html($door_option_meta_label !== '' ? $door_option_meta_label : 'Project door'); ?></small>
+                      </span>
+                    </label>
+                    <?php } ?>
+                  </div>
+                  </div>
+                  <div class="ado-schedule-door-empty" data-booking-door-empty <?php echo $booking_picker_doors ? 'hidden' : ''; ?>>No project doors are available to book.</div>
+                </div>
+                <label class="ado-schedule-booking-field" data-booking-note-field><span>Booking Note</span><textarea name="booking_note" rows="4" placeholder="Add context for the technician (optional)"></textarea></label>
+                <div class="ado-schedule-booking-existing" data-booking-existing-wrap hidden>
+                  <div class="ado-schedule-booking-existing-title" data-booking-existing-title>Booked doors for this day</div>
+                  <div class="ado-schedule-booking-existing-list" data-booking-existing-list></div>
+                </div>
+                <script type="application/json" data-booking-existing-json><?php echo wp_json_encode($booking_day_rows_for_js); ?></script>
+                <div class="ado-schedule-booking-actions">
+                  <button class="ado-btn primary" type="submit" data-booking-submit>Book Selected Doors</button>
+                  <button class="ado-btn" type="button" data-booking-close data-booking-close-action>Cancel</button>
+                  <button class="ado-btn" type="button" data-booking-cancel-day hidden>Cancel Booking</button>
+                </div>
+                <div class="ado-schedule-booking-flash" data-booking-flash></div>
+                <div class="ado-row-sub">Select up to 2 doors per day. Booked doors are hidden from future bookings until cancelled.</div>
+              </form>
+            </div>
+          </aside>
+          <div class="ado-site-readiness-backdrop" data-site-readiness-backdrop hidden></div>
+          <aside class="ado-site-readiness-drawer" data-site-readiness-drawer hidden aria-hidden="true">
+            <div class="ado-site-readiness-head">
+              <div>
+                <div class="ado-site-readiness-kicker">Site Readiness</div>
+                <div class="ado-site-readiness-title">Confirm Site Readiness</div>
+                <div class="ado-site-readiness-sub">Review site conditions and confirm readiness before final scheduling.</div>
+              </div>
+              <button class="ado-btn" type="button" data-site-readiness-close>Close</button>
+            </div>
+            <div class="ado-site-readiness-body">
+              <form class="ado-site-readiness-form" data-site-readiness-form>
+                <input type="hidden" name="project_id" value="<?php echo esc_attr((string) $project_id); ?>" data-site-readiness-project-id>
+                <input type="hidden" name="submission_id" value="<?php echo esc_attr($site_readiness_submission_id); ?>" data-site-readiness-submission-id>
+                <div class="ado-site-readiness-summary" data-site-readiness-summary>
+                  <?php if ($site_readiness_total_count > 0) { ?>
+                  <?php echo esc_html($site_readiness_confirmed_count . ' of ' . $site_readiness_total_count . ' checklist items confirmed.'); ?>
+                  <?php } else { ?>
+                  No site-readiness checklist items are configured yet.
+                  <?php } ?>
+                </div>
+                <?php if ($site_readiness_updated_at !== '') { ?><div class="ado-row-sub">Last saved: <?php echo esc_html($site_readiness_updated_at); ?></div><?php } ?>
+                <section class="ado-site-readiness-door-scope">
+                  <div class="ado-site-readiness-step-head">
+                    <div class="ado-site-readiness-step-kicker">Door Scope</div>
+                    <h3>Doors This Checklist Aligns With</h3>
+                    <p>Select one or more project doors. This uses the same picker pattern as the booking calendar door selector.</p>
+                  </div>
+                  <div class="ado-schedule-door-count" data-site-readiness-door-count>
+                    <?php if ($site_readiness_total_doors > 0) { ?>
+                    <?php echo esc_html($site_readiness_selected_door_count . ' of ' . $site_readiness_total_doors . ' doors selected.'); ?>
+                    <?php } else { ?>
+                    No project doors are available.
+                    <?php } ?>
+                  </div>
+                  <div class="ado-schedule-door-toolbar">
+                    <input class="ado-schedule-door-search" type="search" data-site-readiness-door-search placeholder="Search door number, model, or location">
+                    <button class="ado-btn" type="button" data-site-readiness-door-clear hidden>Clear</button>
+                  </div>
+                  <div class="ado-schedule-door-selected" data-site-readiness-door-selected <?php echo $site_readiness_selected_door_count > 0 ? '' : 'hidden'; ?>></div>
+                  <div class="ado-schedule-door-picker-wrap">
+                    <div class="ado-schedule-door-picker" data-site-readiness-door-picker>
+                      <?php foreach ($site_readiness_door_picker_rows as $site_readiness_door_picker_row) { ?>
+                          <?php
+                          $scope_door_id = sanitize_text_field((string) ($site_readiness_door_picker_row['door_id'] ?? ''));
+                          if ($scope_door_id === '') {
+                              continue;
+                          }
+                          $scope_door_label = trim((string) ($site_readiness_door_picker_row['door_label'] ?? ('Door ' . $scope_door_id)));
+                          $scope_door_meta = trim((string) ($site_readiness_door_picker_row['door_meta'] ?? ''));
+                          $scope_door_search = trim((string) ($site_readiness_door_picker_row['door_search'] ?? ''));
+                          $scope_door_selected = !empty($site_readiness_door_picker_row['is_selected']);
+                          ?>
+                      <label class="ado-schedule-door-option <?php echo $scope_door_selected ? 'is-selected' : ''; ?>" data-site-readiness-door-option data-door-id="<?php echo esc_attr($scope_door_id); ?>" data-door-label="<?php echo esc_attr($scope_door_label); ?>" data-door-search="<?php echo esc_attr($scope_door_search); ?>">
+                        <input type="checkbox" data-site-readiness-door-input value="<?php echo esc_attr($scope_door_id); ?>" <?php checked($scope_door_selected); ?>>
+                        <span class="ado-schedule-door-option-copy">
+                          <strong><?php echo esc_html($scope_door_label); ?></strong>
+                          <small><?php echo esc_html($scope_door_meta !== '' ? $scope_door_meta : 'Project door'); ?></small>
+                        </span>
+                      </label>
+                      <?php } ?>
+                    </div>
+                  </div>
+                  <div class="ado-schedule-door-empty" data-site-readiness-door-empty <?php echo $site_readiness_total_doors > 0 ? 'hidden' : ''; ?>>No project doors are available to scope this checklist.</div>
+                </section>
+                <?php if (!$site_readiness_sections) { ?>
+                <div class="ado-empty">No site-readiness sections are configured yet.</div>
+                <?php } else { ?>
+                <div class="ado-site-readiness-progress" data-site-readiness-progress></div>
+                <div class="ado-site-readiness-bulk-actions">
+                  <button class="ado-btn" type="button" data-site-readiness-check-all>Check All Items</button>
+                </div>
+                <div class="ado-site-readiness-tabs">
+                  <?php $readiness_step_index = 0; foreach ($site_readiness_sections as $section_key => $section_row) { $readiness_step_index++; ?>
+                  <div class="ado-site-readiness-tab-row">
+                    <button class="ado-site-readiness-tab <?php echo $readiness_step_index === 1 ? 'is-active' : ''; ?>" type="button" data-site-readiness-step-button data-step-index="<?php echo esc_attr((string) ($readiness_step_index - 1)); ?>">
+                      <span><?php echo esc_html((string) $readiness_step_index); ?></span>
+                      <small><?php echo esc_html(trim((string) ($section_row['title'] ?? ('Section ' . $readiness_step_index)))); ?></small>
+                    </button>
+                    <label class="ado-site-readiness-tab-toggle" title="Check or uncheck all items in this section">
+                      <input type="checkbox" data-site-readiness-section-toggle data-step-index="<?php echo esc_attr((string) ($readiness_step_index - 1)); ?>">
+                      <span>All</span>
+                    </label>
+                  </div>
+                  <?php } ?>
+                </div>
+                <div class="ado-site-readiness-steps">
+                  <?php $readiness_step_index = 0; foreach ($site_readiness_sections as $section_key => $section_row) { $readiness_step_index++; ?>
+                      <?php
+                      $section_title = trim((string) ($section_row['title'] ?? ('Section ' . $readiness_step_index)));
+                      $section_purpose = trim((string) ($section_row['purpose'] ?? ''));
+                      $section_items = is_array($section_row['items'] ?? null) ? (array) $section_row['items'] : [];
+                      $section_state = is_array($site_readiness_state['sections'][$section_key] ?? null) ? (array) $site_readiness_state['sections'][$section_key] : [];
+                      $section_item_state = is_array($section_state['items'] ?? null) ? (array) $section_state['items'] : [];
+                      $section_note = trim((string) ($section_state['note'] ?? ''));
+                      ?>
+                  <section class="ado-site-readiness-step" data-site-readiness-step data-section-key="<?php echo esc_attr((string) $section_key); ?>" <?php echo $readiness_step_index === 1 ? '' : 'hidden'; ?>>
+                    <div class="ado-site-readiness-step-head">
+                      <div class="ado-site-readiness-step-kicker">Section <?php echo esc_html((string) $readiness_step_index); ?> of <?php echo esc_html((string) $site_readiness_section_count); ?></div>
+                      <h3><?php echo esc_html($section_title); ?></h3>
+                      <?php if ($section_purpose !== '') { ?><p><?php echo esc_html($section_purpose); ?></p><?php } ?>
+                    </div>
+                    <div class="ado-site-readiness-checklist">
+                      <?php foreach ($section_items as $item_key => $item_label) { ?>
+                      <label class="ado-site-readiness-checklist-item">
+                        <input type="checkbox" data-site-readiness-item data-item-key="<?php echo esc_attr((string) $item_key); ?>" <?php checked(!empty($section_item_state[$item_key])); ?>>
+                        <span><?php echo esc_html((string) $item_label); ?></span>
+                      </label>
+                      <?php } ?>
+                    </div>
+                    <label class="ado-site-readiness-field">
+                      <span>Section Note (Optional)</span>
+                      <textarea rows="3" data-site-readiness-section-note placeholder="Add notes for this checklist section."><?php echo esc_textarea($section_note); ?></textarea>
+                    </label>
+                  </section>
+                  <?php } ?>
+                </div>
+                <div class="ado-site-readiness-nav">
+                  <button class="ado-btn" type="button" data-site-readiness-prev>Previous Section</button>
+                  <button class="ado-btn" type="button" data-site-readiness-next>Next Section</button>
+                </div>
+                <?php } ?>
+                <div class="ado-site-readiness-actions">
+                  <button class="ado-btn primary" type="submit" data-site-readiness-save>Save Site Readiness</button>
+                  <button class="ado-btn" type="button" data-site-readiness-close>Close</button>
+                </div>
+                <div class="ado-site-readiness-flash" data-site-readiness-flash aria-live="polite"></div>
+                <div class="ado-row-sub">Complete each section checklist, then save to persist this project readiness review.</div>
+              </form>
+            </div>
+          </aside>
           <div class="ado-schedule-actions">
-            <button class="ado-btn primary" type="button" disabled aria-disabled="true">Booking Disabled In Slice 1b</button>
-            <span class="ado-row-sub">Availability source: <?php echo esc_html($availability_source !== '' ? $availability_source : 'google_freebusy'); ?><?php if ($availability_fetched_at !== '') { ?> | Fetched: <?php echo esc_html($availability_fetched_at); ?><?php } ?>. Booking submission is not active in this slice.</span>
+            <span class="ado-row-sub">Click any day in the calendar to open the booking card for that date. Gray days are already booked.</span>
+            <span class="ado-row-sub">Availability source: <?php echo esc_html($availability_source !== '' ? $availability_source : 'google_freebusy'); ?><?php if ($availability_fetched_at !== '') { ?> | Fetched: <?php echo esc_html($availability_fetched_at); ?><?php } ?></span>
           </div>
           <?php } ?>
           <?php if ($availability_source !== '' || $availability_fetched_at !== '') { ?>
@@ -1977,6 +3971,7 @@ add_shortcode('ado_client_dashboard_app', static function (): string {
     <style>
     @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600;700&family=Syne:wght@600;700;800&display=swap');
     .ado-app{--bg:#f4f5f7;--surface:#fff;--surface-2:#f9fafb;--border:#e8eaed;--accent:#1a56db;--warn:#e3a008;--danger:#e02424;--text-primary:#111928;--text-secondary:#6b7280;--text-muted:#9ca3af;--shadow-sm:0 1px 3px rgba(0,0,0,0.06),0 1px 2px rgba(0,0,0,0.04);--radius:14px;--radius-sm:8px;font-family:'DM Sans',sans-serif;background:var(--bg);display:flex;min-height:100vh;color:var(--text-primary)}
+    .ado-app [hidden]{display:none!important}
     .ado-app *{box-sizing:border-box}.ado-side{width:256px;background:var(--text-primary);min-height:100vh;position:sticky;top:0}.ado-side-logo{padding:28px 24px 24px;border-bottom:1px solid rgba(255,255,255,.08);font-family:'Syne',sans-serif;font-weight:800;font-size:20px;color:#fff}.ado-side-logo span{color:var(--accent)}.ado-nav{padding:16px 12px;display:flex;flex-direction:column;gap:2px}.ado-nav-label{font-size:10px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:rgba(255,255,255,.3);padding:12px 12px 6px;margin-top:8px}.ado-nav a{display:flex;align-items:center;justify-content:space-between;padding:9px 12px;border-radius:8px;color:rgba(255,255,255,.6);font-size:14px;font-weight:500;text-decoration:none}.ado-nav a:hover{background:rgba(255,255,255,.07);color:#fff}.ado-nav a.active{background:var(--accent);color:#fff}.ado-nav-badge{font-size:10px;font-weight:700;background:var(--danger);padding:2px 6px;border-radius:999px;color:#fff}.ado-nav-project{align-items:flex-start;gap:8px}.ado-nav-project-copy{display:block;min-width:0;flex:1}.ado-nav-project-name{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.ado-nav-project-meta{display:block;margin-top:2px;font-size:11px;line-height:1.3;color:rgba(255,255,255,.42);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.ado-nav-project.active .ado-nav-project-meta{color:rgba(255,255,255,.85)}
     .ado-main{flex:1;display:flex;flex-direction:column}.ado-top{background:var(--surface);border-bottom:1px solid var(--border);padding:16px 32px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:20}.ado-top h1{margin:0;font-family:'Syne',sans-serif;font-size:20px}.ado-top-right{display:flex;gap:10px}.ado-btn{display:inline-flex;align-items:center;justify-content:center;padding:9px 16px;border-radius:var(--radius-sm);font-size:13px;font-weight:600;text-decoration:none;border:1px solid var(--border);color:var(--text-secondary);background:transparent;cursor:pointer}.ado-btn.primary{background:var(--accent);border-color:transparent;color:#fff}.ado-content{padding:28px}
     .ado-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);box-shadow:var(--shadow-sm)}.ado-card-head{padding:16px 18px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between}.ado-card-title{font-family:'Syne',sans-serif;font-size:15px;font-weight:700}.ado-card-link{font-size:12px;font-weight:600;text-decoration:none;color:var(--accent)}.ado-empty{padding:24px 18px;font-size:13px;color:var(--text-muted)}.ado-table{width:100%;border-collapse:collapse}.ado-table th{padding:10px 18px;text-align:left;border-bottom:1px solid var(--border);font-size:11px;text-transform:uppercase;color:var(--text-muted)}.ado-table td{padding:14px 18px;border-bottom:1px solid var(--border);font-size:13px}
@@ -1984,6 +3979,7 @@ add_shortcode('ado_client_dashboard_app', static function (): string {
     .ado-flash{display:none;margin:10px 18px 16px;padding:10px 12px;border-radius:8px;font-size:12px}.ado-flash.ok{display:block;background:#ecfdf3;color:#027a48}.ado-flash.err{display:block;background:#fef2f2;color:#b42318}
     .ado-project-shell{display:flex;flex-direction:column;gap:12px}.ado-project-header-card{padding:16px 18px}.ado-project-header{display:flex;align-items:flex-start;justify-content:space-between;gap:14px;flex-wrap:wrap}.ado-project-title{font-family:'Syne',sans-serif;font-size:22px;font-weight:800}.ado-project-sub{margin-top:4px;font-size:13px;color:var(--text-secondary)}.ado-project-meta-row{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}.ado-project-pill{display:inline-flex;align-items:center;font-size:11px;font-weight:700;padding:4px 8px;border-radius:999px;background:var(--surface-2);border:1px solid var(--border);color:var(--text-secondary)}.ado-project-pill.warn{background:#fffbeb;border-color:#fde68a;color:#92400e}.ado-project-pill.danger{background:#fef2f2;border-color:#fecaca;color:#b91c1c}.ado-project-pill.ok{background:#ecfdf3;border-color:#bbf7d0;color:#166534}.ado-project-actions{display:flex;gap:8px;flex-wrap:wrap}.ado-project-tab-strip{display:flex;align-items:center;gap:8px;flex-wrap:wrap}.ado-project-tab{display:inline-flex;padding:6px 12px;border-radius:999px;border:1px solid var(--border);background:var(--surface);color:var(--text-secondary);font-size:12px;font-weight:600;text-decoration:none;appearance:none;cursor:pointer}.ado-project-tab.active{background:#e8eefc;color:var(--accent);border-color:#bfd0f5}.ado-project-tab-dot{font-size:14px;line-height:1;color:#9ca3af}.ado-project-tab-panel{display:block}.ado-project-tab-panel[hidden]{display:none!important}.ado-project-grid{display:grid;grid-template-columns:minmax(0,1fr) 320px;gap:12px}.ado-project-summary-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;padding:14px}.ado-project-kv{padding:10px;border:1px solid var(--border);border-radius:10px;background:var(--surface-2)}.ado-project-kv strong{display:block;font-size:11px;letter-spacing:.05em;text-transform:uppercase;color:var(--text-muted)}.ado-project-kv span{display:block;margin-top:4px;font-size:13px;color:var(--text-primary)}.ado-project-note{margin:0 14px 14px;padding:10px 12px;border-radius:10px;border:1px solid #fcd34d;background:#fffbeb;color:#92400e;font-size:12px;line-height:1.45}.ado-project-attention-list{list-style:none;margin:0;padding:12px 14px;display:flex;flex-direction:column;gap:8px}.ado-project-attention-list li{padding:10px;border:1px solid var(--border);border-radius:10px;background:var(--surface-2);font-size:13px;color:var(--text-primary)}.ado-project-activity-list{list-style:none;margin:0;padding:0}.ado-project-activity-list li{padding:14px 16px;border-bottom:1px solid var(--border)}.ado-project-activity-list li:last-child{border-bottom:none}.ado-project-activity-head{display:flex;align-items:center;justify-content:space-between;gap:10px}.ado-project-activity-head small{font-size:11px;color:var(--text-muted)}.ado-project-activity-meta{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:8px}.ado-project-file-list{display:flex;flex-direction:column;gap:8px;padding:14px}.ado-project-file-link{display:block;padding:10px 12px;border:1px solid var(--border);border-radius:10px;background:var(--surface-2);text-decoration:none}.ado-project-file-link strong{display:block;color:var(--text-primary)}.ado-project-file-link small{display:block;margin-top:3px;color:var(--text-muted);font-size:12px}.ado-project-door-list{display:flex;flex-direction:column;gap:8px;padding:14px}.ado-project-door-trigger{display:block;padding:10px 12px;border:1px solid var(--border);border-radius:10px;background:var(--surface-2);text-decoration:none;color:var(--text-primary)}.ado-project-door-trigger strong{display:block;font-size:14px}.ado-project-door-trigger small{display:block;margin-top:3px;color:var(--text-muted)}.ado-project-door-trigger.active{border-color:#bfd0f5;background:#e8eefc}.ado-client-door-backdrop{position:fixed;inset:0;background:rgba(2,6,23,.55);opacity:0;pointer-events:none;transition:opacity .16s ease;z-index:99970}.ado-client-door-backdrop.is-open{opacity:1;pointer-events:auto}.ado-client-door-drawer{position:fixed;top:0;right:0;bottom:0;width:46vw;background:var(--surface);border-left:1px solid var(--border);box-shadow:-18px 0 42px rgba(2,6,23,.18);z-index:99971;transform:translateX(100%);transition:transform .2s ease;display:flex;flex-direction:column}.ado-client-door-drawer.is-open{transform:translateX(0)}body.admin-bar .ado-client-door-backdrop{top:32px}body.admin-bar .ado-client-door-drawer{top:32px}body.ado-client-door-open{overflow:hidden}.ado-client-door-drawer-head{padding:14px 16px;border-bottom:1px solid var(--border);display:flex;align-items:flex-start;justify-content:space-between;gap:12px}.ado-client-door-drawer-kicker{font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:#9ca3af}.ado-client-door-drawer-title{font-family:'Syne',sans-serif;font-size:18px;font-weight:800;margin-top:2px}.ado-client-door-drawer-sub{font-size:12px;color:var(--text-muted);margin-top:3px}.ado-client-door-close{padding:6px 10px;font-size:12px}.ado-client-door-drawer-body{padding:14px;overflow:auto;display:flex;flex-direction:column;gap:12px;flex:1}.ado-client-door-panel{display:flex;flex-direction:column;gap:12px}.ado-client-door-panel-head{display:flex;flex-direction:column;gap:4px}.ado-client-door-panel-title{font-family:'Syne',sans-serif;font-size:20px;font-weight:800}.ado-client-door-panel-sub{font-size:12px;color:var(--text-muted)}.ado-client-door-form{display:flex;flex-direction:column;gap:10px}.ado-client-door-check{display:flex;align-items:center;gap:8px;padding:10px;border:1px solid var(--border);border-radius:10px;background:var(--surface-2);font-size:13px}.ado-client-door-check input{margin:0}.ado-client-door-field{display:block}.ado-client-door-field span{display:block;font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--text-muted);margin-bottom:4px}.ado-client-door-field textarea,.ado-client-door-field input[type="file"]{width:100%;background:#fff;border:1px solid var(--border);border-radius:8px;color:var(--text-primary);padding:9px 10px;font-size:13px}.ado-client-door-field textarea{resize:vertical;min-height:90px}.ado-client-door-doc-list{padding:10px;border:1px solid var(--border);border-radius:10px;background:var(--surface-2)}.ado-client-door-doc-list strong{display:block;font-size:12px;margin-bottom:8px}.ado-client-door-doc-list a{display:block;padding:7px 8px;border:1px solid var(--border);border-radius:8px;text-decoration:none;background:#fff;margin-bottom:6px}.ado-client-door-doc-list a:last-child{margin-bottom:0}.ado-client-door-doc-list span{display:block;color:var(--text-primary);font-size:13px}.ado-client-door-doc-list small{display:block;color:var(--text-muted);font-size:11px;margin-top:2px}.ado-client-door-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap}.ado-client-door-flash{display:none;padding:8px 10px;border-radius:8px;font-size:12px}.ado-client-door-flash.ok{display:block;background:#ecfdf3;color:#027a48}.ado-client-door-flash.err{display:block;background:#fef2f2;color:#b42318}
     .ado-schedule-request-body{padding:14px;display:flex;flex-direction:column;gap:12px}.ado-schedule-confirmed{padding:10px;border:1px solid var(--border);border-radius:10px;background:var(--surface-2);font-size:13px;color:var(--text-primary)}.ado-schedule-note{padding:10px;border:1px solid #fde68a;border-radius:10px;background:#fffbeb;color:#92400e;font-size:13px}.ado-schedule-slot-list{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.ado-schedule-slot-option{display:flex;align-items:flex-start;gap:10px;padding:12px;border:1px solid var(--border);border-radius:10px;background:var(--surface-2);opacity:.72;cursor:not-allowed}.ado-schedule-slot-option input{margin-top:2px}.ado-schedule-slot-copy{display:flex;flex-direction:column;gap:4px}.ado-schedule-slot-copy strong{font-size:13px;color:var(--text-primary)}.ado-schedule-slot-copy small{font-size:12px;color:var(--text-secondary)}.ado-schedule-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap}.ado-schedule-actions .ado-btn[disabled]{opacity:.55;cursor:not-allowed}
+    .ado-schedule-calendar-wrap{display:flex;flex-direction:column;gap:12px}.ado-schedule-calendar-head{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:2px 2px 0}.ado-schedule-calendar-nav{display:flex;align-items:center;gap:8px}.ado-schedule-month-nav{width:28px;height:28px;border:1px solid var(--border);border-radius:999px;background:#fff;color:#334155;font-size:18px;line-height:1;display:inline-flex;align-items:center;justify-content:center;cursor:pointer}.ado-schedule-month-nav[disabled]{opacity:.4;cursor:not-allowed}.ado-schedule-month-title{font-family:'Syne',sans-serif;font-size:14px;font-weight:700;min-width:120px}.ado-schedule-month-sub{font-size:10px;letter-spacing:.06em;text-transform:uppercase;color:var(--text-muted)}.ado-schedule-month{border:1px solid var(--border);border-radius:12px;background:#fff;overflow:hidden}.ado-schedule-month-scroll{overflow-x:auto}.ado-schedule-month-track{min-width:720px}.ado-schedule-weekdays,.ado-schedule-month-grid{display:grid;grid-template-columns:repeat(7,minmax(0,1fr))}.ado-schedule-weekdays div{padding:7px 8px;border-bottom:1px solid var(--border);background:#fbfcff;font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--text-muted)}.ado-schedule-day{min-height:108px;padding:8px;border-right:1px solid var(--border);border-bottom:1px solid var(--border);background:#fff;display:flex;flex-direction:column;gap:7px}.ado-schedule-day:nth-child(7n){border-right:none}.ado-schedule-day.is-empty{background:#fafbfc}.ado-schedule-day.is-past{background:#f3f4f6}.ado-schedule-day.is-booked{background:#f1f5f9}.ado-schedule-day.is-own-booked{background:#eef6ff}.ado-schedule-day.is-available{background:#fff}.ado-schedule-day.is-past .ado-schedule-day-empty{color:#94a3b8}.ado-schedule-day-number{display:flex;align-items:center;justify-content:space-between;font-size:12px;font-weight:700;color:var(--text-secondary)}.ado-schedule-day-badge{display:inline-flex;align-items:center;justify-content:center;min-width:18px;height:18px;padding:0 5px;border-radius:999px;background:#e8f0fe;color:#1a56db;font-size:10px;font-weight:700}.ado-schedule-day-slots{display:flex;flex-direction:column;gap:4px}.ado-schedule-slot-chip{display:block;padding:4px 6px;border-radius:7px;background:#dbeafe;color:#1e3a8a;font-size:11px;line-height:1.2;font-weight:700}.ado-schedule-slot-chip small{display:block;margin-top:1px;color:#1d4ed8;font-size:10px;font-weight:600;opacity:.88}.ado-schedule-day-empty{margin-top:auto;font-size:11px;color:#9ca3af}.ado-schedule-day[data-calendar-day]{cursor:pointer;transition:box-shadow .16s ease,transform .16s ease}.ado-schedule-day.is-past[data-calendar-day],.ado-schedule-day.is-booked[data-calendar-day]{cursor:not-allowed}.ado-schedule-day[data-calendar-day]:hover:not(.is-past):not(.is-booked){box-shadow:inset 0 0 0 1px #bfdbfe}.ado-schedule-day[data-calendar-day]:focus-visible{outline:2px solid #2563eb;outline-offset:-2px}.ado-schedule-day.is-selected{box-shadow:inset 0 0 0 2px #2563eb}.ado-schedule-booking-backdrop{position:fixed;inset:0;background:rgba(2,6,23,.45);opacity:0;pointer-events:none;transition:opacity .16s ease;z-index:99960}.ado-schedule-booking-backdrop.is-open{opacity:1;pointer-events:auto}.ado-schedule-booking-drawer{position:fixed;top:0;right:0;bottom:0;width:min(420px,100vw);background:#fff;border-left:1px solid var(--border);box-shadow:-18px 0 42px rgba(2,6,23,.18);z-index:99961;transform:translateX(100%);transition:transform .2s ease;display:flex;flex-direction:column}.ado-schedule-booking-drawer.is-open{transform:translateX(0)}body.admin-bar .ado-schedule-booking-backdrop{top:32px}body.admin-bar .ado-schedule-booking-drawer{top:32px}body.ado-schedule-booking-open{overflow:hidden}.ado-schedule-booking-head{padding:14px 16px;border-bottom:1px solid var(--border);display:flex;align-items:flex-start;justify-content:space-between;gap:12px}.ado-schedule-booking-kicker{font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:#9ca3af}.ado-schedule-booking-title{font-family:'Syne',sans-serif;font-size:20px;font-weight:800;margin-top:2px}.ado-schedule-booking-sub{font-size:12px;color:var(--text-muted);margin-top:3px}.ado-schedule-booking-body{padding:14px;overflow:auto;display:flex;flex-direction:column;gap:12px;flex:1}.ado-schedule-booking-form{display:flex;flex-direction:column;gap:10px}.ado-schedule-booking-field{display:block}.ado-schedule-booking-field span{display:block;font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--text-muted);margin-bottom:4px}.ado-schedule-booking-field input,.ado-schedule-booking-field select,.ado-schedule-booking-field textarea{width:100%;background:#fff;border:1px solid var(--border);border-radius:8px;color:var(--text-primary);padding:9px 10px;font-size:13px}.ado-schedule-booking-field input[readonly]{background:#f8fafc;color:var(--text-secondary)}.ado-schedule-booking-field textarea{resize:vertical;min-height:90px}.ado-schedule-door-count{font-size:12px;color:var(--text-muted);margin-bottom:6px}.ado-schedule-door-toolbar{display:flex;align-items:center;gap:8px;margin-bottom:8px}.ado-schedule-door-search{flex:1;min-width:0;background:#fff;border:1px solid var(--border);border-radius:8px;color:var(--text-primary);padding:8px 10px;font-size:13px}.ado-schedule-door-search:focus{outline:none;border-color:#93c5fd;box-shadow:0 0 0 2px rgba(37,99,235,.14)}.ado-schedule-door-selected{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px}.ado-schedule-door-chip{display:inline-flex;align-items:center;gap:6px;padding:5px 9px;border-radius:999px;background:#eff6ff;border:1px solid #bfdbfe;color:#1d4ed8;font-size:11px;font-weight:700}.ado-schedule-door-chip button{all:unset;cursor:pointer;line-height:1;font-size:12px;color:#1d4ed8}.ado-schedule-door-picker-wrap{border:1px solid var(--border);border-radius:10px;background:#fff;max-height:260px;overflow:auto;padding:8px}.ado-schedule-door-picker{display:flex;flex-direction:column;gap:6px}.ado-schedule-door-option{display:grid;grid-template-columns:16px minmax(0,1fr);align-items:start;gap:10px;padding:8px;border:1px solid #eef2f7;border-radius:8px;background:#fff;cursor:pointer;transition:border-color .14s ease,box-shadow .14s ease;text-align:left}.ado-schedule-door-option:hover{border-color:#dbeafe}.ado-schedule-door-option input{margin:2px 0 0 0}.ado-schedule-door-option-copy{display:flex;flex-direction:column;gap:2px;min-width:0}.ado-schedule-door-option-copy strong{font-size:12px;color:var(--text-primary);line-height:1.35;word-break:break-word}.ado-schedule-door-option-copy small{font-size:11px;color:var(--text-muted);line-height:1.35;word-break:break-word}.ado-schedule-door-option.is-selected{border-color:#93c5fd;box-shadow:0 0 0 2px rgba(37,99,235,.14);background:#f8fbff}.ado-schedule-door-option.is-booked{opacity:.6}.ado-schedule-door-option.is-hidden{display:none}.ado-schedule-door-option.is-filtered{display:none}.ado-schedule-door-empty{padding:10px;border:1px dashed var(--border);border-radius:10px;background:var(--surface-2);font-size:12px;color:var(--text-muted)}.ado-schedule-booking-existing{padding:10px;border:1px solid var(--border);border-radius:10px;background:var(--surface-2)}.ado-schedule-booking-existing-title{font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--text-muted);margin-bottom:8px}.ado-schedule-booking-existing-list{display:flex;flex-direction:column;gap:8px}.ado-schedule-booking-existing-item{display:flex;align-items:flex-start;justify-content:space-between;gap:10px;padding:8px;border:1px solid var(--border);border-radius:8px;background:#fff}.ado-schedule-booking-existing-copy{display:flex;flex-direction:column;gap:2px}.ado-schedule-booking-existing-copy strong{font-size:12px;color:var(--text-primary)}.ado-schedule-booking-existing-copy small{font-size:11px;color:var(--text-muted)}.ado-schedule-booking-existing-item .ado-btn{padding:5px 9px;font-size:11px}.ado-schedule-booking-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap}.ado-schedule-booking-flash{display:none;padding:8px 10px;border-radius:8px;font-size:12px}.ado-schedule-booking-flash.ok{display:block;background:#ecfdf3;color:#027a48}.ado-schedule-booking-flash.err{display:block;background:#fef2f2;color:#b42318}.ado-site-readiness-backdrop{position:fixed;inset:0;background:rgba(2,6,23,.45);opacity:0;pointer-events:none;transition:opacity .16s ease;z-index:99962}.ado-site-readiness-backdrop.is-open{opacity:1;pointer-events:auto}.ado-site-readiness-drawer{position:fixed;top:0;right:0;bottom:0;width:100vw;background:#fff;border-left:1px solid var(--border);box-shadow:-18px 0 42px rgba(2,6,23,.18);z-index:99963;transform:translateX(100%);transition:transform .2s ease;display:flex;flex-direction:column}.ado-site-readiness-drawer.is-open{transform:translateX(0)}body.admin-bar .ado-site-readiness-backdrop{top:32px}body.admin-bar .ado-site-readiness-drawer{top:32px}body.ado-site-readiness-open{overflow:hidden}.ado-site-readiness-head{padding:16px 18px;border-bottom:1px solid var(--border);display:flex;align-items:flex-start;justify-content:space-between;gap:12px}.ado-site-readiness-kicker{font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:#9ca3af}.ado-site-readiness-title{font-family:'Syne',sans-serif;font-size:22px;font-weight:800;margin-top:2px}.ado-site-readiness-sub{font-size:12px;color:var(--text-muted);margin-top:3px}.ado-site-readiness-body{padding:18px;overflow:auto;display:flex;flex-direction:column;gap:12px;flex:1}
     .ado-client-door-drawer{background:#1a1d27;border-left:1px solid rgba(255,255,255,.08);box-shadow:-18px 0 42px rgba(2,6,23,.32)}
     .ado-client-door-drawer-head{border-bottom:1px solid rgba(255,255,255,.08)}
     .ado-client-door-drawer-kicker{color:#64748b;letter-spacing:.12em}
@@ -2056,7 +4052,73 @@ add_shortcode('ado_client_dashboard_app', static function (): string {
     .ado-client-door-flash.err{background:rgba(239,68,68,.15);color:#fecaca}
     .ado-client-door-empty{padding:10px;border:1px dashed rgba(148,163,184,.25);border-radius:8px;color:#94a3b8}
     @media (max-width:900px){.ado-client-door-status-grid,.ado-client-door-status-grid-3,.ado-client-door-meta-grid{grid-template-columns:1fr}.ado-client-door-head-actions{justify-content:flex-start}}
-    @media (max-width:1100px){.ado-app{flex-direction:column}.ado-side{position:relative;width:100%;min-height:auto}.ado-project-grid{grid-template-columns:1fr}.ado-project-summary-grid{grid-template-columns:1fr}.ado-schedule-slot-list{grid-template-columns:1fr}}@media (max-width:840px){.ado-client-door-drawer{width:100vw}body.admin-bar .ado-client-door-backdrop{top:46px}body.admin-bar .ado-client-door-drawer{top:46px}}
+    @media (max-width:1100px){.ado-app{flex-direction:column}.ado-side{position:relative;width:100%;min-height:auto}.ado-project-grid{grid-template-columns:1fr}.ado-project-summary-grid{grid-template-columns:1fr}.ado-schedule-slot-list{grid-template-columns:1fr}.ado-schedule-day{min-height:96px}}@media (max-width:840px){.ado-client-door-drawer{width:100vw}.ado-schedule-booking-drawer{width:100vw}body.admin-bar .ado-client-door-backdrop{top:46px}body.admin-bar .ado-client-door-drawer{top:46px}body.admin-bar .ado-schedule-booking-backdrop{top:46px}body.admin-bar .ado-schedule-booking-drawer{top:46px}body.admin-bar .ado-site-readiness-backdrop{top:46px}body.admin-bar .ado-site-readiness-drawer{top:46px}.ado-schedule-month-track{min-width:680px}.ado-schedule-day{min-height:90px}}
+    </style>
+    <style>
+    .ado-site-readiness-form{display:flex;flex-direction:column;gap:12px}
+    .ado-site-readiness-summary{padding:10px 12px;border:1px solid var(--border);border-radius:10px;background:var(--surface-2);font-size:12px;color:var(--text-secondary)}
+    @media (min-width:981px){
+      .ado-site-readiness-backdrop{background:rgba(15,23,42,.34);backdrop-filter:blur(2px)}
+      .ado-site-readiness-drawer{
+        top:18px;
+        right:18px;
+        bottom:18px;
+        width:min(1360px,calc(100vw - 36px));
+        border:1px solid #dbe4f0;
+        border-radius:18px;
+        box-shadow:0 24px 70px rgba(15,23,42,.28),0 4px 14px rgba(15,23,42,.16);
+        transform:translateX(calc(100% + 24px));
+        overflow:hidden
+      }
+      body.admin-bar .ado-site-readiness-drawer{top:50px}
+    }
+    .ado-schedule-door-option.is-readiness-pending{border-color:#fed7aa;background:#fff7ed}
+    .ado-schedule-door-option.is-readiness-pending:hover{border-color:#fdba74}
+    .ado-schedule-door-option.is-readiness-pending .ado-schedule-door-option-copy strong{color:#9a3412}
+    .ado-schedule-door-option.is-readiness-pending .ado-schedule-door-option-copy small{color:#c2410c}
+    .ado-site-readiness-submittal-row{display:flex;align-items:stretch;gap:8px;flex-wrap:wrap}
+    .ado-site-readiness-submittal-strip{flex:1 1 360px;display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));border:1px solid var(--border);border-radius:10px;background:#fff;overflow:hidden;min-height:44px}
+    .ado-site-readiness-submittal-btn{all:unset;box-sizing:border-box;display:flex;flex-direction:column;gap:2px;padding:8px 10px;background:#f8fafc;cursor:pointer;border-right:1px solid var(--border)}
+    .ado-site-readiness-submittal-btn:last-child{border-right:none}
+    .ado-site-readiness-submittal-btn strong{font-size:12px;color:var(--text-primary);line-height:1.35}
+    .ado-site-readiness-submittal-btn small{font-size:10px;color:var(--text-muted);line-height:1.35;white-space:normal;overflow-wrap:anywhere}
+    .ado-site-readiness-submittal-btn:hover{background:#f1f5f9}
+    .ado-site-readiness-submittal-btn.is-active{background:#eff6ff;box-shadow:inset 0 0 0 1px #93c5fd}
+    .ado-site-readiness-submittal-empty{display:flex;align-items:center;padding:10px 12px;font-size:12px;color:var(--text-muted)}
+    .ado-site-readiness-door-scope{padding:12px;border:1px solid var(--border);border-radius:10px;background:#fff;display:flex;flex-direction:column;gap:10px}
+    .ado-site-readiness-progress{padding:8px 10px;border:1px dashed var(--border);border-radius:8px;background:var(--surface-2);font-size:12px;color:var(--text-secondary)}
+    .ado-site-readiness-bulk-actions{display:flex;align-items:center;justify-content:flex-end;gap:8px}
+    .ado-site-readiness-tabs{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+    .ado-site-readiness-tab-row{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:6px}
+    .ado-site-readiness-tab{width:100%;display:flex;align-items:flex-start;gap:8px;padding:8px 10px;border:1px solid var(--border);border-radius:10px;background:#fff;color:var(--text-secondary);cursor:pointer;text-align:left}
+    .ado-site-readiness-tab span{display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;border-radius:999px;background:var(--surface-2);font-size:11px;font-weight:700;color:var(--text-muted);flex:0 0 18px}
+    .ado-site-readiness-tab small{display:block;font-size:11px;line-height:1.35;color:var(--text-secondary)}
+    .ado-site-readiness-tab-toggle{display:inline-flex;align-items:center;gap:4px;font-size:10px;color:var(--text-muted);white-space:nowrap}
+    .ado-site-readiness-tab-toggle input{margin:0}
+    .ado-site-readiness-tab.is-active{border-color:#93c5fd;background:#eff6ff}
+    .ado-site-readiness-tab.is-active span{background:#dbeafe;color:#1d4ed8}
+    .ado-site-readiness-tab.is-active small{color:#1e3a8a}
+    .ado-site-readiness-tab.is-complete{border-color:#86efac;background:#f0fdf4}
+    .ado-site-readiness-tab.is-complete span{background:#dcfce7;color:#15803d}
+    .ado-site-readiness-tab.is-complete small{color:#166534}
+    .ado-site-readiness-tab.is-active.is-complete{border-color:#4ade80;background:#ecfdf3}
+    .ado-site-readiness-steps{display:flex;flex-direction:column;gap:10px}
+    .ado-site-readiness-step{padding:12px;border:1px solid var(--border);border-radius:10px;background:#fff;display:flex;flex-direction:column;gap:10px}
+    .ado-site-readiness-step-head h3{margin:0;font-family:'Syne',sans-serif;font-size:18px;line-height:1.2;color:var(--text-primary)}
+    .ado-site-readiness-step-head p{margin:6px 0 0;font-size:12px;line-height:1.45;color:var(--text-secondary)}
+    .ado-site-readiness-step-kicker{font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--text-muted);margin-bottom:6px}
+    .ado-site-readiness-checklist{display:flex;flex-direction:column;gap:6px}
+    .ado-site-readiness-checklist-item{display:flex;align-items:flex-start;gap:8px;padding:9px 10px;border:1px solid var(--border);border-radius:8px;background:var(--surface-2);font-size:12px;line-height:1.45;color:var(--text-primary)}
+    .ado-site-readiness-checklist-item input{margin-top:2px}
+    .ado-site-readiness-field span{display:block;font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--text-muted);margin-bottom:4px}
+    .ado-site-readiness-field textarea{width:100%;background:#fff;border:1px solid var(--border);border-radius:8px;color:var(--text-primary);padding:9px 10px;font-size:13px;resize:vertical;min-height:84px}
+    .ado-site-readiness-nav{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap}
+    .ado-site-readiness-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+    .ado-site-readiness-flash{display:none;padding:8px 10px;border-radius:8px;font-size:12px}
+    .ado-site-readiness-flash.ok{display:block;background:#ecfdf3;color:#027a48}
+    .ado-site-readiness-flash.err{display:block;background:#fef2f2;color:#b42318}
+    @media (min-width:980px){.ado-site-readiness-tabs{grid-template-columns:repeat(3,minmax(0,1fr))}}
+    @media (min-width:1280px){.ado-site-readiness-tabs{grid-template-columns:repeat(5,minmax(0,1fr))}}
     </style>
     <div class="ado-app">
       <aside class="ado-side">
@@ -2095,6 +4157,1282 @@ add_shortcode('ado_client_dashboard_app', static function (): string {
       if (!appRoot) {
         return;
       }
+      var scheduleBookingDrawer = appRoot.querySelector('[data-booking-drawer]');
+      var scheduleBookingBackdrop = appRoot.querySelector('[data-booking-backdrop]');
+      var scheduleBookingForm = scheduleBookingDrawer ? scheduleBookingDrawer.querySelector('[data-booking-form]') : null;
+      var scheduleBookingDayLabel = scheduleBookingDrawer ? scheduleBookingDrawer.querySelector('[data-booking-day-label]') : null;
+      var scheduleBookingDayState = scheduleBookingDrawer ? scheduleBookingDrawer.querySelector('[data-booking-day-state]') : null;
+      var scheduleBookingDateInput = scheduleBookingDrawer ? scheduleBookingDrawer.querySelector('[data-booking-date-input]') : null;
+      var scheduleBookingDateDisplay = scheduleBookingDrawer ? scheduleBookingDrawer.querySelector('[data-booking-date-display]') : null;
+      var scheduleBookingSubmit = scheduleBookingDrawer ? scheduleBookingDrawer.querySelector('[data-booking-submit]') : null;
+      var scheduleBookingNotes = scheduleBookingDrawer ? scheduleBookingDrawer.querySelector('textarea[name=\"booking_note\"]') : null;
+      var scheduleBookingNotesField = scheduleBookingDrawer ? scheduleBookingDrawer.querySelector('[data-booking-note-field]') : null;
+      var scheduleBookingCloseAction = scheduleBookingDrawer ? scheduleBookingDrawer.querySelector('[data-booking-close-action]') : null;
+      var scheduleBookingCancelDayButton = scheduleBookingDrawer ? scheduleBookingDrawer.querySelector('[data-booking-cancel-day]') : null;
+      var scheduleBookingFlash = scheduleBookingDrawer ? scheduleBookingDrawer.querySelector('[data-booking-flash]') : null;
+      var scheduleBookingDoorOptions = scheduleBookingDrawer ? Array.prototype.slice.call(scheduleBookingDrawer.querySelectorAll('[data-booking-door-option]')) : [];
+      var scheduleBookingDoorInputs = scheduleBookingDrawer ? Array.prototype.slice.call(scheduleBookingDrawer.querySelectorAll('[data-booking-door-input]')) : [];
+      var scheduleBookingDoorCount = scheduleBookingDrawer ? scheduleBookingDrawer.querySelector('[data-booking-door-count]') : null;
+      var scheduleBookingDoorSearch = scheduleBookingDrawer ? scheduleBookingDrawer.querySelector('[data-booking-door-search]') : null;
+      var scheduleBookingDoorClear = scheduleBookingDrawer ? scheduleBookingDrawer.querySelector('[data-booking-door-clear]') : null;
+      var scheduleBookingDoorSelected = scheduleBookingDrawer ? scheduleBookingDrawer.querySelector('[data-booking-door-selected]') : null;
+      var scheduleBookingDoorEmpty = scheduleBookingDrawer ? scheduleBookingDrawer.querySelector('[data-booking-door-empty]') : null;
+      var scheduleBookingExistingWrap = scheduleBookingDrawer ? scheduleBookingDrawer.querySelector('[data-booking-existing-wrap]') : null;
+      var scheduleBookingExistingTitle = scheduleBookingDrawer ? scheduleBookingDrawer.querySelector('[data-booking-existing-title]') : null;
+      var scheduleBookingExistingList = scheduleBookingDrawer ? scheduleBookingDrawer.querySelector('[data-booking-existing-list]') : null;
+      var scheduleBookingExistingJsonNode = scheduleBookingDrawer ? scheduleBookingDrawer.querySelector('[data-booking-existing-json]') : null;
+      var scheduleBookingExistingByDate = {};
+      var scheduleBookingOwnDayBookingIds = [];
+      var scheduleBookingOwnDayBookingProjectIds = {};
+      var scheduleBookingOwnDoorBaselineMap = {};
+      var scheduleBookingProjectField = scheduleBookingForm ? scheduleBookingForm.querySelector('input[name=\"project_id\"]') : null;
+      var scheduleBookingDefaultProjectId = scheduleBookingProjectField ? String(scheduleBookingProjectField.value || '').trim() : '';
+      var siteReadinessTrigger = appRoot.querySelector('[data-site-readiness-confirm]');
+      var siteReadinessDrawer = appRoot.querySelector('[data-site-readiness-drawer]');
+      var siteReadinessBackdrop = appRoot.querySelector('[data-site-readiness-backdrop]');
+      var siteReadinessForm = siteReadinessDrawer ? siteReadinessDrawer.querySelector('[data-site-readiness-form]') : null;
+      var siteReadinessProjectField = siteReadinessDrawer ? siteReadinessDrawer.querySelector('[data-site-readiness-project-id]') : null;
+      var siteReadinessSubmissionField = siteReadinessDrawer ? siteReadinessDrawer.querySelector('[data-site-readiness-submission-id]') : null;
+      var siteReadinessSubmissionButtons = Array.prototype.slice.call(appRoot.querySelectorAll('[data-site-readiness-open-submission]'));
+      var siteReadinessSubmissionsJsonNode = appRoot.querySelector('[data-site-readiness-submissions-json]');
+      var siteReadinessSubmissionsById = {};
+      var siteReadinessSummary = siteReadinessDrawer ? siteReadinessDrawer.querySelector('[data-site-readiness-summary]') : null;
+      var siteReadinessDoorOptions = siteReadinessDrawer ? Array.prototype.slice.call(siteReadinessDrawer.querySelectorAll('[data-site-readiness-door-option]')) : [];
+      var siteReadinessDoorInputs = siteReadinessDrawer ? Array.prototype.slice.call(siteReadinessDrawer.querySelectorAll('[data-site-readiness-door-input]')) : [];
+      var siteReadinessDoorSearch = siteReadinessDrawer ? siteReadinessDrawer.querySelector('[data-site-readiness-door-search]') : null;
+      var siteReadinessDoorClear = siteReadinessDrawer ? siteReadinessDrawer.querySelector('[data-site-readiness-door-clear]') : null;
+      var siteReadinessDoorSelected = siteReadinessDrawer ? siteReadinessDrawer.querySelector('[data-site-readiness-door-selected]') : null;
+      var siteReadinessDoorCount = siteReadinessDrawer ? siteReadinessDrawer.querySelector('[data-site-readiness-door-count]') : null;
+      var siteReadinessDoorEmpty = siteReadinessDrawer ? siteReadinessDrawer.querySelector('[data-site-readiness-door-empty]') : null;
+      var siteReadinessProgress = siteReadinessDrawer ? siteReadinessDrawer.querySelector('[data-site-readiness-progress]') : null;
+      var siteReadinessCheckAllButton = siteReadinessDrawer ? siteReadinessDrawer.querySelector('[data-site-readiness-check-all]') : null;
+      var siteReadinessFlash = siteReadinessDrawer ? siteReadinessDrawer.querySelector('[data-site-readiness-flash]') : null;
+      var siteReadinessSaveButton = siteReadinessDrawer ? siteReadinessDrawer.querySelector('[data-site-readiness-save]') : null;
+      var siteReadinessStepButtons = siteReadinessDrawer ? Array.prototype.slice.call(siteReadinessDrawer.querySelectorAll('[data-site-readiness-step-button]')) : [];
+      var siteReadinessSectionToggles = siteReadinessDrawer ? Array.prototype.slice.call(siteReadinessDrawer.querySelectorAll('[data-site-readiness-section-toggle]')) : [];
+      var siteReadinessStepPanels = siteReadinessDrawer ? Array.prototype.slice.call(siteReadinessDrawer.querySelectorAll('[data-site-readiness-step]')) : [];
+      var siteReadinessPrevButton = siteReadinessDrawer ? siteReadinessDrawer.querySelector('[data-site-readiness-prev]') : null;
+      var siteReadinessNextButton = siteReadinessDrawer ? siteReadinessDrawer.querySelector('[data-site-readiness-next]') : null;
+      var siteReadinessCurrentStep = 0;
+      if (siteReadinessSubmissionsJsonNode) {
+        try {
+          var parsedSiteReadinessSubmissions = JSON.parse(siteReadinessSubmissionsJsonNode.textContent || '{}');
+          if (parsedSiteReadinessSubmissions && typeof parsedSiteReadinessSubmissions === 'object') {
+            siteReadinessSubmissionsById = parsedSiteReadinessSubmissions;
+          }
+        } catch (err) {
+          siteReadinessSubmissionsById = {};
+        }
+      }
+      if (scheduleBookingExistingJsonNode) {
+        try {
+          var parsedExistingRows = JSON.parse(scheduleBookingExistingJsonNode.textContent || '{}');
+          if (parsedExistingRows && typeof parsedExistingRows === 'object') {
+            scheduleBookingExistingByDate = parsedExistingRows;
+          }
+        } catch (err) {
+          scheduleBookingExistingByDate = {};
+        }
+      }
+      function bookingDoorMapKey(projectId, doorId){
+        var normalizedProjectId = String(projectId || '').trim();
+        var normalizedDoorId = String(doorId || '').trim();
+        if (normalizedDoorId === '') {
+          return '';
+        }
+        return normalizedProjectId + '::' + normalizedDoorId;
+      }
+
+      function escapeBookingHtml(value){
+        return String(value || '')
+          .replace(/&/g, '&amp;')
+          .replace(/</g, '&lt;')
+          .replace(/>/g, '&gt;')
+          .replace(/\"/g, '&quot;')
+          .replace(/'/g, '&#039;');
+      }
+      function normalizeBookingBool(value){
+        if (value === true || value === 1) {
+          return true;
+        }
+        var normalized = String(value || '').toLowerCase();
+        return normalized === '1' || normalized === 'true' || normalized === 'yes';
+      }
+      function safeBookingUrl(value){
+        var url = String(value || '').trim();
+        if (!/^https?:\/\//i.test(url)) {
+          return '';
+        }
+        return url;
+      }
+      function collectOwnBookingStateForDay(dayKey){
+        var rows = Array.isArray(scheduleBookingExistingByDate[dayKey]) ? scheduleBookingExistingByDate[dayKey] : [];
+        var ownRows = rows.filter(function(row){
+          return normalizeBookingBool(row && row.is_own_booking);
+        });
+        var doorMap = {};
+        var bookingIds = [];
+        var bookingProjectIds = {};
+        var projectIds = {};
+        ownRows.forEach(function(row){
+          var rowProjectId = String((row && row.project_id) || scheduleBookingDefaultProjectId || '').trim();
+          if (rowProjectId !== '') {
+            projectIds[rowProjectId] = true;
+          }
+          var bookingId = String((row && row.booking_id) || '').trim();
+          if (bookingId !== '') {
+            bookingIds.push(bookingId);
+            bookingProjectIds[bookingId] = rowProjectId;
+          }
+          var doorIds = Array.isArray(row && row.door_ids) ? row.door_ids : [];
+          doorIds.forEach(function(doorId){
+            var doorKey = bookingDoorMapKey(rowProjectId, doorId);
+            if (doorKey !== '') {
+              doorMap[doorKey] = true;
+            }
+          });
+        });
+        return {
+          rows: ownRows,
+          doorMap: doorMap,
+          bookingIds: bookingIds,
+          bookingProjectIds: bookingProjectIds,
+          projectIds: projectIds
+        };
+      }
+      function cloneBookingDoorMap(sourceMap){
+        var clone = {};
+        if (!sourceMap || typeof sourceMap !== 'object') {
+          return clone;
+        }
+        Object.keys(sourceMap).forEach(function(doorId){
+          doorId = String(doorId || '').trim();
+          if (doorId !== '' && sourceMap[doorId]) {
+            clone[doorId] = true;
+          }
+        });
+        return clone;
+      }
+      function selectedDoorMapForBooking(){
+        var selected = {};
+        scheduleBookingDoorOptions.forEach(function(option){
+          if (!option || option.classList.contains('is-hidden')) {
+            return;
+          }
+          var input = option.querySelector('[data-booking-door-input]');
+          if (!input || !input.checked) {
+            return;
+          }
+          var doorId = String(option.getAttribute('data-door-id') || '').trim();
+          var projectId = String(option.getAttribute('data-door-project-id') || scheduleBookingDefaultProjectId || '').trim();
+          var doorKey = bookingDoorMapKey(projectId, doorId);
+          if (doorKey !== '') {
+            selected[doorKey] = true;
+          }
+        });
+        return selected;
+      }
+      function bookingDoorMapsEqual(leftMap, rightMap){
+        leftMap = cloneBookingDoorMap(leftMap);
+        rightMap = cloneBookingDoorMap(rightMap);
+        var leftKeys = Object.keys(leftMap).sort();
+        var rightKeys = Object.keys(rightMap).sort();
+        if (leftKeys.length !== rightKeys.length) {
+          return false;
+        }
+        for (var i = 0; i < leftKeys.length; i++) {
+          if (leftKeys[i] !== rightKeys[i]) {
+            return false;
+          }
+        }
+        return true;
+      }
+      function setScheduleBookingActionMode(dayState, hasOwnBookings, ownBookingIds){
+        var isOwnBooked = !!hasOwnBookings;
+        var hasOwnBookingIds = Array.isArray(ownBookingIds) && ownBookingIds.length > 0;
+        if (scheduleBookingSubmit) {
+          scheduleBookingSubmit.hidden = false;
+          scheduleBookingSubmit.textContent = 'Book Selected Doors';
+        }
+        if (scheduleBookingCloseAction) {
+          scheduleBookingCloseAction.hidden = isOwnBooked;
+        }
+        if (scheduleBookingCancelDayButton) {
+          scheduleBookingCancelDayButton.hidden = !isOwnBooked || !hasOwnBookingIds;
+          scheduleBookingCancelDayButton.disabled = !isOwnBooked || !hasOwnBookingIds;
+        }
+        if (scheduleBookingNotesField) {
+          scheduleBookingNotesField.hidden = isOwnBooked;
+        }
+        if (scheduleBookingNotes) {
+          if (isOwnBooked) {
+            scheduleBookingNotes.value = '';
+          }
+          scheduleBookingNotes.disabled = isOwnBooked;
+        }
+      }
+
+      function clearScheduleDaySelection(){
+        appRoot.querySelectorAll('[data-calendar-day].is-selected').forEach(function(node){
+          node.classList.remove('is-selected');
+        });
+      }
+      function setScheduleBookingFlash(message, isOk){
+        if (!scheduleBookingFlash) {
+          return;
+        }
+        if (!message) {
+          scheduleBookingFlash.className = 'ado-schedule-booking-flash';
+          scheduleBookingFlash.textContent = '';
+          return;
+        }
+        scheduleBookingFlash.className = 'ado-schedule-booking-flash ' + (isOk ? 'ok' : 'err');
+        scheduleBookingFlash.textContent = String(message || '');
+      }
+      function setSiteReadinessFlash(message, isOk){
+        if (!siteReadinessFlash) {
+          return;
+        }
+        if (!message) {
+          siteReadinessFlash.className = 'ado-site-readiness-flash';
+          siteReadinessFlash.textContent = '';
+          return;
+        }
+        siteReadinessFlash.className = 'ado-site-readiness-flash ' + (isOk ? 'ok' : 'err');
+        siteReadinessFlash.textContent = String(message || '');
+      }
+      function normalizeSiteReadinessDoorSearch(value){
+        return String(value || '').toLowerCase().replace(/\s+/g, ' ').trim();
+      }
+      function siteReadinessSelectedDoorIds(){
+        var selectedDoorMap = {};
+        siteReadinessDoorOptions.forEach(function(option){
+          if (!option || option.classList.contains('is-hidden')) {
+            return;
+          }
+          var input = option.querySelector('[data-site-readiness-door-input]');
+          if (!input || !input.checked) {
+            return;
+          }
+          var doorId = String(option.getAttribute('data-door-id') || input.value || '').trim();
+          if (doorId === '') {
+            return;
+          }
+          selectedDoorMap[doorId] = true;
+        });
+        return Object.keys(selectedDoorMap);
+      }
+      function collectSiteReadinessDoorLookupForSubmission(submissionId){
+        var doorLookup = {};
+        submissionId = String(submissionId || '').trim();
+        if (submissionId === '') {
+          return doorLookup;
+        }
+        var submissionState = siteReadinessSubmissionsById[submissionId];
+        var submissionDoorIds = Array.isArray(submissionState && submissionState.door_ids) ? submissionState.door_ids : [];
+        submissionDoorIds.forEach(function(doorIdRaw){
+          var doorId = String(doorIdRaw || '').trim();
+          if (doorId !== '') {
+            doorLookup[doorId] = true;
+          }
+        });
+        return doorLookup;
+      }
+      function collectSiteReadinessReservedDoorLookup(excludedSubmissionId){
+        var reservedLookup = {};
+        excludedSubmissionId = String(excludedSubmissionId || '').trim();
+        Object.keys(siteReadinessSubmissionsById || {}).forEach(function(submissionId){
+          submissionId = String(submissionId || '').trim();
+          if (submissionId === '' || submissionId === excludedSubmissionId) {
+            return;
+          }
+          var submissionState = siteReadinessSubmissionsById[submissionId];
+          var submissionDoorIds = Array.isArray(submissionState && submissionState.door_ids) ? submissionState.door_ids : [];
+          submissionDoorIds.forEach(function(doorIdRaw){
+            var doorId = String(doorIdRaw || '').trim();
+            if (doorId !== '') {
+              reservedLookup[doorId] = true;
+            }
+          });
+        });
+        return reservedLookup;
+      }
+      function applySiteReadinessDoorAvailability(activeSubmissionId){
+        activeSubmissionId = String(activeSubmissionId || '').trim();
+        var reservedDoorLookup = collectSiteReadinessReservedDoorLookup(activeSubmissionId);
+        var activeDoorLookup = collectSiteReadinessDoorLookupForSubmission(activeSubmissionId);
+        siteReadinessDoorOptions.forEach(function(option){
+          var input = option.querySelector('[data-site-readiness-door-input]');
+          if (!input) {
+            return;
+          }
+          var doorId = String(option.getAttribute('data-door-id') || input.value || '').trim();
+          var isReserved = doorId !== '' && !!reservedDoorLookup[doorId] && !activeDoorLookup[doorId];
+          option.classList.toggle('is-hidden', isReserved);
+          if (isReserved) {
+            input.checked = false;
+            input.disabled = true;
+          } else {
+            input.disabled = false;
+          }
+        });
+      }
+      function renderSiteReadinessDoorSelected(){
+        if (!siteReadinessDoorSelected) {
+          return;
+        }
+        var selectedDoorIds = siteReadinessSelectedDoorIds();
+        if (!selectedDoorIds.length) {
+          siteReadinessDoorSelected.innerHTML = '';
+          siteReadinessDoorSelected.hidden = true;
+          return;
+        }
+        var chipHtml = selectedDoorIds.map(function(selectedDoorId){
+          var option = siteReadinessDoorOptions.find(function(optionNode){
+            return String(optionNode.getAttribute('data-door-id') || '').trim() === selectedDoorId;
+          });
+          var doorLabel = option ? String(option.getAttribute('data-door-label') || selectedDoorId) : selectedDoorId;
+          return '<span class=\"ado-schedule-door-chip\">'
+            + escapeBookingHtml(doorLabel)
+            + '<button type=\"button\" data-site-readiness-door-remove=\"' + escapeBookingHtml(selectedDoorId) + '\" aria-label=\"Remove ' + escapeBookingHtml(doorLabel) + '\">&times;</button>'
+            + '</span>';
+        }).join('');
+        siteReadinessDoorSelected.innerHTML = chipHtml;
+        siteReadinessDoorSelected.hidden = false;
+      }
+      function applySiteReadinessDoorFilter(){
+        var query = normalizeSiteReadinessDoorSearch(siteReadinessDoorSearch ? siteReadinessDoorSearch.value : '');
+        var visibleCount = 0;
+        siteReadinessDoorOptions.forEach(function(option){
+          var input = option.querySelector('[data-site-readiness-door-input]');
+          if (!input || option.classList.contains('is-hidden')) {
+            option.classList.add('is-filtered');
+            return;
+          }
+          var searchText = normalizeSiteReadinessDoorSearch(option.getAttribute('data-door-search') || '');
+          var keepVisible = query === '' || input.checked || searchText.indexOf(query) !== -1;
+          option.classList.toggle('is-filtered', !keepVisible);
+          if (!option.classList.contains('is-filtered')) {
+            visibleCount++;
+          }
+        });
+        if (siteReadinessDoorClear) {
+          siteReadinessDoorClear.hidden = query === '';
+        }
+        return visibleCount;
+      }
+      function updateSiteReadinessDoorSelectionState(){
+        var selectedDoorIds = siteReadinessSelectedDoorIds();
+        var totalDoors = 0;
+        siteReadinessDoorOptions.forEach(function(option){
+          if (!option.classList.contains('is-hidden')) {
+            totalDoors += 1;
+          }
+        });
+        var visibleDoors = applySiteReadinessDoorFilter();
+        siteReadinessDoorOptions.forEach(function(option){
+          var input = option.querySelector('[data-site-readiness-door-input]');
+          option.classList.toggle('is-selected', !!(input && input.checked));
+        });
+        if (siteReadinessDoorCount) {
+          if (totalDoors <= 0) {
+            siteReadinessDoorCount.textContent = 'All project doors already belong to saved site readiness submittals.';
+          } else if (selectedDoorIds.length <= 0) {
+            siteReadinessDoorCount.textContent = 'Select at least one project door for this readiness checklist.';
+          } else {
+            siteReadinessDoorCount.textContent = selectedDoorIds.length + ' of ' + totalDoors + ' doors selected.';
+          }
+        }
+        if (siteReadinessDoorEmpty) {
+          if (totalDoors <= 0) {
+            siteReadinessDoorEmpty.textContent = 'All project doors are already assigned to saved site readiness submittals. Open a submittal above to edit.';
+          } else if (visibleDoors <= 0) {
+            siteReadinessDoorEmpty.textContent = 'No project doors match the current search.';
+          } else {
+            siteReadinessDoorEmpty.textContent = 'No project doors are available to scope this checklist.';
+          }
+          siteReadinessDoorEmpty.hidden = visibleDoors > 0;
+        }
+        renderSiteReadinessDoorSelected();
+      }
+      function setActiveSiteReadinessSubmissionButton(submissionId){
+        submissionId = String(submissionId || '').trim();
+        siteReadinessSubmissionButtons.forEach(function(button){
+          var buttonSubmissionId = String(button.getAttribute('data-site-readiness-open-submission') || '').trim();
+          button.classList.toggle('is-active', submissionId !== '' && buttonSubmissionId === submissionId);
+        });
+      }
+      function buildEmptySiteReadinessSubmissionState(){
+        var emptySections = {};
+        siteReadinessStepPanels.forEach(function(panel){
+          if (!panel) {
+            return;
+          }
+          var sectionKey = String(panel.getAttribute('data-section-key') || '').trim();
+          if (sectionKey === '') {
+            return;
+          }
+          var emptyItems = {};
+          panel.querySelectorAll('[data-site-readiness-item]').forEach(function(itemNode){
+            var itemKey = String(itemNode.getAttribute('data-item-key') || '').trim();
+            if (itemKey === '') {
+              return;
+            }
+            emptyItems[itemKey] = 0;
+          });
+          emptySections[sectionKey] = {
+            items: emptyItems,
+            note: ''
+          };
+        });
+        return {
+          submission_id: '',
+          door_ids: [],
+          sections: emptySections
+        };
+      }
+      function applySiteReadinessSubmissionState(submissionState){
+        submissionState = submissionState && typeof submissionState === 'object' ? submissionState : {};
+        var doorLookup = {};
+        var submissionDoorIds = Array.isArray(submissionState.door_ids) ? submissionState.door_ids : [];
+        submissionDoorIds.forEach(function(doorIdRaw){
+          var doorId = String(doorIdRaw || '').trim();
+          if (doorId !== '') {
+            doorLookup[doorId] = true;
+          }
+        });
+        siteReadinessDoorOptions.forEach(function(option){
+          var input = option.querySelector('[data-site-readiness-door-input]');
+          if (!input) {
+            return;
+          }
+          var doorId = String(option.getAttribute('data-door-id') || input.value || '').trim();
+          input.checked = doorId !== '' && !!doorLookup[doorId];
+        });
+        var submissionSections = submissionState.sections && typeof submissionState.sections === 'object'
+          ? submissionState.sections
+          : {};
+        siteReadinessStepPanels.forEach(function(panel){
+          if (!panel) {
+            return;
+          }
+          var sectionKey = String(panel.getAttribute('data-section-key') || '').trim();
+          var sectionState = sectionKey !== '' && submissionSections[sectionKey] && typeof submissionSections[sectionKey] === 'object'
+            ? submissionSections[sectionKey]
+            : {};
+          var sectionItems = sectionState.items && typeof sectionState.items === 'object' ? sectionState.items : {};
+          panel.querySelectorAll('[data-site-readiness-item]').forEach(function(itemNode){
+            var itemKey = String(itemNode.getAttribute('data-item-key') || '').trim();
+            if (itemKey === '') {
+              itemNode.checked = false;
+              return;
+            }
+            itemNode.checked = !!sectionItems[itemKey];
+          });
+          var noteNode = panel.querySelector('[data-site-readiness-section-note]');
+          if (noteNode) {
+            noteNode.value = String(sectionState.note || '');
+          }
+        });
+        updateSiteReadinessDoorSelectionState();
+        updateSiteReadinessSummary();
+        updateSiteReadinessProgress();
+      }
+      function loadSiteReadinessSubmission(submissionId){
+        submissionId = String(submissionId || '').trim();
+        if (submissionId === '') {
+          if (siteReadinessSubmissionField) {
+            siteReadinessSubmissionField.value = '';
+          }
+          setActiveSiteReadinessSubmissionButton('');
+          applySiteReadinessDoorAvailability('');
+          applySiteReadinessSubmissionState(buildEmptySiteReadinessSubmissionState());
+          return;
+        }
+        var submissionState = siteReadinessSubmissionsById[submissionId];
+        if (!submissionState || typeof submissionState !== 'object') {
+          return;
+        }
+        if (siteReadinessSubmissionField) {
+          siteReadinessSubmissionField.value = submissionId;
+        }
+        setActiveSiteReadinessSubmissionButton(submissionId);
+        applySiteReadinessDoorAvailability(submissionId);
+        applySiteReadinessSubmissionState(submissionState);
+      }
+      function updateSiteReadinessSummary(){
+        if (!siteReadinessSummary) {
+          return;
+        }
+        var totalItems = 0;
+        var confirmedItems = 0;
+        siteReadinessStepPanels.forEach(function(panel, panelIndex){
+          var sectionTotal = 0;
+          var sectionConfirmed = 0;
+          var tabButton = siteReadinessStepButtons[panelIndex] || null;
+          var tabToggle = siteReadinessSectionToggles[panelIndex] || null;
+          if (!panel) {
+            if (tabButton) {
+              tabButton.classList.remove('is-complete');
+            }
+            if (tabToggle) {
+              tabToggle.checked = false;
+              tabToggle.indeterminate = false;
+              tabToggle.disabled = true;
+            }
+            return;
+          }
+          panel.querySelectorAll('[data-site-readiness-item]').forEach(function(itemNode){
+            sectionTotal += 1;
+            totalItems += 1;
+            if (itemNode.checked) {
+              sectionConfirmed += 1;
+              confirmedItems += 1;
+            }
+          });
+          if (tabButton) {
+            tabButton.classList.toggle('is-complete', sectionTotal > 0 && sectionConfirmed >= sectionTotal);
+          }
+          if (tabToggle) {
+            if (sectionTotal <= 0) {
+              tabToggle.checked = false;
+              tabToggle.indeterminate = false;
+              tabToggle.disabled = true;
+            } else if (sectionConfirmed <= 0) {
+              tabToggle.checked = false;
+              tabToggle.indeterminate = false;
+              tabToggle.disabled = false;
+            } else if (sectionConfirmed >= sectionTotal) {
+              tabToggle.checked = true;
+              tabToggle.indeterminate = false;
+              tabToggle.disabled = false;
+            } else {
+              tabToggle.checked = false;
+              tabToggle.indeterminate = true;
+              tabToggle.disabled = false;
+            }
+          }
+        });
+        if (totalItems <= 0) {
+          siteReadinessSummary.textContent = 'No site-readiness checklist items are configured yet.';
+          return;
+        }
+        siteReadinessSummary.textContent = confirmedItems + ' of ' + totalItems + ' checklist items confirmed.';
+      }
+      function updateSiteReadinessProgress(){
+        if (!siteReadinessProgress) {
+          return;
+        }
+        if (!siteReadinessStepPanels.length) {
+          siteReadinessProgress.textContent = '';
+          return;
+        }
+        var currentPanel = siteReadinessStepPanels[siteReadinessCurrentStep] || null;
+        var currentTitleNode = currentPanel ? currentPanel.querySelector('h3') : null;
+        var currentTitle = currentTitleNode ? String(currentTitleNode.textContent || '').trim() : '';
+        var sectionItems = currentPanel ? currentPanel.querySelectorAll('[data-site-readiness-item]') : [];
+        var sectionChecked = 0;
+        sectionItems.forEach(function(itemNode){
+          if (itemNode.checked) {
+            sectionChecked += 1;
+          }
+        });
+        var sectionTotal = sectionItems.length || 0;
+        var sectionLabel = 'Section ' + (siteReadinessCurrentStep + 1) + ' of ' + siteReadinessStepPanels.length;
+        if (currentTitle !== '') {
+          sectionLabel += ': ' + currentTitle;
+        }
+        if (sectionTotal > 0) {
+          sectionLabel += ' (' + sectionChecked + '/' + sectionTotal + ' checked)';
+        }
+        siteReadinessProgress.textContent = sectionLabel;
+      }
+      function setSiteReadinessStep(index){
+        if (!siteReadinessStepPanels.length) {
+          return;
+        }
+        var maxStep = siteReadinessStepPanels.length - 1;
+        siteReadinessCurrentStep = Math.max(0, Math.min(index, maxStep));
+        siteReadinessStepPanels.forEach(function(panel, panelIndex){
+          panel.hidden = panelIndex !== siteReadinessCurrentStep;
+        });
+        siteReadinessStepButtons.forEach(function(button, buttonIndex){
+          button.classList.toggle('is-active', buttonIndex === siteReadinessCurrentStep);
+        });
+        if (siteReadinessPrevButton) {
+          siteReadinessPrevButton.disabled = siteReadinessCurrentStep <= 0;
+        }
+        if (siteReadinessNextButton) {
+          var isLastStep = siteReadinessCurrentStep >= maxStep;
+          siteReadinessNextButton.textContent = isLastStep ? 'Back To Section 1' : 'Next Section';
+          siteReadinessNextButton.setAttribute('data-next-mode', isLastStep ? 'restart' : 'next');
+        }
+        updateSiteReadinessProgress();
+      }
+      function collectSiteReadinessSectionsPayload(){
+        var sections = {};
+        siteReadinessStepPanels.forEach(function(panel){
+          if (!panel) {
+            return;
+          }
+          var sectionKey = String(panel.getAttribute('data-section-key') || '').trim();
+          if (sectionKey === '') {
+            return;
+          }
+          var itemPayload = {};
+          panel.querySelectorAll('[data-site-readiness-item]').forEach(function(itemNode){
+            var itemKey = String(itemNode.getAttribute('data-item-key') || '').trim();
+            if (itemKey === '') {
+              return;
+            }
+            itemPayload[itemKey] = itemNode.checked ? 1 : 0;
+          });
+          var noteNode = panel.querySelector('[data-site-readiness-section-note]');
+          sections[sectionKey] = {
+            items: itemPayload,
+            note: noteNode ? String(noteNode.value || '').trim() : ''
+          };
+        });
+        return sections;
+      }
+      async function submitSiteReadinessForm(){
+        if (!siteReadinessForm) {
+          return;
+        }
+        var projectIdValue = siteReadinessProjectField ? String(siteReadinessProjectField.value || '').trim() : '';
+        if (projectIdValue === '') {
+          setSiteReadinessFlash('Project context is missing. Reload and try again.', false);
+          return;
+        }
+        var selectedDoorIds = siteReadinessSelectedDoorIds();
+        if (selectedDoorIds.length <= 0) {
+          setSiteReadinessFlash('Select at least one project door for this readiness checklist.', false);
+          return;
+        }
+        var sectionsPayload = collectSiteReadinessSectionsPayload();
+        if (!Object.keys(sectionsPayload).length) {
+          setSiteReadinessFlash('No site-readiness sections are available to update yet.', false);
+          return;
+        }
+        if (siteReadinessSaveButton) {
+          siteReadinessSaveButton.disabled = true;
+        }
+        setSiteReadinessFlash('', true);
+        var payload = new FormData();
+        payload.append('action', 'ado_save_client_site_readiness');
+        payload.append('nonce', nonce);
+        payload.append('project_id', projectIdValue);
+        var submissionIdValue = siteReadinessSubmissionField ? String(siteReadinessSubmissionField.value || '').trim() : '';
+        if (submissionIdValue !== '') {
+          payload.append('submission_id', submissionIdValue);
+        }
+        payload.append('door_ids', JSON.stringify(selectedDoorIds));
+        payload.append('sections', JSON.stringify(sectionsPayload));
+        try {
+          var res = await fetch(ajaxUrl, { method:'POST', body: payload, credentials:'same-origin' });
+          var json = await res.json();
+          if (!json || !json.success) {
+            throw new Error((json && json.data && json.data.message) ? json.data.message : 'Site readiness could not be saved.');
+          }
+          if (siteReadinessSubmissionField && json && json.data && json.data.submission_id) {
+            siteReadinessSubmissionField.value = String(json.data.submission_id || '').trim();
+            setActiveSiteReadinessSubmissionButton(siteReadinessSubmissionField.value);
+          }
+          updateSiteReadinessSummary();
+          updateSiteReadinessProgress();
+          setSiteReadinessFlash((json.data && json.data.message) ? json.data.message : 'Site readiness saved.', true);
+          hideSiteReadinessDrawer();
+          window.setTimeout(function(){ window.location.reload(); }, 260);
+        } catch (err) {
+          setSiteReadinessFlash((err && err.message) ? err.message : 'Site readiness could not be saved.', false);
+        } finally {
+          if (siteReadinessSaveButton) {
+            siteReadinessSaveButton.disabled = false;
+          }
+        }
+      }
+      function normalizeBookingSearch(value){
+        return String(value || '').toLowerCase().replace(/\s+/g, ' ').trim();
+      }
+      function renderScheduleDoorSelected(){
+        if (!scheduleBookingDoorSelected) {
+          return;
+        }
+        var selected = scheduleSelectedDoorInputs();
+        if (!selected.length) {
+          scheduleBookingDoorSelected.innerHTML = '';
+          scheduleBookingDoorSelected.hidden = true;
+          return;
+        }
+        var html = selected.map(function(input){
+          var option = input.closest('[data-booking-door-option]');
+          var doorId = option ? String(option.getAttribute('data-door-id') || input.value || '') : String(input.value || '');
+          var doorLabel = option ? String(option.getAttribute('data-door-label') || doorId) : doorId;
+          return '<span class=\"ado-schedule-door-chip\">'
+            + escapeBookingHtml(doorLabel)
+            + '<button type=\"button\" data-booking-door-remove=\"' + escapeBookingHtml(doorId) + '\" aria-label=\"Remove ' + escapeBookingHtml(doorLabel) + '\">&times;</button>'
+            + '</span>';
+        }).join('');
+        scheduleBookingDoorSelected.innerHTML = html;
+        scheduleBookingDoorSelected.hidden = false;
+      }
+      function applyScheduleDoorFilter(){
+        var query = normalizeBookingSearch(scheduleBookingDoorSearch ? scheduleBookingDoorSearch.value : '');
+        var visibleCount = 0;
+        scheduleBookingDoorOptions.forEach(function(option){
+          var input = option.querySelector('[data-booking-door-input]');
+          if (!input) {
+            option.classList.add('is-filtered');
+            return;
+          }
+          var optionText = normalizeBookingSearch(option.getAttribute('data-door-search') || '');
+          var keepVisible = query === '' || input.checked || optionText.indexOf(query) !== -1;
+          option.classList.toggle('is-filtered', !keepVisible);
+          if (!option.classList.contains('is-hidden') && !option.classList.contains('is-filtered')) {
+            visibleCount++;
+          }
+        });
+        if (scheduleBookingDoorClear) {
+          scheduleBookingDoorClear.hidden = query === '';
+        }
+        return visibleCount;
+      }
+      function scheduleSelectedDoorInputs(){
+        return scheduleBookingDoorInputs.filter(function(input){
+          var option = input.closest('[data-booking-door-option]');
+          return !!option
+            && !option.classList.contains('is-hidden')
+            && !option.classList.contains('is-filtered')
+            && !input.disabled
+            && !!input.checked;
+        });
+      }
+      function updateScheduleDoorSelectionState(){
+        var dayState = scheduleBookingForm ? String(scheduleBookingForm.getAttribute('data-day-state') || 'available') : 'available';
+        var hasOwnBookings = scheduleBookingForm && scheduleBookingForm.getAttribute('data-day-has-own-booking') === '1';
+        var isDayBlocked = scheduleBookingForm && scheduleBookingForm.getAttribute('data-day-blocked') === '1';
+        var isOwnBookedDay = dayState === 'own-booked' && hasOwnBookings;
+        var searchQuery = normalizeBookingSearch(scheduleBookingDoorSearch ? scheduleBookingDoorSearch.value : '');
+        var selectedCount = scheduleSelectedDoorInputs().length;
+        var hasVisibleOptions = false;
+        var hasReadyVisibleOptions = false;
+        scheduleBookingDoorOptions.forEach(function(option){
+          var input = option.querySelector('[data-booking-door-input]');
+          if (!input) {
+            return;
+          }
+          var isGloballyBooked = String(option.getAttribute('data-door-booked') || '0') === '1';
+          var isReadinessReady = String(option.getAttribute('data-door-readiness-ready') || '0') === '1';
+          var isOwnBookedDoor = String(option.getAttribute('data-door-own-booked') || '0') === '1';
+          var isHidden = option.classList.contains('is-hidden');
+          var isFiltered = option.classList.contains('is-filtered');
+          var readinessBlocked = !isReadinessReady && !(isOwnBookedDay && isOwnBookedDoor);
+          if (!isHidden && !isFiltered) {
+            hasVisibleOptions = true;
+            if (!readinessBlocked && !isGloballyBooked) {
+              hasReadyVisibleOptions = true;
+            }
+          }
+          option.classList.toggle('is-readiness-pending', readinessBlocked);
+          option.classList.toggle('is-selected', !!input.checked);
+          if (isOwnBookedDay) {
+            if (isHidden) {
+              input.checked = false;
+              input.disabled = true;
+              return;
+            }
+            if (readinessBlocked) {
+              input.checked = false;
+              input.disabled = true;
+              return;
+            }
+            if (isFiltered && !input.checked) {
+              input.disabled = true;
+              return;
+            }
+            // Keep the same max-two constraint while allowing replacements:
+            // uncheck one first, then another option becomes selectable.
+            input.disabled = !input.checked && selectedCount >= 2;
+            return;
+          }
+          if (isGloballyBooked || isHidden || readinessBlocked) {
+            input.checked = false;
+            input.disabled = true;
+            return;
+          }
+          if (isDayBlocked) {
+            input.checked = false;
+            input.disabled = true;
+            return;
+          }
+          if (isFiltered && !input.checked) {
+            input.disabled = true;
+            return;
+          }
+          input.disabled = !input.checked && selectedCount >= 2;
+        });
+        if (scheduleBookingDoorCount) {
+          if (!hasVisibleOptions) {
+            scheduleBookingDoorCount.textContent = searchQuery !== ''
+              ? 'No doors match your search.'
+              : 'No doors currently available to book.';
+          } else if (!isOwnBookedDay && !hasReadyVisibleOptions) {
+            scheduleBookingDoorCount.textContent = 'Doors highlighted in orange require saved Site Readiness before booking.';
+          } else if (isOwnBookedDay) {
+            scheduleBookingDoorCount.textContent = selectedCount > 0
+              ? String(selectedCount) + ' booked door(s) selected for this day.'
+              : 'No doors are selected for this booked day.';
+          } else if (selectedCount === 0) {
+            scheduleBookingDoorCount.textContent = 'Choose up to two doors for this day.';
+          } else {
+            scheduleBookingDoorCount.textContent = String(selectedCount) + ' of 2 doors selected.';
+          }
+        }
+        if (scheduleBookingDoorEmpty) {
+          scheduleBookingDoorEmpty.hidden = hasVisibleOptions;
+        }
+        var ownSelectedMap = isOwnBookedDay ? selectedDoorMapForBooking() : {};
+        var hasOwnBookingChanges = isOwnBookedDay
+          ? !bookingDoorMapsEqual(ownSelectedMap, scheduleBookingOwnDoorBaselineMap)
+          : false;
+        var canSubmit = !isDayBlocked && selectedCount > 0;
+        if (!isOwnBookedDay) {
+          canSubmit = canSubmit && hasVisibleOptions;
+        } else {
+          canSubmit = canSubmit && hasOwnBookingChanges;
+        }
+        if (scheduleBookingSubmit) {
+          scheduleBookingSubmit.hidden = isOwnBookedDay ? !hasOwnBookingChanges : false;
+          scheduleBookingSubmit.disabled = !canSubmit;
+          scheduleBookingSubmit.setAttribute('aria-disabled', canSubmit ? 'false' : 'true');
+        }
+        if (scheduleBookingNotes) {
+          scheduleBookingNotes.disabled = isOwnBookedDay ? true : !canSubmit;
+        }
+        renderScheduleDoorSelected();
+      }
+      function renderScheduleExistingRows(dayKey, dayState){
+        if (!scheduleBookingExistingWrap || !scheduleBookingExistingList) {
+          return { totalCount: 0, ownCount: 0, renderedCount: 0 };
+        }
+        var rows = Array.isArray(scheduleBookingExistingByDate[dayKey]) ? scheduleBookingExistingByDate[dayKey] : [];
+        if (!rows.length) {
+          scheduleBookingExistingList.innerHTML = '';
+          scheduleBookingExistingWrap.hidden = true;
+          if (scheduleBookingExistingTitle) {
+            scheduleBookingExistingTitle.textContent = 'Booked doors for this day';
+          }
+          return { totalCount: 0, ownCount: 0, renderedCount: 0 };
+        }
+        var ownRows = rows.filter(function(row){
+          return normalizeBookingBool(row && row.is_own_booking);
+        });
+        if (dayState === 'own-booked') {
+          scheduleBookingExistingList.innerHTML = '';
+          scheduleBookingExistingWrap.hidden = true;
+          if (scheduleBookingExistingTitle) {
+            scheduleBookingExistingTitle.textContent = 'Booked doors for this day';
+          }
+          return {
+            totalCount: rows.length,
+            ownCount: ownRows.length,
+            renderedCount: 0
+          };
+        }
+        var rowsToRender = rows;
+        if (scheduleBookingExistingTitle) {
+          scheduleBookingExistingTitle.textContent = 'Booked doors for this day';
+        }
+        var html = rowsToRender.map(function(row){
+          var bookingId = escapeBookingHtml(row.booking_id || '');
+          var scheduleDate = escapeBookingHtml(row.schedule_date || dayKey || '');
+          var doorIds = Array.isArray(row.door_ids) ? row.door_ids.map(function(doorId){ return escapeBookingHtml(doorId); }) : [];
+          var labels = Array.isArray(row.door_labels) ? row.door_labels.map(function(label){ return escapeBookingHtml(label); }).join(', ') : '';
+          var createdAt = escapeBookingHtml(row.created_at || '');
+          var note = escapeBookingHtml(row.note || '');
+          var createdByName = String(row.created_by_name || '').trim();
+          var createdByEmail = String(row.created_by_email || '').trim();
+          var eventId = escapeBookingHtml(row.google_event_id || '');
+          var eventLink = safeBookingUrl(row.google_event_link || '');
+          var isOwnBooking = normalizeBookingBool(row && row.is_own_booking);
+          var rowProjectId = String((row && row.project_id) || scheduleBookingDefaultProjectId || '').trim();
+          var doorIdsHtml = doorIds.length ? '<small>Door IDs: ' + doorIds.join(', ') + '</small>' : '';
+          var dateHtml = scheduleDate !== '' ? '<small>Date: ' + scheduleDate + '</small>' : '';
+          var bookingRefHtml = bookingId !== '' ? '<small>Booking ID: ' + bookingId + '</small>' : '';
+          var bookedByValue = createdByName !== '' ? createdByName : 'Client';
+          if (createdByEmail !== '') {
+            bookedByValue += ' (' + createdByEmail + ')';
+          }
+          var bookedByHtml = '<small>Booked by: ' + escapeBookingHtml(bookedByValue) + '</small>';
+          var noteHtml = note !== '' ? '<small>Note: ' + note + '</small>' : '';
+          var createdHtml = createdAt !== '' ? '<small>Booked: ' + createdAt + '</small>' : '';
+          var googleHtml = '';
+          if (eventLink !== '') {
+            googleHtml = '<small>Google event: <a href=\"' + escapeBookingHtml(eventLink) + '\" target=\"_blank\" rel=\"noopener noreferrer\">Open calendar event</a></small>';
+          } else if (eventId !== '') {
+            googleHtml = '<small>Google event ID: ' + eventId + '</small>';
+          }
+          var cancelButtonHtml = (isOwnBooking && bookingId !== '')
+            ? '<button class=\"ado-btn\" type=\"button\" data-booking-cancel=\"' + bookingId + '\" data-booking-cancel-project=\"' + escapeBookingHtml(rowProjectId) + '\">Cancel</button>'
+            : '';
+          return '<div class=\"ado-schedule-booking-existing-item\">'
+            + '<div class=\"ado-schedule-booking-existing-copy\"><strong>' + labels + '</strong>' + dateHtml + doorIdsHtml + bookingRefHtml + bookedByHtml + createdHtml + noteHtml + googleHtml + '</div>'
+            + cancelButtonHtml
+            + '</div>';
+        }).join('');
+        scheduleBookingExistingList.innerHTML = html;
+        scheduleBookingExistingWrap.hidden = false;
+        return {
+          totalCount: rows.length,
+          ownCount: ownRows.length,
+          renderedCount: rowsToRender.length
+        };
+      }
+      function renderScheduleDoorOptionsForDay(dayState, ownDoorMap, hasOwnBookings, targetProjectId){
+        ownDoorMap = ownDoorMap && typeof ownDoorMap === 'object' ? ownDoorMap : {};
+        var isPastDay = dayState === 'past';
+        var isBlockedDay = dayState === 'booked' || isPastDay;
+        var isOwnBookedDay = dayState === 'own-booked' && !!hasOwnBookings;
+        var normalizedTargetProjectId = String(targetProjectId || scheduleBookingDefaultProjectId || '').trim();
+        scheduleBookingDoorOptions.forEach(function(option){
+          var input = option.querySelector('[data-booking-door-input]');
+          if (!input) {
+            return;
+          }
+          var doorId = String(option.getAttribute('data-door-id') || '').trim();
+          var doorProjectId = String(option.getAttribute('data-door-project-id') || scheduleBookingDefaultProjectId || '').trim();
+          var isGloballyBooked = String(option.getAttribute('data-door-booked') || '0') === '1';
+          var isReadinessReady = String(option.getAttribute('data-door-readiness-ready') || '0') === '1';
+          var doorKey = bookingDoorMapKey(doorProjectId, doorId);
+          var isOwnBookedDoor = doorKey !== '' && !!ownDoorMap[doorKey];
+          var isDifferentProject = normalizedTargetProjectId !== '' && doorProjectId !== '' && doorProjectId !== normalizedTargetProjectId;
+          var readinessBlocked = !isReadinessReady && !(isOwnBookedDay && isOwnBookedDoor);
+          var shouldHide = isDifferentProject || (isGloballyBooked && !(isOwnBookedDay && isOwnBookedDoor));
+          option.setAttribute('data-door-own-booked', isOwnBookedDoor ? '1' : '0');
+          option.classList.toggle('is-hidden', shouldHide);
+          option.classList.toggle('is-readiness-pending', readinessBlocked);
+          if (shouldHide || isBlockedDay) {
+            input.checked = false;
+          }
+          if (isOwnBookedDay) {
+            input.checked = isOwnBookedDoor;
+          }
+          input.disabled = shouldHide || isBlockedDay || readinessBlocked;
+        });
+        applyScheduleDoorFilter();
+        updateScheduleDoorSelectionState();
+      }
+      function showScheduleBookingDrawer(){
+        if (!scheduleBookingDrawer || !scheduleBookingBackdrop) {
+          return;
+        }
+        hideSiteReadinessDrawer();
+        scheduleBookingDrawer.hidden = false;
+        scheduleBookingBackdrop.hidden = false;
+        scheduleBookingDrawer.setAttribute('aria-hidden', 'false');
+        window.requestAnimationFrame(function(){
+          scheduleBookingDrawer.classList.add('is-open');
+          scheduleBookingBackdrop.classList.add('is-open');
+          document.body.classList.add('ado-schedule-booking-open');
+        });
+      }
+      function hideScheduleBookingDrawer(){
+        if (!scheduleBookingDrawer || !scheduleBookingBackdrop) {
+          return;
+        }
+        scheduleBookingDrawer.classList.remove('is-open');
+        scheduleBookingBackdrop.classList.remove('is-open');
+        scheduleBookingDrawer.setAttribute('aria-hidden', 'true');
+        document.body.classList.remove('ado-schedule-booking-open');
+        window.setTimeout(function(){
+          if (!scheduleBookingDrawer.classList.contains('is-open')) {
+            scheduleBookingDrawer.hidden = true;
+          }
+          if (!scheduleBookingBackdrop.classList.contains('is-open')) {
+            scheduleBookingBackdrop.hidden = true;
+          }
+        }, 180);
+      }
+      function showSiteReadinessDrawer(){
+        if (!siteReadinessDrawer || !siteReadinessBackdrop) {
+          return;
+        }
+        hideScheduleBookingDrawer();
+        updateSiteReadinessSummary();
+        updateSiteReadinessDoorSelectionState();
+        setSiteReadinessStep(siteReadinessCurrentStep);
+        setSiteReadinessFlash('', true);
+        siteReadinessDrawer.hidden = false;
+        siteReadinessBackdrop.hidden = false;
+        siteReadinessDrawer.setAttribute('aria-hidden', 'false');
+        window.requestAnimationFrame(function(){
+          siteReadinessDrawer.classList.add('is-open');
+          siteReadinessBackdrop.classList.add('is-open');
+          document.body.classList.add('ado-site-readiness-open');
+        });
+      }
+      function hideSiteReadinessDrawer(){
+        if (!siteReadinessDrawer || !siteReadinessBackdrop) {
+          return;
+        }
+        siteReadinessDrawer.classList.remove('is-open');
+        siteReadinessBackdrop.classList.remove('is-open');
+        siteReadinessDrawer.setAttribute('aria-hidden', 'true');
+        document.body.classList.remove('ado-site-readiness-open');
+        window.setTimeout(function(){
+          if (!siteReadinessDrawer.classList.contains('is-open')) {
+            siteReadinessDrawer.hidden = true;
+          }
+          if (!siteReadinessBackdrop.classList.contains('is-open')) {
+            siteReadinessBackdrop.hidden = true;
+          }
+        }, 180);
+      }
+      function setScheduleBookingDay(dayCell){
+        if (!scheduleBookingDrawer || !dayCell) {
+          return;
+        }
+        clearScheduleDaySelection();
+        dayCell.classList.add('is-selected');
+        var dayKey = String(dayCell.getAttribute('data-day-key') || '');
+        var dayLabel = String(dayCell.getAttribute('data-day-label') || dayKey || 'Selected Day');
+        var dayState = String(dayCell.getAttribute('data-day-state') || 'available');
+        var isPast = dayState === 'past';
+        var isBlocked = dayState === 'booked' || isPast;
+        var ownBookingState = collectOwnBookingStateForDay(dayKey);
+        var hasOwnBookings = dayState === 'own-booked' && ownBookingState.rows.length > 0;
+        var ownProjectIds = Object.keys(ownBookingState.projectIds || {});
+        var selectedBookingProjectId = scheduleBookingDefaultProjectId;
+        if (hasOwnBookings && ownProjectIds.length > 0) {
+          selectedBookingProjectId = String(ownProjectIds[0] || '').trim();
+        }
+        if (scheduleBookingProjectField) {
+          scheduleBookingProjectField.value = selectedBookingProjectId;
+        }
+        scheduleBookingOwnDayBookingProjectIds = {};
+        scheduleBookingOwnDayBookingIds = [];
+        ownBookingState.bookingIds.forEach(function(bookingId){
+          bookingId = String(bookingId || '').trim();
+          if (bookingId === '') {
+            return;
+          }
+          var bookingProjectId = String((ownBookingState.bookingProjectIds && ownBookingState.bookingProjectIds[bookingId]) || selectedBookingProjectId || '').trim();
+          scheduleBookingOwnDayBookingProjectIds[bookingId] = bookingProjectId;
+          if (!hasOwnBookings || bookingProjectId === selectedBookingProjectId) {
+            scheduleBookingOwnDayBookingIds.push(bookingId);
+          }
+        });
+        if (hasOwnBookings && !scheduleBookingOwnDayBookingIds.length) {
+          scheduleBookingOwnDayBookingIds = ownBookingState.bookingIds.slice();
+        }
+        if (hasOwnBookings) {
+          var scopedOwnDoorMap = {};
+          Object.keys(ownBookingState.doorMap || {}).forEach(function(doorKey){
+            if (selectedBookingProjectId !== '' && doorKey.indexOf(selectedBookingProjectId + '::') !== 0) {
+              return;
+            }
+            scopedOwnDoorMap[doorKey] = true;
+          });
+          scheduleBookingOwnDoorBaselineMap = cloneBookingDoorMap(scopedOwnDoorMap);
+        } else {
+          scheduleBookingOwnDoorBaselineMap = {};
+        }
+        if (scheduleBookingForm) {
+          scheduleBookingForm.setAttribute('data-day-blocked', isBlocked ? '1' : '0');
+          scheduleBookingForm.setAttribute('data-day-state', dayState);
+          scheduleBookingForm.setAttribute('data-day-has-own-booking', hasOwnBookings ? '1' : '0');
+        }
+        if (scheduleBookingDayLabel) {
+          scheduleBookingDayLabel.textContent = dayLabel;
+        }
+        if (scheduleBookingDateInput) {
+          scheduleBookingDateInput.value = dayKey;
+        }
+        if (scheduleBookingDateDisplay) {
+          scheduleBookingDateDisplay.value = dayLabel;
+        }
+        if (scheduleBookingDoorSearch) {
+          scheduleBookingDoorSearch.value = '';
+        }
+        if (scheduleBookingDayState) {
+          if (isPast) {
+            scheduleBookingDayState.textContent = 'This date is in the past and cannot be booked.';
+          } else if (hasOwnBookings) {
+            var ownProjectName = String(((ownBookingState.rows[0] || {}).project_name) || '').trim();
+            scheduleBookingDayState.textContent = ownProjectName !== ''
+              ? 'Booked doors are preselected below for ' + ownProjectName + '. Adjust checkmarks, then click Book Selected Doors to update calendars.'
+              : 'Booked doors are preselected below for this day. Adjust checkmarks, then click Book Selected Doors to update calendars.';
+          } else if (dayState === 'booked') {
+            scheduleBookingDayState.textContent = 'This day already has calendar events and is blocked for new bookings.';
+          } else {
+            scheduleBookingDayState.textContent = 'This day has no calendar events. Search and choose up to two doors.';
+          }
+        }
+        setScheduleBookingActionMode(dayState, hasOwnBookings, scheduleBookingOwnDayBookingIds);
+        var existingRows = renderScheduleExistingRows(dayKey, dayState);
+        renderScheduleDoorOptionsForDay(dayState, ownBookingState.doorMap, hasOwnBookings, selectedBookingProjectId);
+        var readinessEligibleDoorCount = scheduleBookingDoorOptions.filter(function(option){
+          var doorProjectId = String(option.getAttribute('data-door-project-id') || scheduleBookingDefaultProjectId || '').trim();
+          var isProjectMatch = selectedBookingProjectId === ''
+            || doorProjectId === ''
+            || doorProjectId === selectedBookingProjectId;
+          if (!isProjectMatch) {
+            return false;
+          }
+          return String(option.getAttribute('data-door-readiness-ready') || '0') === '1';
+        }).length;
+        var visibleDoorCount = scheduleBookingDoorOptions.filter(function(option){
+          return !option.classList.contains('is-hidden') && !option.classList.contains('is-filtered');
+        }).length;
+        var selectedCount = scheduleSelectedDoorInputs().length;
+        var hasOwnBookingChanges = hasOwnBookings
+          ? !bookingDoorMapsEqual(selectedDoorMapForBooking(), scheduleBookingOwnDoorBaselineMap)
+          : false;
+        var canSubmit = !isBlocked && dayKey !== '' && selectedCount > 0;
+        if (!hasOwnBookings) {
+          canSubmit = canSubmit && visibleDoorCount > 0;
+        } else {
+          canSubmit = canSubmit && hasOwnBookingChanges;
+        }
+        if (!hasOwnBookings && !isBlocked && readinessEligibleDoorCount <= 0 && scheduleBookingDayState) {
+          scheduleBookingDayState.textContent = 'Complete and save Confirm Site Readiness (all checklist items and selected doors) before booking.';
+        } else if (!hasOwnBookings && !isBlocked && visibleDoorCount <= 0 && scheduleBookingDayState) {
+          scheduleBookingDayState.textContent = 'All project doors are already booked. Cancel a booking to free doors.';
+        } else if (!hasOwnBookings && !isBlocked && existingRows.totalCount > 0 && scheduleBookingDayState) {
+          scheduleBookingDayState.textContent = 'Some doors are already booked on this day. You can cancel them below.';
+        }
+        if (scheduleBookingSubmit) {
+          scheduleBookingSubmit.hidden = hasOwnBookings ? !hasOwnBookingChanges : false;
+          scheduleBookingSubmit.disabled = !canSubmit;
+          scheduleBookingSubmit.setAttribute('aria-disabled', scheduleBookingSubmit.disabled ? 'true' : 'false');
+        }
+        if (scheduleBookingNotes) {
+          scheduleBookingNotes.disabled = hasOwnBookings ? true : !canSubmit;
+        }
+        setScheduleBookingFlash('', true);
+      }
+      async function submitScheduleBookingForm(){
+        if (!scheduleBookingForm) {
+          return;
+        }
+        var currentDayState = String(scheduleBookingForm.getAttribute('data-day-state') || 'available');
+        var hasOwnBookings = scheduleBookingForm.getAttribute('data-day-has-own-booking') === '1';
+        var formData = new FormData(scheduleBookingForm);
+        var dayKey = String(formData.get('schedule_date') || '').trim();
+        if (dayKey === '') {
+          setScheduleBookingFlash('Select a day before submitting booking.', false);
+          return;
+        }
+        var selectedDoorIds = scheduleSelectedDoorInputs().map(function(input){
+          return String(input.value || '').trim();
+        }).filter(function(doorId){ return doorId !== ''; });
+        if (selectedDoorIds.length <= 0) {
+          setScheduleBookingFlash('Select at least one door to book.', false);
+          return;
+        }
+        if (selectedDoorIds.length > 2) {
+          setScheduleBookingFlash('Select no more than two doors for a single day.', false);
+          return;
+        }
+        if (currentDayState === 'own-booked' && hasOwnBookings) {
+          if (!scheduleBookingOwnDayBookingIds.length) {
+            setScheduleBookingFlash('No existing booking reference was found for this day. Reload and try again.', false);
+            return;
+          }
+          scheduleBookingOwnDayBookingIds.forEach(function(bookingId){
+            bookingId = String(bookingId || '').trim();
+            if (bookingId !== '') {
+              formData.append('replace_booking_ids[]', bookingId);
+            }
+          });
+        }
+        if (scheduleBookingSubmit) {
+          scheduleBookingSubmit.disabled = true;
+        }
+        formData.append('action', 'ado_submit_client_schedule_request');
+        formData.append('nonce', nonce);
+        try {
+          var res = await fetch(ajaxUrl, { method: 'POST', body: formData, credentials: 'same-origin' });
+          var json = await res.json();
+          if (!json || !json.success) {
+            throw new Error((json && json.data && json.data.message) ? json.data.message : 'Booking could not be submitted.');
+          }
+          setScheduleBookingFlash((json.data && json.data.message) ? json.data.message : 'Booking submitted.', true);
+          window.setTimeout(function(){ window.location.reload(); }, 420);
+        } catch (err) {
+          setScheduleBookingFlash((err && err.message) ? err.message : 'Booking could not be submitted.', false);
+        } finally {
+          if (scheduleBookingSubmit && scheduleBookingSubmit.getAttribute('aria-disabled') !== 'true') {
+            scheduleBookingSubmit.disabled = false;
+          }
+          updateScheduleDoorSelectionState();
+        }
+      }
+      async function cancelScheduleBookingRequest(bookingId, projectIdOverride){
+        bookingId = String(bookingId || '').trim();
+        if (bookingId === '') {
+          throw new Error('Booking reference is missing.');
+        }
+        var projectIdValue = String(projectIdOverride || '').trim();
+        if (projectIdValue === '' && scheduleBookingProjectField) {
+          projectIdValue = String(scheduleBookingProjectField.value || '').trim();
+        }
+        if (projectIdValue === '') {
+          projectIdValue = scheduleBookingDefaultProjectId;
+        }
+        var payload = new FormData();
+        payload.append('action', 'ado_cancel_client_schedule_request');
+        payload.append('nonce', nonce);
+        if (projectIdValue !== '') {
+          payload.append('project_id', projectIdValue);
+        }
+        payload.append('booking_id', bookingId);
+        var res = await fetch(ajaxUrl, { method:'POST', body: payload, credentials:'same-origin' });
+        var json = await res.json();
+        if (!json || !json.success) {
+          throw new Error((json && json.data && json.data.message) ? json.data.message : 'Booking could not be cancelled.');
+        }
+        return json;
+      }
+      async function cancelScheduleBooking(bookingId, trigger, projectId){
+        if (trigger) {
+          trigger.disabled = true;
+        }
+        try {
+          var json = await cancelScheduleBookingRequest(bookingId, projectId);
+          setScheduleBookingFlash((json.data && json.data.message) ? json.data.message : 'Booking cancelled.', true);
+          window.setTimeout(function(){ window.location.reload(); }, 420);
+        } catch (err) {
+          setScheduleBookingFlash((err && err.message) ? err.message : 'Booking could not be cancelled.', false);
+          if (trigger) {
+            trigger.disabled = false;
+          }
+        }
+      }
+      async function cancelScheduleBookingsForDay(bookingIds, trigger){
+        var ids = Array.isArray(bookingIds) ? bookingIds.map(function(id){ return String(id || '').trim(); }).filter(function(id){ return id !== ''; }) : [];
+        if (!ids.length) {
+          setScheduleBookingFlash('No booking is available to cancel for this day.', false);
+          return;
+        }
+        if (trigger) {
+          trigger.disabled = true;
+        }
+        try {
+          var lastJson = null;
+          for (var i = 0; i < ids.length; i++) {
+            var bookingProjectId = String(scheduleBookingOwnDayBookingProjectIds[ids[i]] || '').trim();
+            lastJson = await cancelScheduleBookingRequest(ids[i], bookingProjectId);
+          }
+          setScheduleBookingFlash((lastJson && lastJson.data && lastJson.data.message) ? lastJson.data.message : 'Booking cancelled.', true);
+          window.setTimeout(function(){ window.location.reload(); }, 420);
+        } catch (err) {
+          setScheduleBookingFlash((err && err.message) ? err.message : 'Booking could not be cancelled.', false);
+          if (trigger) {
+            trigger.disabled = false;
+          }
+        }
+      }
 
       var tabs = appRoot.querySelectorAll('.ado-project-tab[data-tab-target]');
       var panels = appRoot.querySelectorAll('.ado-project-tab-panel[data-tab-panel]');
@@ -2116,11 +5454,344 @@ add_shortcode('ado_client_dashboard_app', static function (): string {
         tab.addEventListener('click', function(){
           var target = String(tab.getAttribute('data-tab-target') || 'overview');
           activateTab(target);
+          hideSiteReadinessDrawer();
           if (target !== 'doors') {
             closeDoorDrawer();
           }
+          if (target !== 'overview') {
+            hideScheduleBookingDrawer();
+          }
         });
       });
+
+      var scheduleCalendar = appRoot.querySelector('[data-schedule-calendar]');
+      if (scheduleCalendar) {
+        var calendarMonths = Array.prototype.slice.call(scheduleCalendar.querySelectorAll('[data-calendar-month]'));
+        var calendarLabel = scheduleCalendar.querySelector('[data-calendar-current-label]');
+        var prevMonthBtn = scheduleCalendar.querySelector('[data-calendar-nav=\"prev\"]');
+        var nextMonthBtn = scheduleCalendar.querySelector('[data-calendar-nav=\"next\"]');
+        var activeMonthIndex = 0;
+        for (var m = 0; m < calendarMonths.length; m++) {
+          if (!calendarMonths[m].hidden) {
+            activeMonthIndex = m;
+            break;
+          }
+        }
+        function renderCalendarMonth(index) {
+          if (!calendarMonths.length) {
+            return;
+          }
+          activeMonthIndex = Math.max(0, Math.min(index, calendarMonths.length - 1));
+          calendarMonths.forEach(function(monthRow, monthIndex){
+            monthRow.hidden = monthIndex !== activeMonthIndex;
+          });
+          var activeMonth = calendarMonths[activeMonthIndex];
+          if (calendarLabel && activeMonth) {
+            calendarLabel.textContent = String(activeMonth.getAttribute('data-month-label') || '');
+          }
+          if (prevMonthBtn) {
+            prevMonthBtn.disabled = activeMonthIndex <= 0;
+          }
+          if (nextMonthBtn) {
+            nextMonthBtn.disabled = activeMonthIndex >= (calendarMonths.length - 1);
+          }
+        }
+        if (prevMonthBtn) {
+          prevMonthBtn.addEventListener('click', function(){
+            renderCalendarMonth(activeMonthIndex - 1);
+          });
+        }
+        if (nextMonthBtn) {
+          nextMonthBtn.addEventListener('click', function(){
+            renderCalendarMonth(activeMonthIndex + 1);
+          });
+        }
+        renderCalendarMonth(activeMonthIndex);
+
+        scheduleCalendar.addEventListener('click', function(ev){
+          var dayCell = ev.target.closest('[data-calendar-day]');
+          if (!dayCell || !scheduleCalendar.contains(dayCell)) {
+            return;
+          }
+          var dayState = String(dayCell.getAttribute('data-day-state') || '');
+          if (dayState !== 'available' && dayState !== 'own-booked') {
+            return;
+          }
+          setScheduleBookingDay(dayCell);
+          showScheduleBookingDrawer();
+        });
+        scheduleCalendar.addEventListener('keydown', function(ev){
+          if (ev.key !== 'Enter' && ev.key !== ' ') {
+            return;
+          }
+          var dayCell = ev.target.closest('[data-calendar-day]');
+          if (!dayCell || !scheduleCalendar.contains(dayCell)) {
+            return;
+          }
+          var dayState = String(dayCell.getAttribute('data-day-state') || '');
+          if (dayState !== 'available' && dayState !== 'own-booked') {
+            return;
+          }
+          ev.preventDefault();
+          setScheduleBookingDay(dayCell);
+          showScheduleBookingDrawer();
+        });
+        var firstAvailableDay = scheduleCalendar.querySelector('[data-calendar-day][data-day-state=\"available\"]');
+        if (firstAvailableDay) {
+          setScheduleBookingDay(firstAvailableDay);
+        }
+      }
+      if (scheduleBookingDrawer) {
+        scheduleBookingDrawer.querySelectorAll('[data-booking-close]').forEach(function(closeButton){
+          closeButton.addEventListener('click', function(){
+            hideScheduleBookingDrawer();
+          });
+        });
+        scheduleBookingDrawer.addEventListener('click', function(ev){
+          var cancelDayButton = ev.target.closest('[data-booking-cancel-day]');
+          if (cancelDayButton && scheduleBookingDrawer.contains(cancelDayButton)) {
+            ev.preventDefault();
+            cancelScheduleBookingsForDay(scheduleBookingOwnDayBookingIds, cancelDayButton);
+            return;
+          }
+          var removeButton = ev.target.closest('[data-booking-door-remove]');
+          if (removeButton && scheduleBookingDrawer.contains(removeButton)) {
+            ev.preventDefault();
+            var removeDoorId = String(removeButton.getAttribute('data-booking-door-remove') || '');
+            scheduleBookingDoorOptions.forEach(function(option){
+              if (String(option.getAttribute('data-door-id') || '') !== removeDoorId) {
+                return;
+              }
+              var input = option.querySelector('[data-booking-door-input]');
+              if (input) {
+                input.checked = false;
+              }
+            });
+            applyScheduleDoorFilter();
+            updateScheduleDoorSelectionState();
+            return;
+          }
+          var cancelButton = ev.target.closest('[data-booking-cancel]');
+          if (!cancelButton || !scheduleBookingDrawer.contains(cancelButton)) {
+            return;
+          }
+          ev.preventDefault();
+          cancelScheduleBooking(
+            cancelButton.getAttribute('data-booking-cancel') || '',
+            cancelButton,
+            cancelButton.getAttribute('data-booking-cancel-project') || ''
+          );
+        });
+      }
+      if (scheduleBookingBackdrop) {
+        scheduleBookingBackdrop.addEventListener('click', function(){
+          hideScheduleBookingDrawer();
+        });
+      }
+      if (scheduleBookingForm) {
+        scheduleBookingForm.addEventListener('submit', function(ev){
+          ev.preventDefault();
+          submitScheduleBookingForm();
+        });
+      }
+      if (scheduleBookingDoorInputs.length) {
+        scheduleBookingDoorInputs.forEach(function(input){
+          input.addEventListener('change', function(){
+            applyScheduleDoorFilter();
+            updateScheduleDoorSelectionState();
+          });
+        });
+      }
+      if (scheduleBookingDoorSearch) {
+        scheduleBookingDoorSearch.addEventListener('input', function(){
+          applyScheduleDoorFilter();
+          updateScheduleDoorSelectionState();
+        });
+      }
+      if (scheduleBookingDoorClear) {
+        scheduleBookingDoorClear.addEventListener('click', function(ev){
+          ev.preventDefault();
+          if (scheduleBookingDoorSearch) {
+            scheduleBookingDoorSearch.value = '';
+            scheduleBookingDoorSearch.focus();
+          }
+          applyScheduleDoorFilter();
+          updateScheduleDoorSelectionState();
+        });
+      }
+      if (siteReadinessSubmissionButtons.length) {
+        siteReadinessSubmissionButtons.forEach(function(button){
+          button.addEventListener('click', function(ev){
+            ev.preventDefault();
+            var submissionId = String(button.getAttribute('data-site-readiness-open-submission') || '').trim();
+            loadSiteReadinessSubmission(submissionId);
+            setSiteReadinessStep(0);
+            showSiteReadinessDrawer();
+          });
+        });
+      }
+      if (siteReadinessTrigger) {
+        siteReadinessTrigger.addEventListener('click', function(ev){
+          ev.preventDefault();
+          loadSiteReadinessSubmission('');
+          setSiteReadinessStep(0);
+          showSiteReadinessDrawer();
+        });
+      }
+      if (siteReadinessStepPanels.length) {
+        setSiteReadinessStep(0);
+        updateSiteReadinessSummary();
+      }
+      if (siteReadinessDoorOptions.length) {
+        var initialSiteReadinessSubmissionId = siteReadinessSubmissionField ? String(siteReadinessSubmissionField.value || '').trim() : '';
+        applySiteReadinessDoorAvailability(initialSiteReadinessSubmissionId);
+        updateSiteReadinessDoorSelectionState();
+      }
+      if (siteReadinessSubmissionField) {
+        setActiveSiteReadinessSubmissionButton(String(siteReadinessSubmissionField.value || '').trim());
+      }
+      if (siteReadinessStepButtons.length) {
+        siteReadinessStepButtons.forEach(function(button){
+          button.addEventListener('click', function(ev){
+            ev.preventDefault();
+            var stepIndex = parseInt(button.getAttribute('data-step-index') || '0', 10);
+            if (!isNaN(stepIndex)) {
+              setSiteReadinessStep(stepIndex);
+            }
+          });
+        });
+      }
+      if (siteReadinessPrevButton) {
+        siteReadinessPrevButton.addEventListener('click', function(ev){
+          ev.preventDefault();
+          setSiteReadinessStep(siteReadinessCurrentStep - 1);
+        });
+      }
+      if (siteReadinessNextButton) {
+        siteReadinessNextButton.addEventListener('click', function(ev){
+          ev.preventDefault();
+          var nextMode = String(siteReadinessNextButton.getAttribute('data-next-mode') || 'next');
+          if (nextMode === 'restart') {
+            setSiteReadinessStep(0);
+            return;
+          }
+          setSiteReadinessStep(siteReadinessCurrentStep + 1);
+        });
+      }
+      if (siteReadinessForm) {
+        siteReadinessForm.addEventListener('submit', function(ev){
+          ev.preventDefault();
+          submitSiteReadinessForm();
+        });
+        siteReadinessForm.addEventListener('change', function(ev){
+          var checklistItem = ev.target.closest('[data-site-readiness-item]');
+          if (!checklistItem || !siteReadinessForm.contains(checklistItem)) {
+            return;
+          }
+          updateSiteReadinessSummary();
+          updateSiteReadinessProgress();
+        });
+      }
+      if (siteReadinessCheckAllButton) {
+        siteReadinessCheckAllButton.addEventListener('click', function(ev){
+          ev.preventDefault();
+          var changedCount = 0;
+          siteReadinessStepPanels.forEach(function(panel){
+            if (!panel) {
+              return;
+            }
+            panel.querySelectorAll('[data-site-readiness-item]').forEach(function(itemNode){
+              if (itemNode.checked) {
+                return;
+              }
+              itemNode.checked = true;
+              changedCount += 1;
+            });
+          });
+          updateSiteReadinessSummary();
+          updateSiteReadinessProgress();
+          if (changedCount > 0) {
+            setSiteReadinessFlash('All checklist fields are now checked. Click Save Site Readiness to persist.', true);
+            return;
+          }
+          setSiteReadinessFlash('All checklist fields were already checked.', true);
+        });
+      }
+      if (siteReadinessSectionToggles.length) {
+        siteReadinessSectionToggles.forEach(function(toggle){
+          toggle.addEventListener('change', function(){
+            var stepIndex = parseInt(toggle.getAttribute('data-step-index') || '-1', 10);
+            if (isNaN(stepIndex) || stepIndex < 0 || stepIndex >= siteReadinessStepPanels.length) {
+              return;
+            }
+            var panel = siteReadinessStepPanels[stepIndex];
+            if (!panel) {
+              return;
+            }
+            var shouldCheck = !!toggle.checked;
+            panel.querySelectorAll('[data-site-readiness-item]').forEach(function(itemNode){
+              itemNode.checked = shouldCheck;
+            });
+            updateSiteReadinessSummary();
+            updateSiteReadinessProgress();
+          });
+        });
+      }
+      if (siteReadinessDoorInputs.length) {
+        siteReadinessDoorInputs.forEach(function(input){
+          input.addEventListener('change', function(){
+            updateSiteReadinessDoorSelectionState();
+          });
+        });
+      }
+      if (siteReadinessDoorSearch) {
+        siteReadinessDoorSearch.addEventListener('input', function(){
+          updateSiteReadinessDoorSelectionState();
+        });
+      }
+      if (siteReadinessDoorClear) {
+        siteReadinessDoorClear.addEventListener('click', function(ev){
+          ev.preventDefault();
+          if (siteReadinessDoorSearch) {
+            siteReadinessDoorSearch.value = '';
+            siteReadinessDoorSearch.focus();
+          }
+          updateSiteReadinessDoorSelectionState();
+        });
+      }
+      if (siteReadinessDrawer) {
+        siteReadinessDrawer.addEventListener('click', function(ev){
+          var removeButton = ev.target.closest('[data-site-readiness-door-remove]');
+          if (!removeButton || !siteReadinessDrawer.contains(removeButton)) {
+            return;
+          }
+          ev.preventDefault();
+          var removeDoorId = String(removeButton.getAttribute('data-site-readiness-door-remove') || '').trim();
+          if (removeDoorId === '') {
+            return;
+          }
+          siteReadinessDoorOptions.forEach(function(option){
+            if (String(option.getAttribute('data-door-id') || '').trim() !== removeDoorId) {
+              return;
+            }
+            var input = option.querySelector('[data-site-readiness-door-input]');
+            if (input) {
+              input.checked = false;
+            }
+          });
+          updateSiteReadinessDoorSelectionState();
+        });
+        siteReadinessDrawer.querySelectorAll('[data-site-readiness-close]').forEach(function(closeButton){
+          closeButton.addEventListener('click', function(){
+            hideSiteReadinessDrawer();
+          });
+        });
+      }
+      if (siteReadinessBackdrop) {
+        siteReadinessBackdrop.addEventListener('click', function(){
+          hideSiteReadinessDrawer();
+        });
+      }
 
       var doorWorkspace = appRoot.querySelector('.ado-client-door-workspace');
       if (!doorWorkspace) {
@@ -2355,6 +6026,14 @@ add_shortcode('ado_client_dashboard_app', static function (): string {
         if (ev.key !== 'Escape') {
           return;
         }
+        if (siteReadinessDrawer && siteReadinessDrawer.classList.contains('is-open')) {
+          hideSiteReadinessDrawer();
+          return;
+        }
+        if (scheduleBookingDrawer && scheduleBookingDrawer.classList.contains('is-open')) {
+          hideScheduleBookingDrawer();
+          return;
+        }
         if (doorDrawer && doorDrawer.classList.contains('is-open')) {
           closeDoorDrawer();
         }
@@ -2366,10 +6045,687 @@ add_shortcode('ado_client_dashboard_app', static function (): string {
 });
 
 add_action('wp_ajax_ado_submit_client_schedule_request', static function (): void {
-    wp_send_json_error([
-        'message' => 'Direct booking activation is not available in this slice yet.',
-        'code' => 'booking_not_active',
-    ], 409);
+    if (!is_user_logged_in() || !ado_is_client()) {
+        wp_send_json_error(['message' => 'Client access only.'], 403);
+    }
+    check_ajax_referer('ado_client_portal_nonce', 'nonce');
+
+    $project_id = (int) ($_POST['project_id'] ?? 0);
+    $schedule_date = sanitize_text_field((string) ($_POST['schedule_date'] ?? ''));
+    $booking_note = sanitize_textarea_field((string) ($_POST['booking_note'] ?? ''));
+    $door_ids_raw = isset($_POST['door_ids']) ? (array) $_POST['door_ids'] : [];
+    $replace_booking_ids_raw = isset($_POST['replace_booking_ids']) ? (array) $_POST['replace_booking_ids'] : [];
+    if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $schedule_date)) {
+        wp_send_json_error(['message' => 'Project and booking date are required.'], 400);
+    }
+    $replace_booking_ids = [];
+    foreach ($replace_booking_ids_raw as $replace_booking_id_raw) {
+        $replace_booking_id = sanitize_text_field((string) $replace_booking_id_raw);
+        if ($replace_booking_id === '') {
+            continue;
+        }
+        $replace_booking_ids[$replace_booking_id] = true;
+    }
+    $replace_booking_ids = array_values(array_keys($replace_booking_ids));
+    $is_replace_mode = count($replace_booking_ids) > 0;
+    $replace_booking_lookup = array_fill_keys($replace_booking_ids, true);
+    if ($project_id <= 0 && !$is_replace_mode) {
+        wp_send_json_error(['message' => 'Project and booking date are required.'], 400);
+    }
+
+    $user_id = (int) get_current_user_id();
+    $user = wp_get_current_user();
+    $client_display_name = '';
+    $client_email = '';
+    if ($user instanceof WP_User) {
+        $client_display_name = trim((string) $user->display_name);
+        $client_email = trim((string) $user->user_email);
+    }
+    $client_orders = ado_cd_client_orders($user_id);
+    $order = ado_cd_find_project_order($client_orders, $project_id);
+    if ($is_replace_mode) {
+        $replace_resolved_order_ids = [];
+        foreach ($replace_booking_ids as $replace_booking_id) {
+            $replace_booking_ref = ado_cd_client_booking_reference($client_orders, $replace_booking_id);
+            if (!is_array($replace_booking_ref)) {
+                wp_send_json_error(['message' => 'One or more selected bookings could not be updated. Reload and try again.'], 404);
+            }
+            $replace_booking_row = is_array($replace_booking_ref['booking'] ?? null) ? (array) $replace_booking_ref['booking'] : [];
+            if (!ado_cd_booking_is_owned_by_client($replace_booking_row, $user_id, $user instanceof WP_User ? $user : null)) {
+                wp_send_json_error(['message' => 'You can only update bookings created by your account.'], 403);
+            }
+            $replace_resolved_order_id = (int) ($replace_booking_ref['order_id'] ?? 0);
+            if ($replace_resolved_order_id <= 0) {
+                wp_send_json_error(['message' => 'One or more selected bookings could not be resolved. Reload and try again.'], 404);
+            }
+            $replace_resolved_order_ids[$replace_resolved_order_id] = true;
+            if (!($order instanceof WC_Order)) {
+                $resolved_order = $replace_booking_ref['order'] ?? null;
+                if ($resolved_order instanceof WC_Order) {
+                    $order = $resolved_order;
+                }
+            }
+        }
+        if (count($replace_resolved_order_ids) > 1) {
+            wp_send_json_error(['message' => 'Bookings from multiple projects cannot be updated in one request.'], 409);
+        }
+        if ($replace_resolved_order_ids) {
+            $resolved_order_id = (int) array_key_first($replace_resolved_order_ids);
+            if (!($order instanceof WC_Order) || (int) $order->get_id() !== $resolved_order_id) {
+                $resolved_order = ado_cd_find_project_order($client_orders, $resolved_order_id);
+                if ($resolved_order instanceof WC_Order) {
+                    $order = $resolved_order;
+                    $project_id = $resolved_order_id;
+                }
+            }
+        }
+    }
+    if (!($order instanceof WC_Order)) {
+        wp_send_json_error(['message' => 'Project not found.'], 404);
+    }
+
+    $schedule_timezone = ado_cd_schedule_timezone();
+    $today_key = wp_date('Y-m-d', null, $schedule_timezone);
+    if (strcmp($schedule_date, $today_key) < 0) {
+        wp_send_json_error(['message' => 'Past dates cannot be booked.'], 400);
+    }
+    $schedule_ts = strtotime($schedule_date . ' 12:00:00');
+    if ($schedule_ts === false) {
+        wp_send_json_error(['message' => 'Booking date is invalid.'], 400);
+    }
+    $weekday = (int) wp_date('N', (int) $schedule_ts, $schedule_timezone);
+    if ($weekday > 5) {
+        wp_send_json_error(['message' => 'Bookings are limited to weekdays.'], 400);
+    }
+
+    $project_doors_map = [];
+    foreach (ado_cd_order_doors($order) as $door_row) {
+        if (!is_array($door_row)) {
+            continue;
+        }
+        $door_id = sanitize_text_field((string) ($door_row['door_id'] ?? ''));
+        if ($door_id === '') {
+            continue;
+        }
+        $project_doors_map[$door_id] = trim((string) ($door_row['door_label'] ?? ('Door ' . $door_id)));
+    }
+    if (!$project_doors_map) {
+        wp_send_json_error(['message' => 'No project doors are available for booking.'], 400);
+    }
+
+    $selected_door_ids = [];
+    foreach ($door_ids_raw as $door_id_raw) {
+        $door_id = sanitize_text_field((string) $door_id_raw);
+        if ($door_id === '' || !isset($project_doors_map[$door_id])) {
+            continue;
+        }
+        $selected_door_ids[$door_id] = true;
+    }
+    $selected_door_ids = array_values(array_keys($selected_door_ids));
+    if (count($selected_door_ids) <= 0) {
+        wp_send_json_error(['message' => 'Select at least one door to book.'], 400);
+    }
+    if (count($selected_door_ids) > 2) {
+        wp_send_json_error(['message' => 'You can book a maximum of 2 doors per day.'], 400);
+    }
+
+    $site_readiness_gate = ado_cd_site_readiness_booking_gate($order);
+    $site_readiness_door_lookup = is_array($site_readiness_gate['door_lookup'] ?? null)
+        ? (array) $site_readiness_gate['door_lookup']
+        : [];
+    if (empty($site_readiness_gate['is_ready_for_booking'])) {
+        wp_send_json_error([
+            'message' => 'Complete and save Confirm Site Readiness (all checklist items and selected doors) before booking.',
+        ], 409);
+    }
+    $not_ready_labels = [];
+    foreach ($selected_door_ids as $selected_door_id) {
+        if (isset($site_readiness_door_lookup[$selected_door_id])) {
+            continue;
+        }
+        $not_ready_labels[] = (string) ($project_doors_map[$selected_door_id] ?? ('Door ' . $selected_door_id));
+    }
+    if ($not_ready_labels) {
+        wp_send_json_error([
+            'message' => 'These doors are not included in the saved Site Readiness scope: ' . implode(', ', $not_ready_labels),
+        ], 409);
+    }
+
+    $availability = ado_cd_google_availability_adapter($order, ado_cd_schedule_availability_window_days());
+    $availability_state = (string) ($availability['state'] ?? 'fetch_error');
+    if ($availability_state !== 'ok') {
+        $adapter_message = trim((string) ($availability['message'] ?? 'Live availability could not be confirmed.'));
+        wp_send_json_error(['message' => $adapter_message !== '' ? $adapter_message : 'Live availability could not be confirmed.'], 409);
+    }
+    if (!$is_replace_mode) {
+        foreach ((array) ($availability['slots'] ?? []) as $slot_row) {
+            if (!is_array($slot_row)) {
+                continue;
+            }
+            $slot_date_key = trim((string) ($slot_row['date_key'] ?? ''));
+            if ($slot_date_key === '') {
+                $slot_start_ts = strtotime(trim((string) ($slot_row['slot_start'] ?? '')));
+                if ($slot_start_ts !== false) {
+                    $slot_date_key = wp_date('Y-m-d', (int) $slot_start_ts, $schedule_timezone);
+                }
+            }
+            if ($slot_date_key === $schedule_date) {
+                wp_send_json_error(['message' => 'Selected day already has calendar events. Please choose a different day.'], 409);
+            }
+        }
+    }
+
+    $bookings = ado_cd_client_schedule_bookings($order);
+    $active_booked_door_ids_map = [];
+    $active_day_door_ids_map = [];
+    $replace_rows = [];
+    $replace_row_indexes = [];
+    foreach ($bookings as $booking_index => $booking_row) {
+        if (!is_array($booking_row) || (string) ($booking_row['status'] ?? '') !== 'active') {
+            continue;
+        }
+        $booking_id = trim((string) ($booking_row['booking_id'] ?? ''));
+        $booking_date = trim((string) ($booking_row['schedule_date'] ?? ''));
+        $is_replace_target = $is_replace_mode && $booking_id !== '' && isset($replace_booking_lookup[$booking_id]);
+        if ($is_replace_target) {
+            $booking_owner_id = (int) ($booking_row['created_by_client_id'] ?? ($booking_row['created_by'] ?? 0));
+            if ($booking_owner_id > 0 && $booking_owner_id !== $user_id) {
+                wp_send_json_error(['message' => 'You can only update bookings created by your account.'], 403);
+            }
+            if ($booking_date !== $schedule_date) {
+                wp_send_json_error(['message' => 'Booking updates must stay on the same scheduled day.'], 409);
+            }
+            $replace_rows[] = $booking_row;
+            $replace_row_indexes[] = (int) $booking_index;
+            continue;
+        }
+        foreach ((array) ($booking_row['door_ids'] ?? []) as $booking_door_id) {
+            $booking_door_id = sanitize_text_field((string) $booking_door_id);
+            if ($booking_door_id === '' || !isset($project_doors_map[$booking_door_id])) {
+                continue;
+            }
+            $active_booked_door_ids_map[$booking_door_id] = true;
+            if ($booking_date === $schedule_date) {
+                $active_day_door_ids_map[$booking_door_id] = true;
+            }
+        }
+    }
+    if ($is_replace_mode) {
+        if (count($replace_rows) !== count($replace_booking_ids)) {
+            wp_send_json_error(['message' => 'One or more selected bookings could not be updated. Reload and try again.'], 404);
+        }
+        if (!$replace_rows) {
+            wp_send_json_error(['message' => 'No matching active booking was found to update.'], 404);
+        }
+    }
+
+    $conflict_doors = [];
+    foreach ($selected_door_ids as $selected_door_id) {
+        if (!isset($active_booked_door_ids_map[$selected_door_id])) {
+            continue;
+        }
+        $conflict_doors[] = (string) ($project_doors_map[$selected_door_id] ?? ('Door ' . $selected_door_id));
+    }
+    if ($conflict_doors) {
+        wp_send_json_error(['message' => 'Already booked doors cannot be booked again until cancelled: ' . implode(', ', $conflict_doors)], 409);
+    }
+
+    $day_doors_after_booking = $active_day_door_ids_map;
+    foreach ($selected_door_ids as $selected_door_id) {
+        $day_doors_after_booking[$selected_door_id] = true;
+    }
+    if (count($day_doors_after_booking) > 2) {
+        wp_send_json_error(['message' => 'This day already has door bookings. Maximum is 2 doors per day.'], 409);
+    }
+
+    $door_labels = array_map(static function (string $door_id) use ($project_doors_map): string {
+        return (string) ($project_doors_map[$door_id] ?? ('Door ' . $door_id));
+    }, $selected_door_ids);
+    if ($is_replace_mode) {
+        $primary_replace = (array) ($replace_rows[0] ?? []);
+        $primary_calendar_id = trim((string) ($primary_replace['calendar_id'] ?? ''));
+        $primary_event_id = trim((string) ($primary_replace['google_event_id'] ?? ''));
+        $google_event = null;
+        if ($primary_calendar_id !== '' && $primary_event_id !== '') {
+            $google_event = ado_cd_google_update_booking_event(
+                $order,
+                $primary_calendar_id,
+                $primary_event_id,
+                $schedule_date,
+                $door_labels,
+                $booking_note
+            );
+            if (empty($google_event['ok'])) {
+                wp_send_json_error([
+                    'message' => trim((string) ($google_event['message'] ?? 'Google calendar booking update failed.')),
+                    'code' => 'google_event_update_failed',
+                ], 409);
+            }
+        } else {
+            $google_event = ado_cd_google_create_booking_event($order, $schedule_date, $door_labels, $booking_note);
+            if (empty($google_event['ok'])) {
+                wp_send_json_error([
+                    'message' => trim((string) ($google_event['message'] ?? 'Google calendar booking creation failed.')),
+                    'code' => 'google_event_create_failed',
+                ], 409);
+            }
+        }
+
+        $primary_booking_id = trim((string) ($primary_replace['booking_id'] ?? ''));
+        $booking_id = $primary_booking_id !== '' ? $primary_booking_id : ('ado_booking_' . wp_generate_uuid4());
+        $primary_index = (int) ($replace_row_indexes[0] ?? -1);
+        if ($primary_index < 0 || !isset($bookings[$primary_index]) || !is_array($bookings[$primary_index])) {
+            wp_send_json_error(['message' => 'Could not locate booking row for update.'], 409);
+        }
+        $bookings[$primary_index] = array_merge((array) $bookings[$primary_index], [
+            'booking_id' => $booking_id,
+            'schedule_date' => $schedule_date,
+            'door_ids' => $selected_door_ids,
+            'status' => 'active',
+            'note' => $booking_note,
+            'created_at' => wp_date('Y-m-d H:i'),
+            'created_by' => $user_id,
+            'created_by_client_id' => $user_id,
+            'created_by_name' => $client_display_name,
+            'created_by_email' => $client_email,
+            'cancelled_at' => '',
+            'cancelled_by' => 0,
+            'calendar_id' => trim((string) ($google_event['calendar_id'] ?? $primary_calendar_id)),
+            'google_event_id' => trim((string) ($google_event['event_id'] ?? $primary_event_id)),
+            'google_event_link' => trim((string) ($google_event['event_link'] ?? ($primary_replace['google_event_link'] ?? ''))),
+        ]);
+
+        for ($i = 1; $i < count($replace_rows); $i++) {
+            $replace_row = (array) $replace_rows[$i];
+            $replace_index = (int) ($replace_row_indexes[$i] ?? -1);
+            if ($replace_index < 0 || !isset($bookings[$replace_index]) || !is_array($bookings[$replace_index])) {
+                continue;
+            }
+            $calendar_id = trim((string) ($replace_row['calendar_id'] ?? ''));
+            $google_event_id = trim((string) ($replace_row['google_event_id'] ?? ''));
+            if ($google_event_id !== '') {
+                $cancel_event_result = ado_cd_google_cancel_booking_event($order, $calendar_id, $google_event_id);
+                if (empty($cancel_event_result['ok'])) {
+                    wp_send_json_error([
+                        'message' => trim((string) ($cancel_event_result['message'] ?? 'Google calendar cancellation failed for merged booking rows.')),
+                        'code' => 'google_event_cancel_failed',
+                    ], 409);
+                }
+            }
+            $bookings[$replace_index]['status'] = 'cancelled';
+            $bookings[$replace_index]['cancelled_at'] = wp_date('Y-m-d H:i');
+            $bookings[$replace_index]['cancelled_by'] = $user_id;
+        }
+
+        $order->update_meta_data('_ado_client_schedule_bookings', array_values($bookings));
+        $order->save();
+
+        wp_send_json_success([
+            'message' => 'Booking updated for ' . $schedule_date . ' and synced to Google Calendar: ' . implode(', ', $door_labels),
+            'booking_id' => $booking_id,
+            'schedule_date' => $schedule_date,
+            'door_ids' => $selected_door_ids,
+            'door_labels' => $door_labels,
+            'google_event_id' => trim((string) ($google_event['event_id'] ?? '')),
+            'updated' => true,
+        ]);
+    }
+
+    $google_event = ado_cd_google_create_booking_event($order, $schedule_date, $door_labels, $booking_note);
+    if (empty($google_event['ok'])) {
+        wp_send_json_error([
+            'message' => trim((string) ($google_event['message'] ?? 'Google calendar booking creation failed.')),
+            'code' => 'google_event_create_failed',
+        ], 409);
+    }
+
+    $booking_id = 'ado_booking_' . wp_generate_uuid4();
+    $bookings[] = [
+        'booking_id' => $booking_id,
+        'schedule_date' => $schedule_date,
+        'door_ids' => $selected_door_ids,
+        'status' => 'active',
+        'note' => $booking_note,
+        'created_at' => wp_date('Y-m-d H:i'),
+        'created_by' => $user_id,
+        'created_by_client_id' => $user_id,
+        'created_by_name' => $client_display_name,
+        'created_by_email' => $client_email,
+        'cancelled_at' => '',
+        'cancelled_by' => 0,
+        'calendar_id' => trim((string) ($google_event['calendar_id'] ?? '')),
+        'google_event_id' => trim((string) ($google_event['event_id'] ?? '')),
+        'google_event_link' => trim((string) ($google_event['event_link'] ?? '')),
+    ];
+    $order->update_meta_data('_ado_client_schedule_bookings', array_values($bookings));
+    $order->save();
+
+    wp_send_json_success([
+        'message' => 'Doors booked for ' . $schedule_date . ' and synced to Google Calendar: ' . implode(', ', $door_labels),
+        'booking_id' => $booking_id,
+        'schedule_date' => $schedule_date,
+        'door_ids' => $selected_door_ids,
+        'door_labels' => $door_labels,
+        'google_event_id' => trim((string) ($google_event['event_id'] ?? '')),
+    ]);
+});
+
+add_action('wp_ajax_ado_cancel_client_schedule_request', static function (): void {
+    if (!is_user_logged_in() || !ado_is_client()) {
+        wp_send_json_error(['message' => 'Client access only.'], 403);
+    }
+    check_ajax_referer('ado_client_portal_nonce', 'nonce');
+
+    $project_id = (int) ($_POST['project_id'] ?? 0);
+    $booking_id = sanitize_text_field((string) ($_POST['booking_id'] ?? ''));
+    if ($booking_id === '') {
+        wp_send_json_error(['message' => 'Booking reference is required.'], 400);
+    }
+
+    $user_id = (int) get_current_user_id();
+    $client_user = wp_get_current_user();
+    $client_orders = ado_cd_client_orders($user_id);
+    $order = $project_id > 0 ? ado_cd_find_project_order($client_orders, $project_id) : null;
+    $booking_reference = null;
+    if ($order instanceof WC_Order) {
+        $project_bookings = ado_cd_client_schedule_bookings($order);
+        foreach ($project_bookings as $project_booking_index => $project_booking_row) {
+            if (!is_array($project_booking_row)) {
+                continue;
+            }
+            if ((string) ($project_booking_row['booking_id'] ?? '') !== $booking_id) {
+                continue;
+            }
+            $booking_reference = [
+                'order' => $order,
+                'order_id' => (int) $order->get_id(),
+                'bookings' => $project_bookings,
+                'index' => (int) $project_booking_index,
+                'booking' => $project_booking_row,
+            ];
+            break;
+        }
+    }
+    if (!is_array($booking_reference)) {
+        $booking_reference = ado_cd_client_booking_reference($client_orders, $booking_id);
+    }
+    if (!is_array($booking_reference) || !($booking_reference['order'] ?? null) instanceof WC_Order) {
+        wp_send_json_error(['message' => 'Booking not found or already cancelled.'], 404);
+    }
+
+    $order = $booking_reference['order'];
+    $bookings = is_array($booking_reference['bookings'] ?? null)
+        ? (array) $booking_reference['bookings']
+        : ado_cd_client_schedule_bookings($order);
+    $booking_index = (int) ($booking_reference['index'] ?? -1);
+    if ($booking_index < 0 || !isset($bookings[$booking_index]) || !is_array($bookings[$booking_index])) {
+        wp_send_json_error(['message' => 'Booking not found or already cancelled.'], 404);
+    }
+    $booking_row = (array) $bookings[$booking_index];
+    if ((string) ($booking_row['status'] ?? '') !== 'active') {
+        wp_send_json_error(['message' => 'Booking not found or already cancelled.'], 404);
+    }
+    if (!ado_cd_booking_is_owned_by_client($booking_row, $user_id, $client_user instanceof WP_User ? $client_user : null)) {
+        wp_send_json_error(['message' => 'You can only cancel bookings created by your account.'], 403);
+    }
+    $calendar_id = trim((string) ($booking_row['calendar_id'] ?? ''));
+    $google_event_id = trim((string) ($booking_row['google_event_id'] ?? ''));
+    if ($google_event_id !== '') {
+        $cancel_event_result = ado_cd_google_cancel_booking_event($order, $calendar_id, $google_event_id);
+        if (empty($cancel_event_result['ok'])) {
+            wp_send_json_error([
+                'message' => trim((string) ($cancel_event_result['message'] ?? 'Google calendar cancellation failed.')),
+                'code' => 'google_event_cancel_failed',
+            ], 409);
+        }
+    }
+    $bookings[$booking_index]['status'] = 'cancelled';
+    $bookings[$booking_index]['cancelled_at'] = wp_date('Y-m-d H:i');
+    $bookings[$booking_index]['cancelled_by'] = $user_id;
+
+    $order->update_meta_data('_ado_client_schedule_bookings', array_values($bookings));
+    $order->save();
+
+    wp_send_json_success([
+        'message' => 'Booking cancelled. Doors are available again.',
+        'booking_id' => $booking_id,
+    ]);
+});
+
+add_action('wp_ajax_ado_save_client_site_readiness', static function (): void {
+    if (!is_user_logged_in() || !ado_is_client()) {
+        wp_send_json_error(['message' => 'Client access only.'], 403);
+    }
+    check_ajax_referer('ado_client_portal_nonce', 'nonce');
+
+    $project_id = (int) ($_POST['project_id'] ?? 0);
+    if ($project_id <= 0) {
+        wp_send_json_error(['message' => 'Project is required.'], 400);
+    }
+
+    $user_id = (int) get_current_user_id();
+    $order = ado_cd_find_project_order(ado_cd_client_orders($user_id), $project_id);
+    if (!($order instanceof WC_Order)) {
+        wp_send_json_error(['message' => 'Project not found.'], 404);
+    }
+
+    $sections_raw = wp_unslash((string) ($_POST['sections'] ?? ''));
+    $sections = json_decode($sections_raw, true);
+    if (is_array($sections)) {
+        $definition = ado_cd_site_readiness_sections();
+        if (!$definition) {
+            wp_send_json_error(['message' => 'No site-readiness sections are configured.'], 400);
+        }
+        $door_lookup = [];
+        $door_label_lookup = [];
+        foreach (ado_cd_order_doors($order) as $door_row) {
+            if (!is_array($door_row)) {
+                continue;
+            }
+            $door_id = sanitize_text_field((string) ($door_row['door_id'] ?? ''));
+            if ($door_id === '') {
+                continue;
+            }
+            $door_lookup[$door_id] = true;
+            $door_label = trim((string) ($door_row['door_label'] ?? ('Door ' . $door_id)));
+            if ($door_label === '') {
+                $door_label = 'Door ' . $door_id;
+            }
+            $door_label_lookup[$door_id] = $door_label;
+        }
+        if (!$door_lookup) {
+            wp_send_json_error(['message' => 'No project doors are available to scope this checklist.'], 400);
+        }
+        $door_ids_present = array_key_exists('door_ids', $_POST);
+        $door_ids_input = [];
+        if ($door_ids_present) {
+            $door_ids_raw = $_POST['door_ids'];
+            if (is_array($door_ids_raw)) {
+                $door_ids_input = (array) wp_unslash($door_ids_raw);
+            } elseif (is_string($door_ids_raw)) {
+                $decoded_door_ids = json_decode(wp_unslash($door_ids_raw), true);
+                if (is_array($decoded_door_ids)) {
+                    $door_ids_input = $decoded_door_ids;
+                }
+            }
+        }
+        $normalized_door_ids_map = [];
+        foreach ($door_ids_input as $door_id_raw) {
+            $door_id = sanitize_text_field((string) $door_id_raw);
+            if ($door_id === '' || !isset($door_lookup[$door_id])) {
+                continue;
+            }
+            $normalized_door_ids_map[$door_id] = true;
+        }
+        if (!$normalized_door_ids_map) {
+            if ($door_ids_present) {
+                wp_send_json_error(['message' => 'Select at least one valid project door for this checklist.'], 400);
+            }
+            $normalized_door_ids_map = $door_lookup;
+        }
+        $normalized_door_ids = array_values(array_keys($normalized_door_ids_map));
+        $normalized_sections = [];
+        $total_items = 0;
+        $checked_items = 0;
+        foreach ($definition as $section_key => $section_row) {
+            $input_section = is_array($sections[$section_key] ?? null) ? (array) $sections[$section_key] : [];
+            $input_items = is_array($input_section['items'] ?? null) ? (array) $input_section['items'] : [];
+            $normalized_items = [];
+            foreach ((array) ($section_row['items'] ?? []) as $item_key => $_item_label) {
+                $is_checked = !empty($input_items[$item_key]);
+                $normalized_items[$item_key] = $is_checked;
+                $total_items++;
+                if ($is_checked) {
+                    $checked_items++;
+                }
+            }
+            $normalized_sections[$section_key] = [
+                'items' => $normalized_items,
+                'note' => sanitize_textarea_field((string) ($input_section['note'] ?? '')),
+            ];
+        }
+        $submission_id = preg_replace('/[^a-zA-Z0-9_\-]/', '', sanitize_text_field((string) ($_POST['submission_id'] ?? '')));
+        if (!is_string($submission_id)) {
+            $submission_id = '';
+        }
+        $existing_submissions = ado_cd_site_readiness_submissions($order);
+        $existing_submission_index = -1;
+        foreach ($existing_submissions as $existing_index => $existing_submission_row) {
+            if (!is_array($existing_submission_row)) {
+                continue;
+            }
+            if ((string) ($existing_submission_row['submission_id'] ?? '') !== $submission_id) {
+                continue;
+            }
+            $existing_submission_index = (int) $existing_index;
+            break;
+        }
+        $reserved_door_lookup = [];
+        foreach ($existing_submissions as $existing_index => $existing_submission_row) {
+            if (!is_array($existing_submission_row)) {
+                continue;
+            }
+            if ($existing_submission_index >= 0 && (int) $existing_index === $existing_submission_index) {
+                continue;
+            }
+            foreach ((array) ($existing_submission_row['door_ids'] ?? []) as $existing_submission_door_id_raw) {
+                $existing_submission_door_id = sanitize_text_field((string) $existing_submission_door_id_raw);
+                if ($existing_submission_door_id === '' || !isset($door_lookup[$existing_submission_door_id])) {
+                    continue;
+                }
+                $reserved_door_lookup[$existing_submission_door_id] = true;
+            }
+        }
+        $overlapping_door_labels = [];
+        foreach ($normalized_door_ids as $normalized_door_id) {
+            if (!isset($reserved_door_lookup[$normalized_door_id])) {
+                continue;
+            }
+            $overlapping_door_labels[] = (string) ($door_label_lookup[$normalized_door_id] ?? ('Door ' . $normalized_door_id));
+        }
+        if ($overlapping_door_labels) {
+            wp_send_json_error([
+                'message' => 'These doors are already assigned to another site readiness submittal: ' . implode(', ', $overlapping_door_labels) . '. Open the existing submittal to edit door scope.',
+            ], 409);
+        }
+        $is_new_submission = false;
+        if ($submission_id === '' || $existing_submission_index < 0) {
+            $submission_id = 'sr_' . substr(str_replace('-', '', wp_generate_uuid4()), 0, 12);
+            $existing_submission_index = -1;
+            $is_new_submission = true;
+        }
+        $updated_at = wp_date('Y-m-d H:i');
+        $submission_row = [
+            'submission_id' => $submission_id,
+            'door_ids' => $normalized_door_ids,
+            'sections' => $normalized_sections,
+            'updated_at' => $updated_at,
+            'updated_by' => $user_id,
+        ];
+        if ($existing_submission_index >= 0 && isset($existing_submissions[$existing_submission_index])) {
+            $existing_submissions[$existing_submission_index] = $submission_row;
+        } else {
+            array_unshift($existing_submissions, $submission_row);
+        }
+        $order->update_meta_data('_ado_site_readiness_checklist', [
+            'active_submission_id' => $submission_id,
+            'submissions' => array_values($existing_submissions),
+            'updated_at' => $updated_at,
+            'updated_by' => $user_id,
+        ]);
+        $order->save();
+        wp_send_json_success([
+            'message' => 'Site readiness checklist saved (' . $checked_items . ' of ' . $total_items . ' items confirmed).',
+            'submission_id' => $submission_id,
+            'is_new_submission' => $is_new_submission,
+            'submission_total' => count($existing_submissions),
+            'checked_items' => $checked_items,
+            'total_items' => $total_items,
+            'section_total' => count($definition),
+            'door_total' => count($normalized_door_ids),
+        ]);
+    }
+
+    // Backward-compatible fallback for older payload shape.
+    $entries_raw = wp_unslash((string) ($_POST['entries'] ?? ''));
+    $entries = json_decode($entries_raw, true);
+    if (!is_array($entries)) {
+        wp_send_json_error(['message' => 'Readiness payload is invalid.'], 400);
+    }
+
+    $door_lookup = [];
+    foreach (ado_cd_order_doors($order) as $door_row) {
+        if (!is_array($door_row)) {
+            continue;
+        }
+        $door_id = sanitize_text_field((string) ($door_row['door_id'] ?? ''));
+        if ($door_id === '') {
+            continue;
+        }
+        $door_lookup[$door_id] = true;
+    }
+    if (!$door_lookup) {
+        wp_send_json_error(['message' => 'No project doors are available for readiness updates.'], 400);
+    }
+
+    $feedback_map = ado_cd_client_door_feedback_map($order);
+    $updated_count = 0;
+    foreach ($entries as $entry_row) {
+        if (!is_array($entry_row)) {
+            continue;
+        }
+        $door_id = sanitize_text_field((string) ($entry_row['door_id'] ?? ''));
+        if ($door_id === '' || !isset($door_lookup[$door_id])) {
+            continue;
+        }
+        $state = is_array($feedback_map[$door_id] ?? null) ? (array) $feedback_map[$door_id] : ado_cd_client_door_feedback_defaults();
+        $state['readiness_confirmed'] = !empty($entry_row['readiness_confirmed']);
+        $state['readiness_note'] = sanitize_textarea_field((string) ($entry_row['readiness_note'] ?? ''));
+        $state['updated_at'] = wp_date('Y-m-d H:i');
+        $state['updated_by'] = $user_id;
+        $feedback_map[$door_id] = $state;
+        $updated_count++;
+    }
+    if ($updated_count <= 0) {
+        wp_send_json_error(['message' => 'No valid door readiness updates were received.'], 400);
+    }
+
+    $order->update_meta_data('_ado_client_door_feedback', $feedback_map);
+    $order->save();
+
+    $confirmed_count = 0;
+    foreach (array_keys($door_lookup) as $door_id) {
+        $door_state = is_array($feedback_map[$door_id] ?? null) ? (array) $feedback_map[$door_id] : [];
+        if (!empty($door_state['readiness_confirmed'])) {
+            $confirmed_count++;
+        }
+    }
+    wp_send_json_success([
+        'message' => 'Site readiness saved for ' . $confirmed_count . ' of ' . count($door_lookup) . ' doors.',
+        'confirmed_count' => $confirmed_count,
+        'door_total' => count($door_lookup),
+        'updated_count' => $updated_count,
+    ]);
 });
 
 add_action('wp_ajax_ado_save_client_door_feedback', static function (): void {
@@ -2486,3 +6842,4 @@ add_action('wp_ajax_ado_save_client_door_feedback', static function (): void {
         'document_count' => count($documents),
     ]);
 });
+
