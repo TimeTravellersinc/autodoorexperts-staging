@@ -41,6 +41,12 @@ function ado_tp_orders_for_user(int $user_id): array
 
 function ado_tp_order_name(WC_Order $order): string
 {
+    if (function_exists('ado_order_project_name')) {
+        $project_name = trim((string) ado_order_project_name($order));
+        if ($project_name !== '') {
+            return $project_name;
+        }
+    }
     $company = trim((string) $order->get_billing_company());
     if ($company !== '') {
         return $company;
@@ -58,6 +64,12 @@ function ado_tp_order_name(WC_Order $order): string
 
 function ado_tp_order_location(WC_Order $order): string
 {
+    if (function_exists('ado_order_project_address')) {
+        $project_address = trim((string) ado_order_project_address($order));
+        if ($project_address !== '') {
+            return $project_address;
+        }
+    }
     $parts = array_filter([$order->get_shipping_city(), $order->get_shipping_state()]);
     if (!$parts) {
         $parts = array_filter([$order->get_billing_city(), $order->get_billing_state()]);
@@ -67,14 +79,6 @@ function ado_tp_order_location(WC_Order $order): string
 
 function ado_tp_scope_payload(WC_Order $order): array
 {
-    $scope_path = (string) $order->get_meta('_ado_scoped_json_path');
-    if ($scope_path !== '' && is_readable($scope_path)) {
-        $json = json_decode((string) file_get_contents($scope_path), true);
-        if (is_array($json)) {
-            return $json;
-        }
-    }
-
     $snapshot = (string) $order->get_meta('_ado_scoped_json_snapshot');
     if ($snapshot !== '') {
         $json = json_decode($snapshot, true);
@@ -87,6 +91,14 @@ function ado_tp_scope_payload(WC_Order $order): array
             if (is_array($json)) {
                 return $json;
             }
+        }
+    }
+
+    $scope_path = (string) $order->get_meta('_ado_scoped_json_path');
+    if ($scope_path !== '' && is_readable($scope_path)) {
+        $json = json_decode((string) file_get_contents($scope_path), true);
+        if (is_array($json)) {
+            return $json;
         }
     }
 
@@ -155,6 +167,37 @@ function ado_tp_door_rows(WC_Order $order): array
             }
         }
     }
+
+    $merge_hardware_into_row = static function (array &$row, array $item): void {
+        $normalized = ado_tp_normalize_project_door_item($item);
+        if ($normalized === null) {
+            return;
+        }
+        if (!isset($row['items']) || !is_array($row['items'])) {
+            $row['items'] = [];
+        }
+        $catalog_key = ado_qm_compact((string) ($normalized['catalog'] ?? ''));
+        $desc_key = ado_qm_compact((string) ($normalized['desc'] ?? ''));
+        $raw_key = ado_qm_compact((string) ($normalized['raw'] ?? ''));
+        $candidate_key = strtolower($catalog_key . '|' . $desc_key . '|' . $raw_key);
+        foreach ($row['items'] as $idx => $existing_item) {
+            if (!is_array($existing_item)) {
+                continue;
+            }
+            $existing_catalog = ado_qm_compact((string) ($existing_item['catalog'] ?? ''));
+            $existing_desc = ado_qm_compact((string) ($existing_item['desc'] ?? ''));
+            $existing_raw = ado_qm_compact((string) ($existing_item['raw'] ?? ''));
+            $existing_key = strtolower($existing_catalog . '|' . $existing_desc . '|' . $existing_raw);
+            if ($existing_key !== $candidate_key || $existing_key === '||') {
+                continue;
+            }
+            $existing_qty = max(1, (int) ($existing_item['qty'] ?? 1));
+            $incoming_qty = max(1, (int) ($normalized['qty'] ?? 1));
+            $row['items'][$idx]['qty'] = max($existing_qty, $incoming_qty);
+            return;
+        }
+        $row['items'][] = $normalized;
+    };
 
     $project_doors = $order->get_meta('_ado_project_doors');
     if (is_array($project_doors) && $project_doors) {
@@ -226,12 +269,34 @@ function ado_tp_door_rows(WC_Order $order): array
                 'is_scoped' => true,
             ];
         }
-        if ($rows) {
-            return $rows;
+    }
+
+    $row_index = [];
+    foreach ($rows as $idx => $row) {
+        if (!is_array($row)) {
+            continue;
+        }
+        foreach ([(string) ($row['door_id'] ?? ''), (string) ($row['door_number'] ?? '')] as $door_key) {
+            $door_key = strtolower(trim($door_key));
+            if ($door_key !== '') {
+                $row_index[$door_key] = (int) $idx;
+            }
         }
     }
 
-    $item_seen = [];
+    $scoped_index = [];
+    foreach ($scoped_rows as $idx => $row) {
+        if (!is_array($row)) {
+            continue;
+        }
+        foreach ([(string) ($row['door_id'] ?? ''), (string) ($row['door_number'] ?? '')] as $door_key) {
+            $door_key = strtolower(trim($door_key));
+            if ($door_key !== '') {
+                $scoped_index[$door_key] = (int) $idx;
+            }
+        }
+    }
+
     foreach ($order->get_items() as $item) {
         if (!($item instanceof WC_Order_Item_Product)) {
             continue;
@@ -240,34 +305,83 @@ function ado_tp_door_rows(WC_Order $order): array
         if ($door_id === '') {
             $door_id = trim((string) $item->get_meta('_adq_door_id'));
         }
-        if ($door_id === '' || isset($item_seen[$door_id])) {
+        if ($door_id === '') {
             continue;
         }
-        $item_seen[$door_id] = true;
-        $model = trim((string) $item->get_meta('_adq_model'));
+        $door_key = strtolower(trim($door_id));
+        $line_model = trim((string) $item->get_meta('_adq_source_model'));
+        if ($line_model === '') {
+            $line_model = trim((string) $item->get_meta('_adq_model'));
+        }
+        $line_desc = trim((string) $item->get_meta('_adq_source_desc'));
+        $line_raw = trim((string) $item->get_meta('_adq_source_raw'));
         $item_name = trim((string) $item->get_name());
-        $rows[] = [
-            'door_id' => $door_id,
-            'door_number' => $door_id,
-            'door_label' => 'Door ' . $door_id,
-            'model' => $model !== '' ? $model : 'Model pending',
-            'location' => '',
-            'door_type' => '',
-            'notes' => (string) ($door_state['notes'][$door_id] ?? ''),
-            'items' => $item_name !== '' ? [ado_tp_normalize_project_door_item([
-                'catalog' => $model !== '' ? $model : $item_name,
-                'desc' => $item_name,
-                'raw' => $item_name,
-                'qty' => max(1, (int) $item->get_quantity()),
-            ])] : [],
-            'checks' => ado_tp_project_door_check_state((array) ($door_state['checks'][$door_id] ?? [])),
-            'is_scoped' => false,
+        if ($line_desc === '') {
+            $line_desc = $item_name;
+        }
+        if ($line_raw === '') {
+            $line_raw = $item_name;
+        }
+        $line_item = [
+            'catalog' => $line_model !== '' ? $line_model : $item_name,
+            'desc' => $line_desc,
+            'raw' => $line_raw,
+            'qty' => max(1, (int) $item->get_quantity()),
         ];
+
+        if (isset($row_index[$door_key])) {
+            $idx = (int) $row_index[$door_key];
+            if (!isset($rows[$idx]) || !is_array($rows[$idx])) {
+                continue;
+            }
+            if (trim((string) ($rows[$idx]['model'] ?? '')) === '' || trim((string) ($rows[$idx]['model'] ?? '')) === 'Model pending') {
+                $rows[$idx]['model'] = $line_model !== '' ? $line_model : ($item_name !== '' ? $item_name : 'Model pending');
+            }
+            $merge_hardware_into_row($rows[$idx], $line_item);
+            continue;
+        }
+
+        $new_row = null;
+        if (isset($scoped_index[$door_key])) {
+            $scoped_row = $scoped_rows[(int) $scoped_index[$door_key]] ?? null;
+            if (is_array($scoped_row)) {
+                $new_row = $scoped_row;
+                if (!isset($new_row['items']) || !is_array($new_row['items'])) {
+                    $new_row['items'] = [];
+                }
+                if (trim((string) ($new_row['model'] ?? '')) === '' || trim((string) ($new_row['model'] ?? '')) === 'Model pending') {
+                    $new_row['model'] = $line_model !== '' ? $line_model : ($item_name !== '' ? $item_name : 'Model pending');
+                }
+            }
+        }
+        if (!is_array($new_row)) {
+            $new_row = [
+                'door_id' => $door_id,
+                'door_number' => $door_id,
+                'door_label' => 'Door ' . $door_id,
+                'model' => $line_model !== '' ? $line_model : ($item_name !== '' ? $item_name : 'Model pending'),
+                'location' => '',
+                'door_type' => '',
+                'notes' => (string) ($door_state['notes'][$door_id] ?? ''),
+                'items' => [],
+                'checks' => ado_tp_project_door_check_state((array) ($door_state['checks'][$door_id] ?? [])),
+                'is_scoped' => false,
+            ];
+        }
+        $merge_hardware_into_row($new_row, $line_item);
+        $rows[] = $new_row;
+        $new_index = count($rows) - 1;
+        foreach ([(string) ($new_row['door_id'] ?? ''), (string) ($new_row['door_number'] ?? ''), $door_id] as $map_key) {
+            $map_key = strtolower(trim((string) $map_key));
+            if ($map_key !== '') {
+                $row_index[$map_key] = $new_index;
+            }
+        }
     }
+
     if ($rows) {
         return $rows;
     }
-
     return $scoped_rows;
 }
 
@@ -330,6 +444,108 @@ function ado_tp_project_door_workflow_map(WC_Order $order): array
     return is_array($workflow_map) ? $workflow_map : [];
 }
 
+function ado_tp_site_readiness_confirmed_door_lookup(WC_Order $order): array
+{
+    static $cache = [];
+    $order_id = (int) $order->get_id();
+    if ($order_id > 0 && array_key_exists($order_id, $cache)) {
+        return is_array($cache[$order_id]) ? $cache[$order_id] : [];
+    }
+
+    $lookup = [];
+    if (function_exists('ado_cd_site_readiness_booking_gate')) {
+        $gate = ado_cd_site_readiness_booking_gate($order);
+        $door_lookup = is_array($gate['door_lookup'] ?? null) ? (array) $gate['door_lookup'] : [];
+        foreach ($door_lookup as $door_id_raw => $is_ready) {
+            $door_id = sanitize_text_field((string) $door_id_raw);
+            if ($door_id === '' || empty($is_ready)) {
+                continue;
+            }
+            $lookup[$door_id] = true;
+        }
+        if ($order_id > 0) {
+            $cache[$order_id] = $lookup;
+        }
+        return $lookup;
+    }
+
+    $stored = $order->get_meta('_ado_site_readiness_checklist');
+    $stored = is_array($stored) ? $stored : [];
+    $submissions = is_array($stored['submissions'] ?? null) ? (array) $stored['submissions'] : [];
+    if (!$submissions && is_array($stored['door_ids'] ?? null)) {
+        $submissions[] = [
+            'door_ids' => (array) $stored['door_ids'],
+        ];
+    }
+    foreach ($submissions as $submission_row) {
+        if (!is_array($submission_row)) {
+            continue;
+        }
+        foreach ((array) ($submission_row['door_ids'] ?? []) as $door_id_raw) {
+            $door_id = sanitize_text_field((string) $door_id_raw);
+            if ($door_id === '') {
+                continue;
+            }
+            $lookup[$door_id] = true;
+        }
+    }
+    if ($order_id > 0) {
+        $cache[$order_id] = $lookup;
+    }
+    return $lookup;
+}
+
+function ado_tp_hardware_availability_confirmed_door_lookup(WC_Order $order): array
+{
+    static $cache = [];
+    $order_id = (int) $order->get_id();
+    if ($order_id > 0 && array_key_exists($order_id, $cache)) {
+        return is_array($cache[$order_id]) ? $cache[$order_id] : [];
+    }
+
+    $lookup = [];
+    if (function_exists('ado_cd_hardware_availability_booking_gate')) {
+        $gate = ado_cd_hardware_availability_booking_gate($order);
+        $door_lookup = is_array($gate['door_lookup'] ?? null) ? (array) $gate['door_lookup'] : [];
+        foreach ($door_lookup as $door_id_raw => $is_ready) {
+            $door_id = sanitize_text_field((string) $door_id_raw);
+            if ($door_id === '' || empty($is_ready)) {
+                continue;
+            }
+            $lookup[$door_id] = true;
+        }
+        if ($order_id > 0) {
+            $cache[$order_id] = $lookup;
+        }
+        return $lookup;
+    }
+
+    $stored = $order->get_meta('_ado_hardware_availability_checklist');
+    $stored = is_array($stored) ? $stored : [];
+    $submissions = is_array($stored['submissions'] ?? null) ? (array) $stored['submissions'] : [];
+    if (!$submissions && is_array($stored['door_ids'] ?? null)) {
+        $submissions[] = [
+            'door_ids' => (array) $stored['door_ids'],
+        ];
+    }
+    foreach ($submissions as $submission_row) {
+        if (!is_array($submission_row)) {
+            continue;
+        }
+        foreach ((array) ($submission_row['door_ids'] ?? []) as $door_id_raw) {
+            $door_id = sanitize_text_field((string) $door_id_raw);
+            if ($door_id === '') {
+                continue;
+            }
+            $lookup[$door_id] = true;
+        }
+    }
+    if ($order_id > 0) {
+        $cache[$order_id] = $lookup;
+    }
+    return $lookup;
+}
+
 function ado_tp_project_door_workflow_defaults(): array
 {
     return [
@@ -346,6 +562,7 @@ function ado_tp_project_door_workflow_defaults(): array
             'note' => '',
             'complete' => false,
             'final_video' => [],
+            'updated_at' => '',
         ],
     ];
 }
@@ -355,9 +572,25 @@ function ado_tp_project_door_workflow_state(WC_Order $order, string $door_id): a
     $workflow_map = ado_tp_project_door_workflow_map($order);
     $door_state = is_array($workflow_map[$door_id] ?? null) ? $workflow_map[$door_id] : [];
     $defaults = ado_tp_project_door_workflow_defaults();
+    $site_readiness_lookup = ado_tp_site_readiness_confirmed_door_lookup($order);
+    $hardware_availability_lookup = ado_tp_hardware_availability_confirmed_door_lookup($order);
+    $has_site_readiness_confirmation = isset($site_readiness_lookup[$door_id]);
+    $has_hardware_availability_confirmation = isset($hardware_availability_lookup[$door_id]);
 
     foreach (['site_preparation', 'hardware_availability'] as $section) {
-        $defaults[$section]['state'] = strtolower(trim((string) ($door_state[$section]['state'] ?? 'yes'))) === 'no' ? 'no' : 'yes';
+        $fallback_state = 'yes';
+        if ($section === 'site_preparation') {
+            $fallback_state = $has_site_readiness_confirmation ? 'yes' : 'no';
+        } elseif ($section === 'hardware_availability') {
+            $fallback_state = $has_hardware_availability_confirmation ? 'yes' : 'no';
+        }
+        $normalized_state = strtolower(trim((string) ($door_state[$section]['state'] ?? $fallback_state))) === 'no' ? 'no' : 'yes';
+        if ($section === 'site_preparation' && !$has_site_readiness_confirmation) {
+            $normalized_state = 'no';
+        } elseif ($section === 'hardware_availability' && !$has_hardware_availability_confirmation) {
+            $normalized_state = 'no';
+        }
+        $defaults[$section]['state'] = $normalized_state;
         $defaults[$section]['comment'] = trim((string) ($door_state[$section]['comment'] ?? ''));
     }
 
@@ -368,6 +601,7 @@ function ado_tp_project_door_workflow_state(WC_Order $order, string $door_id): a
     $defaults['testing']['note'] = trim((string) ($testing['note'] ?? ''));
     $defaults['testing']['complete'] = !empty($testing['complete']);
     $defaults['testing']['final_video'] = is_array($testing['final_video'] ?? null) ? $testing['final_video'] : [];
+    $defaults['testing']['updated_at'] = trim((string) ($testing['updated_at'] ?? ''));
 
     return $defaults;
 }
@@ -661,18 +895,30 @@ function ado_tp_process_project_door_save(WC_Order $order, string $door_id, arra
 
     $workflow_map = ado_tp_project_door_workflow_map($order);
     $door_state = ado_tp_project_door_workflow_state($order, $door_id);
+    $original_door_state = is_array($door_state) ? (array) $door_state : [];
+    $previous_progress_pct = (int) $order->get_meta('_ado_progress_pct');
     $door_items = (array) ($door['items'] ?? []);
     $hardware_groups = ado_tp_project_door_hardware_groups($door_items);
     $hardware_inputs = isset($post['hardware_notes']) && is_array($post['hardware_notes']) ? (array) $post['hardware_notes'] : [];
     $hardware_installed_inputs = isset($post['hardware_installed']) && is_array($post['hardware_installed']) ? (array) $post['hardware_installed'] : [];
     $hardware_files = isset($files['hardware_media']) && is_array($files['hardware_media']) ? (array) $files['hardware_media'] : [];
     $workflow_media = [];
+    $site_readiness_lookup = ado_tp_site_readiness_confirmed_door_lookup($order);
+    $hardware_availability_lookup = ado_tp_hardware_availability_confirmed_door_lookup($order);
+    $has_site_readiness_confirmation = isset($site_readiness_lookup[$door_id]);
+    $has_hardware_availability_confirmation = isset($hardware_availability_lookup[$door_id]);
 
     foreach (['site_preparation', 'hardware_availability'] as $section) {
         $incoming = isset($post[$section]) && is_array($post[$section]) ? (array) $post[$section] : [];
         $state = ado_tp_project_door_binary_state((string) ($incoming['state'] ?? 'yes'));
         $comment = sanitize_textarea_field((string) wp_unslash((string) ($incoming['comment'] ?? '')));
-        if ($state === 'no' && $comment === '') {
+        $allow_derived_unconfirmed = false;
+        if ($section === 'site_preparation' && $state === 'no' && !$has_site_readiness_confirmation) {
+            $allow_derived_unconfirmed = true;
+        } elseif ($section === 'hardware_availability' && $state === 'no' && !$has_hardware_availability_confirmation) {
+            $allow_derived_unconfirmed = true;
+        }
+        if ($state === 'no' && $comment === '' && !$allow_derived_unconfirmed) {
             return [
                 'ok' => false,
                 'code' => 400,
@@ -771,9 +1017,11 @@ function ado_tp_process_project_door_save(WC_Order $order, string $door_id, arra
         return ['ok' => false, 'code' => 400, 'message' => 'Every hardware line must be marked Installed before confirming installation complete.'];
     }
 
+    $testing_updated_at = wp_date('c');
     $door_state['testing']['note'] = $testing_note;
     $door_state['testing']['complete'] = $testing_complete;
     $door_state['testing']['final_video'] = $existing_videos;
+    $door_state['testing']['updated_at'] = $testing_updated_at;
 
     $workflow_map[$door_id] = $door_state;
     $order->update_meta_data('_ado_tp_project_door_workflow', $workflow_map);
@@ -792,6 +1040,148 @@ function ado_tp_process_project_door_save(WC_Order $order, string $door_id, arra
     ];
     $order->update_meta_data('_ado_tech_door_checks', $check_map);
 
+    $project_doors = ado_tp_door_rows($order);
+    $project_door_total = 0;
+    $project_door_complete = 0;
+    foreach ($project_doors as $project_door) {
+        if (!is_array($project_door)) {
+            continue;
+        }
+        $project_door_id = trim((string) ($project_door['door_id'] ?? ''));
+        if ($project_door_id === '') {
+            continue;
+        }
+        $project_door_total++;
+        $project_door_state = is_array($workflow_map[$project_door_id] ?? null) ? (array) $workflow_map[$project_door_id] : [];
+        $project_door_testing = is_array($project_door_state['testing'] ?? null) ? (array) $project_door_state['testing'] : [];
+        if (!empty($project_door_testing['complete'])) {
+            $project_door_complete++;
+        }
+    }
+    $status = strtolower(trim((string) $order->get_status()));
+    $project_progress_pct = $project_door_total > 0
+        ? (int) round(($project_door_complete / $project_door_total) * 100)
+        : ($status === 'completed' ? 100 : ($status === 'processing' ? 60 : 20));
+    $project_progress_pct = max(0, min(100, $project_progress_pct));
+    $order->update_meta_data('_ado_progress_pct', $project_progress_pct);
+
+    if (function_exists('ado_project_timeline_append_event')) {
+        $door_label = trim((string) ($door['door_label'] ?? ('Door ' . $door_id)));
+        if ($door_label === '') {
+            $door_label = 'Door ' . $door_id;
+        }
+        $timeline_details = [];
+        $old_site_prep_state = ado_tp_project_door_binary_state((string) (($original_door_state['site_preparation']['state'] ?? 'yes')));
+        $new_site_prep_state = ado_tp_project_door_binary_state((string) (($door_state['site_preparation']['state'] ?? 'yes')));
+        $old_site_prep_comment = trim((string) ($original_door_state['site_preparation']['comment'] ?? ''));
+        $new_site_prep_comment = trim((string) ($door_state['site_preparation']['comment'] ?? ''));
+        if ($old_site_prep_state !== $new_site_prep_state) {
+            $timeline_details[] = 'Site preparation: ' . strtoupper($old_site_prep_state) . ' -> ' . strtoupper($new_site_prep_state);
+            if ($new_site_prep_state === 'no') {
+                $timeline_details[] = 'Site preparation unconfirmed note: ' . ($new_site_prep_comment !== '' ? $new_site_prep_comment : 'No note provided.');
+            }
+        }
+        if ($old_site_prep_comment !== $new_site_prep_comment) {
+            if (!($old_site_prep_state !== $new_site_prep_state && $new_site_prep_state === 'no')) {
+                $timeline_details[] = $new_site_prep_comment !== ''
+                    ? 'Site preparation note: ' . $new_site_prep_comment
+                    : 'Site preparation note cleared.';
+            }
+        }
+
+        $old_hardware_state = ado_tp_project_door_binary_state((string) (($original_door_state['hardware_availability']['state'] ?? 'yes')));
+        $new_hardware_state = ado_tp_project_door_binary_state((string) (($door_state['hardware_availability']['state'] ?? 'yes')));
+        $old_hardware_comment = trim((string) ($original_door_state['hardware_availability']['comment'] ?? ''));
+        $new_hardware_comment = trim((string) ($door_state['hardware_availability']['comment'] ?? ''));
+        if ($old_hardware_state !== $new_hardware_state) {
+            $timeline_details[] = 'Hardware availability: ' . strtoupper($old_hardware_state) . ' -> ' . strtoupper($new_hardware_state);
+            if ($new_hardware_state === 'no') {
+                $timeline_details[] = 'Hardware availability unconfirmed note: ' . ($new_hardware_comment !== '' ? $new_hardware_comment : 'No note provided.');
+            }
+        }
+        if ($old_hardware_comment !== $new_hardware_comment) {
+            if (!($old_hardware_state !== $new_hardware_state && $new_hardware_state === 'no')) {
+                $timeline_details[] = $new_hardware_comment !== ''
+                    ? 'Hardware availability note: ' . $new_hardware_comment
+                    : 'Hardware availability note cleared.';
+            }
+        }
+
+        $original_entries = is_array($original_door_state['hardware_entries'] ?? null) ? (array) $original_door_state['hardware_entries'] : [];
+        $updated_entries = is_array($door_state['hardware_entries'] ?? null) ? (array) $door_state['hardware_entries'] : [];
+        foreach ($updated_entries as $category_key => $updated_category) {
+            if (!is_array($updated_category)) {
+                continue;
+            }
+            $updated_models = is_array($updated_category['models'] ?? null) ? (array) $updated_category['models'] : [];
+            $original_models = isset($original_entries[$category_key]['models']) && is_array($original_entries[$category_key]['models'])
+                ? (array) $original_entries[$category_key]['models']
+                : [];
+            foreach ($updated_models as $model_key => $updated_model) {
+                if (!is_array($updated_model)) {
+                    continue;
+                }
+                $model_label = trim((string) ($updated_model['model_label'] ?? $model_key));
+                $original_model = isset($original_models[$model_key]) && is_array($original_models[$model_key]) ? (array) $original_models[$model_key] : [];
+                $old_installed = !empty($original_model['installed']);
+                $new_installed = !empty($updated_model['installed']);
+                if ($old_installed !== $new_installed) {
+                    $timeline_details[] = $model_label . ' installed: ' . ($old_installed ? 'Yes' : 'No') . ' -> ' . ($new_installed ? 'Yes' : 'No');
+                }
+                $old_note = trim((string) ($original_model['note'] ?? ''));
+                $new_note = trim((string) ($updated_model['note'] ?? ''));
+                if ($old_note !== $new_note) {
+                    $timeline_details[] = $model_label . ' note updated.';
+                }
+                $old_media_count = is_array($original_model['media'] ?? null) ? count((array) $original_model['media']) : 0;
+                $new_media_count = is_array($updated_model['media'] ?? null) ? count((array) $updated_model['media']) : 0;
+                if ($new_media_count > $old_media_count) {
+                    $timeline_details[] = $model_label . ' media uploads: +' . (string) ($new_media_count - $old_media_count);
+                }
+            }
+        }
+
+        $old_testing = is_array($original_door_state['testing'] ?? null) ? (array) $original_door_state['testing'] : [];
+        $new_testing = is_array($door_state['testing'] ?? null) ? (array) $door_state['testing'] : [];
+        $old_complete = !empty($old_testing['complete']);
+        $new_complete = !empty($new_testing['complete']);
+        if ($old_complete !== $new_complete) {
+            $timeline_details[] = 'Installation complete: ' . ($old_complete ? 'Yes' : 'No') . ' -> ' . ($new_complete ? 'Yes' : 'No');
+        }
+        if (trim((string) ($old_testing['note'] ?? '')) !== trim((string) ($new_testing['note'] ?? ''))) {
+            $timeline_details[] = 'Testing note updated.';
+        }
+        $old_video_count = is_array($old_testing['final_video'] ?? null) ? count((array) $old_testing['final_video']) : 0;
+        $new_video_count = is_array($new_testing['final_video'] ?? null) ? count((array) $new_testing['final_video']) : 0;
+        if ($new_video_count > $old_video_count) {
+            $timeline_details[] = 'Final test videos uploaded: +' . (string) ($new_video_count - $old_video_count);
+        }
+        if (!empty($workflow_media)) {
+            $timeline_details[] = 'Uploaded files: ' . implode(', ', array_values(array_unique(array_map('strval', $workflow_media))));
+        }
+        if ($previous_progress_pct !== $project_progress_pct) {
+            $timeline_details[] = 'Project progress: ' . $previous_progress_pct . '% -> ' . $project_progress_pct . '%';
+        }
+        $timeline_details = array_values(array_unique(array_filter(array_map(static function ($line): string {
+            return trim((string) $line);
+        }, $timeline_details))));
+        if ($timeline_details) {
+            $actor_id = (int) get_current_user_id();
+            ado_project_timeline_append_event($order, [
+                'title' => (!$old_complete && $new_complete) ? 'Technician Marked Installation Complete' : 'Technician Updated Door Workflow',
+                'summary' => 'Door workflow updated for ' . $door_label . '.',
+                'category' => (!empty($workflow_media) || $new_video_count > $old_video_count) ? 'media' : 'door_workflow',
+                'action' => 'updated',
+                'actor_id' => $actor_id,
+                'actor_name' => ado_project_timeline_actor_name($actor_id),
+                'actor_role' => 'technician',
+                'door_ids' => [$door_id],
+                'door_labels' => [$door_label],
+                'details' => $timeline_details,
+            ]);
+        }
+    }
+
     $order->save();
 
     return [
@@ -807,6 +1197,9 @@ function ado_tp_process_project_door_save(WC_Order $order, string $door_id, arra
         'hardware_models_installed' => $installed_hardware_models,
         'final_video_count' => count($existing_videos),
         'uploaded_media' => $workflow_media,
+        'project_progress_pct' => $project_progress_pct,
+        'project_doors_total' => $project_door_total,
+        'project_doors_complete' => $project_door_complete,
     ];
 }
 
@@ -1185,6 +1578,38 @@ function ado_tp_render_project_door_drawer(array $door, WC_Order $project): stri
     $testing_note = trim((string) ($testing['note'] ?? ''));
     $testing_complete = !empty($testing['complete']);
     $final_videos = ado_tp_project_door_normalize_media_entries($testing['final_video'] ?? []);
+    $client_feedback = function_exists('ado_cd_client_door_feedback_state') ? ado_cd_client_door_feedback_state($project, $door_id) : [];
+    $client_feedback = is_array($client_feedback) ? $client_feedback : [];
+    $client_documents = is_array($client_feedback['documents'] ?? null) ? (array) $client_feedback['documents'] : [];
+    $client_note_history = is_array($client_feedback['note_history'] ?? null) ? (array) $client_feedback['note_history'] : [];
+    $latest_client_note = trim((string) ($client_feedback['note'] ?? ''));
+    $latest_client_note_at = trim((string) ($client_feedback['updated_at'] ?? ''));
+    if ($latest_client_note === '' && !empty($client_note_history)) {
+        foreach (array_reverse($client_note_history) as $history_entry) {
+            if (!is_array($history_entry)) {
+                continue;
+            }
+            $candidate_note = trim((string) ($history_entry['note'] ?? ''));
+            if ($candidate_note === '') {
+                continue;
+            }
+            $latest_client_note = $candidate_note;
+            $latest_client_note_at = trim((string) ($history_entry['created_at'] ?? ''));
+            break;
+        }
+    }
+    if ($latest_client_note !== '' && $latest_client_note_at === '' && !empty($client_note_history)) {
+        foreach (array_reverse($client_note_history) as $history_entry) {
+            if (!is_array($history_entry)) {
+                continue;
+            }
+            $candidate_note = trim((string) ($history_entry['note'] ?? ''));
+            if ($candidate_note !== '') {
+                $latest_client_note_at = trim((string) ($history_entry['created_at'] ?? ''));
+                break;
+            }
+        }
+    }
 
     $confirmations = [
         'site_preparation' => [
@@ -1206,9 +1631,9 @@ function ado_tp_render_project_door_drawer(array $door, WC_Order $project): stri
     ob_start();
     ?>
     <div class="ado-door-unconfirm-grid">
-      <?php foreach ($confirmations as $key => $confirmation) { $state = (string) ($confirmation['state'] ?? 'yes'); $comment = trim((string) ($confirmation['comment'] ?? '')); $is_unconfirmed = $state === 'no'; $button_label = $key === 'site_preparation' ? 'Unconfirm Site Prep' : ($key === 'hardware_availability' ? 'Unconfirm Hardware Availability' : 'Unconfirm'); ?>
+      <?php foreach ($confirmations as $key => $confirmation) { $state = (string) ($confirmation['state'] ?? 'yes'); $comment = trim((string) ($confirmation['comment'] ?? '')); $is_unconfirmed = $state === 'no'; $button_label = $key === 'site_preparation' ? 'Site Prep' : ($key === 'hardware_availability' ? 'Hardware Availability' : 'Status'); ?>
         <div class="ado-door-unconfirm-item">
-          <button class="ado-door-unconfirm-btn <?php echo $is_unconfirmed ? 'is-active' : ''; ?>" type="button" data-unconfirm-key="<?php echo esc_attr($key); ?>" data-unconfirm-form="<?php echo esc_attr($door_form_id); ?>" aria-pressed="<?php echo $is_unconfirmed ? 'true' : 'false'; ?>">
+          <button class="ado-door-unconfirm-btn <?php echo $is_unconfirmed ? 'is-unconfirmed is-active' : 'is-confirmed'; ?>" type="button" data-unconfirm-key="<?php echo esc_attr($key); ?>" data-unconfirm-form="<?php echo esc_attr($door_form_id); ?>" aria-pressed="<?php echo $is_unconfirmed ? 'true' : 'false'; ?>">
             <strong><?php echo esc_html($button_label); ?></strong>
             <small data-unconfirm-status><?php echo $is_unconfirmed ? 'Currently unconfirmed' : 'Currently confirmed'; ?></small>
           </button>
@@ -1264,6 +1689,31 @@ function ado_tp_render_project_door_drawer(array $door, WC_Order $project): stri
             </div>
           <?php } else { ?>
             <div class="ado-empty ado-door-overview-fallback">No additional documents were found for this project.</div>
+          <?php } ?>
+        </div>
+        <div class="ado-door-overview-block">
+          <strong>Project manager updates</strong>
+          <?php if ($latest_client_note !== '' || !empty($client_documents)) { ?>
+            <?php if ($latest_client_note !== '') { ?>
+              <div class="ado-door-comment-list">
+                <div class="ado-door-comment-item">
+                  <strong><?php echo esc_html($latest_client_note); ?></strong>
+                  <small><?php echo esc_html($latest_client_note_at !== '' ? $latest_client_note_at : 'Timestamp unavailable'); ?></small>
+                </div>
+              </div>
+            <?php } ?>
+            <?php if (!empty($client_documents)) { ?>
+              <div class="ado-door-document-list">
+                <?php foreach ($client_documents as $document) { if (!is_array($document)) { continue; } $document_url = trim((string) ($document['url'] ?? '')); if ($document_url === '') { continue; } ?>
+                  <a class="ado-door-overview-link" href="<?php echo esc_url($document_url); ?>" target="_blank" rel="noopener">
+                    <span><?php echo esc_html(trim((string) ($document['name'] ?? 'Client upload')) !== '' ? (string) ($document['name'] ?? 'Client upload') : 'Client upload'); ?></span>
+                    <small><?php echo esc_html(trim((string) ($document['uploaded_at'] ?? '')) !== '' ? 'Uploaded ' . (string) ($document['uploaded_at'] ?? '') : 'Uploaded by project manager'); ?></small>
+                  </a>
+                <?php } ?>
+              </div>
+            <?php } ?>
+          <?php } else { ?>
+            <div class="ado-empty ado-door-overview-fallback">No project manager door notes or uploads yet.</div>
           <?php } ?>
         </div>
         <div class="ado-door-overview-block">
@@ -1581,18 +2031,68 @@ add_shortcode('ado_technician_portal_app', static function (): string {
     .ado-tech{--bg:#0f1117;--surface:#1a1d27;--border:rgba(255,255,255,.08);--accent:#f97316;--accent-soft:rgba(249,115,22,.12);--blue:#3b82f6;--blue-soft:rgba(59,130,246,.12);--green:#22c55e;--warn:#eab308;--danger:#ef4444;--danger-soft:rgba(239,68,68,.12);--text:#f1f5f9;--muted:#94a3b8;font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);display:flex;min-height:100vh}.ado-tech *{box-sizing:border-box}.ado-tech .sidebar{width:240px;background:var(--surface);border-right:1px solid var(--border);display:flex;flex-direction:column;position:sticky;top:0;height:100vh}.ado-tech .logo{padding:22px 18px;border-bottom:1px solid var(--border);font-family:'Syne',sans-serif;font-weight:700}.ado-tech .tech-card{margin:14px;background:var(--accent-soft);border:1px solid rgba(249,115,22,.25);border-radius:8px;padding:10px;display:flex;gap:10px;align-items:center}.ado-tech .avatar{width:34px;height:34px;border-radius:50%;background:linear-gradient(135deg,var(--accent),#fb923c);display:flex;align-items:center;justify-content:center;font-family:'Syne',sans-serif;font-weight:700}.ado-tech .status{font-size:11px;color:var(--green)}.ado-tech nav{padding:8px 10px;overflow:auto;flex:1}.ado-tech .label{font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:#4b5563;padding:10px 10px 6px}.ado-tech .nav-item{display:flex;align-items:center;justify-content:space-between;padding:9px 10px;border-radius:8px;color:var(--muted);text-decoration:none;font-size:13px}.ado-tech .nav-item.active{background:var(--accent-soft);color:var(--accent)}.ado-tech .nav-item:hover{background:rgba(255,255,255,.05);color:var(--text)}.ado-tech .badge{font-size:10px;padding:2px 6px;border-radius:999px;background:var(--accent);color:#fff}.ado-tech .main{flex:1;display:flex;flex-direction:column}.ado-tech .top{height:60px;background:var(--surface);border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;padding:0 24px}.ado-tech .top h1{margin:0;font-family:'Syne',sans-serif;font-size:16px}.ado-tech .clock{font-family:'Syne',sans-serif;color:var(--green);font-size:14px}.ado-tech .content{padding:22px}.ado-tech .page-title{font-family:'Syne',sans-serif;font-size:22px;font-weight:800}.ado-tech .page-sub{font-size:13px;color:#64748b;margin-top:4px}.ado-tech .page-header{margin-bottom:14px}.ado-tech .ts-hero{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin-bottom:14px}.ado-tech .stat{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:14px}.ado-tech .stat strong{display:block;font-family:'Syne',sans-serif;font-size:22px}.ado-tech .stat small{display:block;color:#94a3b8;margin-top:3px}.ado-tech .two-col-60{display:grid;grid-template-columns:1fr 340px;gap:14px}.ado-tech .card{background:var(--surface);border:1px solid var(--border);border-radius:12px;overflow:hidden}.ado-tech .card-header{padding:12px 14px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center}.ado-tech .card-title{font-family:'Syne',sans-serif;font-size:14px}.ado-tech .card-body{padding:14px}.ado-tech .ado-empty{padding:10px;border:1px dashed var(--border);border-radius:8px;color:#94a3b8}.ado-tech .list{display:flex;flex-direction:column;gap:8px}.ado-tech .list-item{display:block;padding:10px;border:1px solid var(--border);border-radius:8px;background:rgba(255,255,255,.03);text-decoration:none;color:var(--text)}.ado-tech .list-item small{display:block;color:#94a3b8;margin-top:3px}.ado-tech .sub-item{padding:6px 10px;margin-left:8px;color:#94a3b8;font-size:12px}.ado-tech .tag{font-size:10px;padding:2px 8px;border-radius:999px;background:var(--accent-soft);color:var(--accent)}.ado-tech .tag-blue{background:var(--blue-soft);color:var(--blue)}.ado-tech .tag-orange{background:var(--accent-soft);color:var(--accent)}.ado-tech .job-block{padding:10px;border-radius:9px;background:rgba(255,255,255,.03);border-left:3px solid var(--accent);margin-bottom:8px}.ado-tech .job-block.blue{border-color:var(--blue)}.ado-tech .job-block.green{border-color:var(--green)}.ado-tech .job-block.purple{border-color:#a78bfa}.ado-tech .jb-name{font-weight:600}.ado-tech .jb-meta{font-size:12px;color:#94a3b8;margin-top:3px}.ado-tech .jb-tags{margin-top:6px;display:flex;gap:6px;align-items:center}.ado-tech .btn{display:inline-flex;align-items:center;justify-content:center;padding:7px 12px;border-radius:8px;border:1px solid var(--border);font-size:12px;text-decoration:none;color:#cbd5e1;background:transparent;cursor:pointer}.ado-tech .btn:hover{background:rgba(255,255,255,.08)}.ado-tech .btn-primary{background:var(--accent);border-color:transparent;color:#fff}.ado-tech .notes-grid{display:grid;grid-template-columns:1fr 320px;gap:14px}.ado-tech .notes-filter-bar{display:flex;gap:6px;flex-wrap:wrap}.ado-tech .filter-btn{display:inline-flex;padding:6px 12px;border-radius:999px;border:1px solid var(--border);font-size:12px;text-decoration:none;color:#94a3b8}.ado-tech .filter-btn.active{background:var(--accent-soft);color:var(--accent)}.ado-tech .note-card{padding:10px;border-radius:9px;border:1px solid var(--border);background:rgba(255,255,255,.02);margin-bottom:8px}.ado-tech .note-card.critical{border-left:3px solid var(--danger);background:rgba(239,68,68,.08)}.ado-tech .note-card.high{border-left:3px solid var(--warn)}.ado-tech .note-card.info{border-left:3px solid var(--blue)}.ado-tech .nc-top{display:flex;gap:8px;flex-wrap:wrap;align-items:center}.ado-tech .nc-flag{font-size:10px;font-weight:700;padding:2px 8px;border-radius:999px}.ado-tech .nc-flag.critical{background:var(--danger-soft);color:var(--danger)}.ado-tech .nc-flag.high{background:rgba(234,179,8,.15);color:var(--warn)}.ado-tech .nc-flag.info{background:var(--blue-soft);color:var(--blue)}.ado-tech .nc-project,.ado-tech .nc-time,.ado-tech .nc-door{font-size:11px;color:#94a3b8}.ado-tech .nc-body{margin-top:6px;font-size:13px}.ado-tech .week-nav{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:6px;margin-bottom:12px}.ado-tech .week-day{border:1px solid var(--border);border-radius:8px;text-align:center;padding:8px;text-decoration:none;color:#94a3b8}.ado-tech .week-day.today{background:var(--accent-soft);color:var(--accent)}.ado-tech .week-day.has-jobs{border-color:rgba(249,115,22,.5)}.ado-tech .wday-label{font-size:10px;text-transform:uppercase}.ado-tech .wday-num{font-family:'Syne',sans-serif;font-size:16px}.ado-tech .photos-layout{display:grid;grid-template-columns:1fr 300px;gap:14px}.ado-tech .photo-project-selector{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px}.ado-tech .photo-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}.ado-tech .photo-card{display:block;border:1px solid var(--border);border-radius:8px;overflow:hidden;text-decoration:none}.ado-tech .photo-card img{width:100%;height:100px;object-fit:cover;display:block}.ado-tech .photo-card small{display:block;padding:6px;color:#94a3b8}.ado-tech .compose-row{display:flex;gap:8px;flex-wrap:wrap}.ado-tech .compose-select,.ado-tech .compose-textarea{background:rgba(255,255,255,.05);border:1px solid var(--border);border-radius:8px;color:#f1f5f9;padding:8px 10px;font-size:13px}.ado-tech .compose-select{flex:1;min-width:120px}.ado-tech .compose-textarea{width:100%;height:88px;resize:vertical;margin-top:8px}.ado-tech .ado-form-flash{display:none;margin-top:8px;padding:8px;border-radius:8px;font-size:12px}.ado-tech .ado-form-flash.ok{display:block;background:rgba(34,197,94,.15);color:#86efac}.ado-tech .ado-form-flash.err{display:block;background:rgba(239,68,68,.15);color:#fecaca}.ado-tech .profile-hero{display:flex;gap:12px;align-items:center;background:linear-gradient(135deg,rgba(249,115,22,.15),rgba(249,115,22,.04));border:1px solid rgba(249,115,22,.3);border-radius:12px;padding:14px;margin-bottom:12px}.ado-tech .profile-avatar-lg{width:60px;height:60px;border-radius:50%;background:linear-gradient(135deg,var(--accent),#fb923c);display:flex;align-items:center;justify-content:center;font-family:'Syne',sans-serif;font-size:20px}.ado-tech .profile-name{font-family:'Syne',sans-serif;font-size:20px}.ado-tech .profile-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}.ado-tech .kv{padding:7px 0;border-bottom:1px solid var(--border);font-size:13px}@media (max-width:1100px){.ado-tech .two-col-60,.ado-tech .notes-grid,.ado-tech .photos-layout,.ado-tech .profile-grid{grid-template-columns:1fr}.ado-tech .ts-hero{grid-template-columns:1fr 1fr}}@media (max-width:840px){.ado-tech{flex-direction:column}.ado-tech .sidebar{width:100%;height:auto;position:relative}.ado-tech .content{padding:14px}.ado-tech .top{padding:0 12px}.ado-tech .week-nav{grid-template-columns:repeat(4,minmax(0,1fr))}.ado-tech .photo-grid{grid-template-columns:1fr 1fr}}
     .ado-tech .ado-project-workspace{position:relative}
 .ado-tech .ado-door-trigger{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;text-decoration:none;color:var(--text);cursor:pointer}.ado-tech .ado-door-trigger strong{display:block}.ado-tech .ado-door-trigger small{display:block;color:#94a3b8;margin-top:3px}.ado-tech .ado-door-trigger.active{border-color:rgba(249,115,22,.55);background:rgba(249,115,22,.12)}.ado-tech .ado-door-chip{font-size:10px;padding:2px 8px;border-radius:999px;background:var(--blue-soft);color:var(--blue);white-space:nowrap;flex-shrink:0}
-.ado-tech .ado-door-backdrop{position:fixed;inset:0;background:rgba(2,6,23,.64);opacity:0;pointer-events:none;transition:opacity .16s ease;z-index:9990}.ado-tech .ado-door-backdrop.is-open{opacity:1;pointer-events:auto}
-.ado-tech .ado-door-drawer{position:fixed;top:0;right:0;bottom:0;width:50vw;background:var(--surface);border-left:1px solid var(--border);box-shadow:-18px 0 42px rgba(2,6,23,.28);z-index:9991;transform:translateX(100%);transition:transform .2s ease;display:flex;flex-direction:column}.ado-tech .ado-door-drawer.is-open{transform:translateX(0)}body.admin-bar .ado-tech .ado-door-drawer{top:32px}@media (max-width:782px){body.admin-bar .ado-tech .ado-door-drawer{top:46px}.ado-tech .ado-door-drawer{width:100vw}}
+.ado-tech .ado-door-backdrop{position:fixed;inset:0;background:rgba(2,6,23,.64);opacity:0;pointer-events:none;transition:opacity .16s ease;z-index:99970}.ado-tech .ado-door-backdrop.is-open{opacity:1;pointer-events:auto}
+.ado-tech .ado-door-drawer{position:fixed;top:0;right:0;bottom:0;width:50vw;background:var(--surface);border-left:1px solid var(--border);box-shadow:-18px 0 42px rgba(2,6,23,.28);z-index:99971;transform:translateX(100%);transition:transform .2s ease;display:flex;flex-direction:column}.ado-tech .ado-door-drawer.is-open{transform:translateX(0)}body.admin-bar .ado-tech .ado-door-backdrop{top:32px}body.admin-bar .ado-tech .ado-door-drawer{top:32px}@media (max-width:782px){body.admin-bar .ado-tech .ado-door-backdrop{top:46px}body.admin-bar .ado-tech .ado-door-drawer{top:46px}.ado-tech .ado-door-drawer{width:100vw}}
 .ado-tech .ado-door-drawer-head{padding:16px 18px;border-bottom:1px solid var(--border);display:flex;align-items:flex-start;justify-content:space-between;gap:12px}.ado-tech .ado-door-drawer-kicker{font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:#64748b}.ado-tech .ado-door-drawer-title{font-family:'Syne',sans-serif;font-size:18px;font-weight:800;margin-top:3px}.ado-tech .ado-door-drawer-sub{font-size:12px;color:#94a3b8;margin-top:4px;line-height:1.4}.ado-tech .ado-door-drawer-body{padding:16px 18px;overflow:auto;flex:1;display:flex;flex-direction:column;gap:14px}
 .ado-tech .ado-door-card{border:1px solid var(--border);border-radius:10px;padding:12px;background:rgba(255,255,255,.02)}.ado-tech .ado-door-section-title{font-family:'Syne',sans-serif;font-size:13px;margin:0 0 10px;color:var(--text)}.ado-tech .ado-door-meta-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}.ado-tech .ado-door-kv{padding:8px 10px;border:1px solid var(--border);border-radius:8px;background:rgba(255,255,255,.03);font-size:12px}.ado-tech .ado-door-kv strong{display:block;font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:#64748b;margin-bottom:3px}.ado-tech .ado-door-kv small{display:block;color:var(--text)}
 .ado-tech .ado-door-accordion{display:block}.ado-tech .ado-door-accordion-summary{list-style:none;display:flex;align-items:center;justify-content:space-between;gap:10px;cursor:pointer;color:var(--text)}.ado-tech .ado-door-accordion-summary::-webkit-details-marker{display:none}.ado-tech .ado-door-accordion-summary .ado-door-section-title{margin:0}.ado-tech .ado-door-accordion-icon{color:#94a3b8;font-size:12px;line-height:1;transition:transform .16s ease}.ado-tech .ado-door-accordion[open] .ado-door-accordion-icon{transform:rotate(180deg)}.ado-tech .ado-door-accordion-body{margin-top:10px}
-.ado-tech .ado-door-unconfirm-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.ado-tech .ado-door-unconfirm-item{display:flex;flex-direction:column;gap:8px}.ado-tech .ado-door-unconfirm-btn{width:100%;text-align:left;display:flex;flex-direction:column;gap:4px;padding:12px;border:1px solid var(--border);border-radius:10px;background:rgba(255,255,255,.03);color:var(--text);font:inherit;cursor:pointer;transition:border-color .15s ease,background .15s ease,transform .15s ease}.ado-tech .ado-door-unconfirm-btn:hover{border-color:rgba(249,115,22,.45);background:rgba(249,115,22,.08)}.ado-tech .ado-door-unconfirm-btn.is-active{border-color:rgba(249,115,22,.65);background:rgba(249,115,22,.16)}.ado-tech .ado-door-unconfirm-btn strong{font-size:12px;letter-spacing:.02em;color:var(--text)}.ado-tech .ado-door-unconfirm-btn small{color:#94a3b8;font-size:11px}.ado-tech .ado-door-unconfirm-comment-wrap{padding:10px;border:1px solid var(--border);border-radius:10px;background:rgba(255,255,255,.02)}.ado-tech .ado-door-unconfirm-comment{color:var(--text)}.ado-tech .ado-door-unconfirm-comment::placeholder{color:#94a3b8;opacity:1}
+.ado-tech .ado-door-unconfirm-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.ado-tech .ado-door-unconfirm-item{display:flex;flex-direction:column;gap:8px}.ado-tech .ado-door-unconfirm-btn{width:100%;text-align:left;display:flex;flex-direction:column;gap:4px;padding:12px;border:1px solid var(--border);border-radius:10px;background:rgba(255,255,255,.03);color:var(--text);font:inherit;cursor:pointer;transition:border-color .15s ease,background .15s ease,transform .15s ease}.ado-tech .ado-door-unconfirm-btn strong{font-size:12px;letter-spacing:.02em;color:var(--text)}.ado-tech .ado-door-unconfirm-btn small{color:#94a3b8;font-size:11px}.ado-tech .ado-door-unconfirm-btn.is-confirmed{border-color:rgba(34,197,94,.55);background:rgba(34,197,94,.16)}.ado-tech .ado-door-unconfirm-btn.is-confirmed:hover{border-color:rgba(34,197,94,.72);background:rgba(34,197,94,.24)}.ado-tech .ado-door-unconfirm-btn.is-unconfirmed,.ado-tech .ado-door-unconfirm-btn.is-active{border-color:rgba(239,68,68,.58);background:rgba(239,68,68,.16)}.ado-tech .ado-door-unconfirm-btn.is-unconfirmed:hover,.ado-tech .ado-door-unconfirm-btn.is-active:hover{border-color:rgba(239,68,68,.75);background:rgba(239,68,68,.24)}.ado-tech .ado-door-unconfirm-comment-wrap{padding:10px;border:1px solid var(--border);border-radius:10px;background:rgba(255,255,255,.02)}.ado-tech .ado-door-unconfirm-comment{color:var(--text)}.ado-tech .ado-door-unconfirm-comment::placeholder{color:#94a3b8;opacity:1}
 .ado-tech .ado-door-hardware-list{display:flex;flex-direction:column;gap:8px}.ado-tech .ado-door-hardware-item{padding:10px;border:1px solid var(--border);border-radius:8px;background:rgba(255,255,255,.03)}.ado-tech .ado-door-hardware-item strong{display:flex;align-items:center;gap:8px;font-size:13px}.ado-tech .ado-door-hardware-item small{display:block;color:#94a3b8;margin-top:4px}.ado-tech .ado-door-hardware-qty{font-size:10px;padding:2px 6px;border-radius:999px;background:var(--accent-soft);color:var(--accent)}
 .ado-tech .ado-door-overview-blocks{display:grid;grid-template-columns:1fr;gap:10px}.ado-tech .ado-door-overview-block{padding:10px;border:1px solid var(--border);border-radius:8px;background:rgba(255,255,255,.03)}.ado-tech .ado-door-overview-block strong{display:block;font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:#64748b;margin-bottom:6px}.ado-tech .ado-door-overview-link{display:block;padding:8px 10px;border:1px solid var(--border);border-radius:8px;background:rgba(255,255,255,.03);text-decoration:none;color:var(--text)}.ado-tech .ado-door-overview-link span{display:block;font-size:13px;font-weight:600}.ado-tech .ado-door-overview-link small{display:block;color:#94a3b8;margin-top:3px}.ado-tech .ado-door-overview-fallback{margin:0}
 .ado-tech .ado-door-document-list,.ado-tech .ado-door-comment-list,.ado-tech .ado-door-hardware-groups,.ado-tech .ado-door-hardware-models,.ado-tech .ado-door-confirmation-list{display:flex;flex-direction:column;gap:8px}.ado-tech .ado-door-document-list .ado-door-overview-link,.ado-tech .ado-door-comment-item,.ado-tech .ado-door-hardware-group,.ado-tech .ado-door-confirmation{padding:10px;border:1px solid var(--border);border-radius:8px;background:rgba(255,255,255,.02)}.ado-tech .ado-door-comment-item strong,.ado-tech .ado-door-hardware-group-title{display:block;font-size:13px;font-weight:600}.ado-tech .ado-door-comment-item small,.ado-tech .ado-door-hardware-group-title,.ado-tech .ado-door-form-hint{color:#94a3b8}.ado-tech .ado-door-confirmation-head,.ado-tech .ado-door-hardware-model-head{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}.ado-tech .ado-door-confirmation-options{display:flex;gap:10px;flex-wrap:wrap}.ado-tech .ado-door-confirmation-options label,.ado-tech .ado-door-complete{display:flex;align-items:center;gap:8px;font-size:12px}.ado-tech .ado-door-field{display:block;margin-top:10px}.ado-tech .ado-door-field span{display:block;font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:#64748b;margin-bottom:5px}.ado-tech .ado-door-field textarea,.ado-tech .ado-door-field input[type="text"],.ado-tech .ado-door-field input[type="file"]{width:100%;background:rgba(255,255,255,.05);border:1px solid var(--border);border-radius:8px;color:var(--text);padding:10px 12px;font-size:13px}.ado-tech .ado-door-field textarea{min-height:92px;resize:vertical}.ado-tech .ado-door-form-hint{margin-top:8px;font-size:12px;line-height:1.4}.ado-tech .ado-door-hardware-model{padding:10px;border:1px solid var(--border);border-radius:8px;background:rgba(255,255,255,.03)}.ado-tech .ado-door-hardware-model-head strong{font-size:13px}.ado-tech .ado-door-hardware-toggle{white-space:nowrap}.ado-tech .ado-door-hardware-panel{margin-top:10px;padding-top:10px;border-top:1px solid var(--border)}.ado-tech .ado-door-existing-media{display:flex;flex-direction:column;gap:8px;margin-top:10px}.ado-tech .ado-door-existing-media a{display:block;padding:8px 10px;border:1px solid var(--border);border-radius:8px;background:rgba(255,255,255,.03);text-decoration:none;color:var(--text)}.ado-tech .ado-door-existing-media strong{display:block;font-size:13px}.ado-tech .ado-door-existing-media small{display:block;color:#94a3b8;margin-top:3px}.ado-tech .ado-door-note{width:100%;min-height:110px;resize:vertical;background:rgba(255,255,255,.05);border:1px solid var(--border);border-radius:8px;color:var(--text);padding:10px 12px;font-size:13px}.ado-tech .ado-door-actions{display:flex;gap:8px;flex-wrap:wrap;align-items:center}.ado-tech .ado-door-flash{display:none;margin-top:4px;padding:8px 10px;border-radius:8px;font-size:12px}.ado-tech .ado-door-flash.ok{display:block;background:rgba(34,197,94,.15);color:#86efac}.ado-tech .ado-door-flash.err{display:block;background:rgba(239,68,68,.15);color:#fecaca}.ado-tech .ado-door-empty{padding:10px;border:1px dashed var(--border);border-radius:8px;color:#94a3b8}
 .ado-tech .ado-door-hardware-groups{gap:14px}.ado-tech .ado-door-hardware-group-title{font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:#94a3b8;padding:2px 2px 0}.ado-tech .ado-door-hardware-head-actions{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.ado-tech .ado-door-hardware-installed-label{display:inline-flex;align-items:center;gap:9px;padding:5px 10px;border-radius:999px;border:1px solid rgba(148,163,184,.35);background:rgba(15,23,42,.55);cursor:pointer;transition:border-color .15s ease,background .15s ease}.ado-tech .ado-door-hardware-installed-label[data-installed="on"]{border-color:rgba(34,197,94,.42);background:rgba(22,101,52,.2)}.ado-tech .ado-door-hardware-installed-label .ado-door-installed-text{font-size:11px;letter-spacing:.04em;text-transform:uppercase;color:#cbd5e1;min-width:62px}.ado-tech .ado-door-hardware-installed-label[data-installed="on"] .ado-door-installed-text{color:#bbf7d0}.ado-tech .ado-door-hardware-installed-label input[type="checkbox"]{appearance:none;-webkit-appearance:none;width:34px;height:20px;margin:0;border-radius:999px;border:1px solid rgba(148,163,184,.45);background:rgba(15,23,42,.92);position:relative;transition:border-color .15s ease,background .15s ease}.ado-tech .ado-door-hardware-installed-label input[type="checkbox"]::after{content:'';position:absolute;top:2px;left:2px;width:14px;height:14px;border-radius:50%;background:#94a3b8;transition:transform .15s ease,background .15s ease}.ado-tech .ado-door-hardware-installed-label input[type="checkbox"]:checked{border-color:rgba(34,197,94,.6);background:rgba(21,128,61,.35)}.ado-tech .ado-door-hardware-installed-label input[type="checkbox"]:checked::after{transform:translateX(14px);background:#bbf7d0}.ado-tech .ado-door-video-upload-shell{position:relative;margin-top:10px;padding:12px;border:1px dashed rgba(148,163,184,.35);border-radius:12px;background:rgba(15,23,42,.45);transition:border-color .15s ease,background .15s ease}.ado-tech .ado-door-video-upload-shell.is-dragover{border-color:rgba(148,163,184,.7);background:rgba(30,41,59,.65)}.ado-tech .ado-door-video-upload-head{display:flex;align-items:center;justify-content:space-between;gap:10px}.ado-tech .ado-door-video-upload-title{font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:#cbd5e1}.ado-tech .ado-door-video-upload-state{font-size:11px;color:#94a3b8;padding:3px 8px;border:1px solid rgba(148,163,184,.28);border-radius:999px;background:rgba(15,23,42,.6)}.ado-tech .ado-door-video-upload-actions{display:flex;align-items:center;gap:8px;margin-top:10px}.ado-tech .ado-door-video-upload-actions small{color:#94a3b8;font-size:11px}.ado-tech .ado-door-video-upload-input{position:absolute;width:1px;height:1px;opacity:0;pointer-events:none}.ado-tech .ado-door-video-upload-selected{display:block;margin-top:6px;font-size:12px;color:#cbd5e1}.ado-tech .ado-door-video-upload-note{display:block;margin-top:9px;font-size:11px;color:#94a3b8;line-height:1.35}.ado-tech .ado-door-testing-video-list a{background:rgba(30,41,59,.45);border-color:rgba(148,163,184,.28)}
 body.ado-door-drawer-open{overflow:hidden}
 @media (max-width:840px){.ado-tech .ado-door-meta-grid,.ado-tech .ado-door-overview-blocks,.ado-tech .ado-door-unconfirm-grid{grid-template-columns:1fr}.ado-tech .ado-door-drawer-head{padding:14px}.ado-tech .ado-door-drawer-body{padding:14px}.ado-tech .ado-door-card{padding:10px}}</style>
+    <style>
+    @media (max-width:900px){
+      .ado-tech .ado-door-backdrop{backdrop-filter:blur(1.5px)}
+      .ado-tech .ado-door-drawer{
+        top:8px;
+        right:8px;
+        bottom:8px;
+        left:auto;
+        width:min(760px,calc(100vw - 16px));
+        border:1px solid rgba(148,163,184,.28);
+        border-radius:14px;
+        box-shadow:0 20px 54px rgba(2,6,23,.46),0 4px 14px rgba(2,6,23,.28);
+        transform:translateX(calc(100% + 18px));
+        overflow:hidden
+      }
+      .ado-tech .ado-door-drawer-head{padding:12px 14px}
+      .ado-tech .ado-door-drawer-body{padding:12px 14px}
+      .ado-tech .ado-door-unconfirm-btn,.ado-tech .ado-door-actions .btn,.ado-tech .ado-door-hardware-installed-label{min-height:38px}
+      body.admin-bar .ado-tech .ado-door-backdrop{top:32px}
+      body.admin-bar .ado-tech .ado-door-drawer{
+        top:40px;
+        bottom:8px
+      }
+    }
+    @media (max-width:640px){
+      .ado-tech .ado-door-drawer{
+        top:auto;
+        right:0;
+        bottom:0;
+        left:0;
+        width:100vw;
+        max-height:min(94vh,calc(100vh - 20px));
+        border-left:none;
+        border-right:none;
+        border-bottom:none;
+        border-radius:16px 16px 0 0;
+        transform:translateY(calc(100% + 16px))
+      }
+      .ado-tech .ado-door-drawer.is-open{transform:translateY(0)}
+      .ado-tech .ado-door-drawer-head{padding:10px 12px}
+      .ado-tech .ado-door-drawer-title{font-size:17px}
+      .ado-tech .ado-door-drawer-sub{font-size:11px}
+      .ado-tech .ado-door-drawer-body{padding:10px 12px;gap:10px}
+      .ado-tech .ado-door-card{padding:9px}
+      .ado-tech .ado-door-confirmation-options{flex-direction:column;align-items:flex-start;gap:6px}
+      .ado-tech .ado-door-hardware-head-actions{flex-direction:column;align-items:flex-start;gap:8px}
+      .ado-tech .ado-door-actions .btn{width:100%}
+      body.admin-bar .ado-tech .ado-door-drawer{max-height:calc(100vh - 46px)}
+    }
+    </style>
 
     <div class="ado-tech">
       <aside class="sidebar">
@@ -1662,6 +2162,7 @@ body.ado-door-drawer-open{overflow:hidden}
       var projectWorkspace = document.querySelector('.ado-project-workspace');
       var projectDrawer = projectWorkspace ? projectWorkspace.querySelector('.ado-door-drawer') : null;
       var projectBackdrop = projectWorkspace ? projectWorkspace.querySelector('.ado-door-backdrop') : null;
+      var doorDrawerCache = Object.create(null);
       function setDoorUrl(doorId){
         var url = new URL(window.location.href);
         if (doorId) {
@@ -1682,6 +2183,67 @@ body.ado-door-drawer-open{overflow:hidden}
           }
         }
         return null;
+      }
+      function syncSnapshotControlState(sourceRoot, snapshotRoot){
+        if (!sourceRoot || !snapshotRoot) {
+          return;
+        }
+        var sourceControls = sourceRoot.querySelectorAll('input, textarea, select');
+        var snapshotControls = snapshotRoot.querySelectorAll('input, textarea, select');
+        var count = Math.min(sourceControls.length, snapshotControls.length);
+        for (var i = 0; i < count; i++) {
+          var source = sourceControls[i];
+          var target = snapshotControls[i];
+          var tag = source.tagName ? source.tagName.toLowerCase() : '';
+          if (tag === 'input') {
+            var inputType = String(source.type || '').toLowerCase();
+            if (inputType === 'checkbox' || inputType === 'radio') {
+              target.checked = !!source.checked;
+              if (source.checked) {
+                target.setAttribute('checked', 'checked');
+              } else {
+                target.removeAttribute('checked');
+              }
+            } else if (inputType !== 'file') {
+              target.value = source.value || '';
+              target.setAttribute('value', target.value);
+            } else {
+              target.value = '';
+            }
+            continue;
+          }
+          if (tag === 'textarea') {
+            target.value = source.value || '';
+            target.textContent = target.value;
+            continue;
+          }
+          if (tag === 'select') {
+            var sourceOptions = source.options || [];
+            var targetOptions = target.options || [];
+            var optionCount = Math.min(sourceOptions.length, targetOptions.length);
+            for (var optionIndex = 0; optionIndex < optionCount; optionIndex++) {
+              var selected = !!sourceOptions[optionIndex].selected;
+              targetOptions[optionIndex].selected = selected;
+              if (selected) {
+                targetOptions[optionIndex].setAttribute('selected', 'selected');
+              } else {
+                targetOptions[optionIndex].removeAttribute('selected');
+              }
+            }
+          }
+        }
+      }
+      function buildDoorDrawerSnapshot(drawerBody){
+        if (!drawerBody) {
+          return null;
+        }
+        var snapshot = drawerBody.cloneNode(true);
+        syncSnapshotControlState(drawerBody, snapshot);
+        snapshot.querySelectorAll('.ado-door-flash').forEach(function(flash){
+          flash.className = 'ado-door-flash';
+          flash.textContent = '';
+        });
+        return snapshot;
       }
       function showDoorDrawer(){
         if (!projectDrawer || !projectBackdrop) {
@@ -1715,6 +2277,7 @@ body.ado-door-drawer-open{overflow:hidden}
         if (!projectWorkspace || !projectDrawer || !trigger) {
           return false;
         }
+        var doorId = String(trigger.getAttribute('data-door-id') || trigger.dataset.doorId || '');
         var templateId = trigger.getAttribute('data-door-template') || '';
         var template = templateId ? document.getElementById(templateId) : null;
         var drawerBody = projectWorkspace.querySelector('.ado-door-drawer-body');
@@ -1723,7 +2286,11 @@ body.ado-door-drawer-open{overflow:hidden}
         if (!drawerBody || !drawerTitle || !drawerSub) {
           return false;
         }
-        if (template && template.content) {
+        var cached = (doorId && Object.prototype.hasOwnProperty.call(doorDrawerCache, doorId)) ? doorDrawerCache[doorId] : null;
+        if (cached) {
+          drawerBody.innerHTML = '';
+          drawerBody.appendChild(cached.cloneNode(true));
+        } else if (template && template.content) {
           drawerBody.innerHTML = '';
           drawerBody.appendChild(template.content.cloneNode(true));
         } else {
@@ -1733,6 +2300,20 @@ body.ado-door-drawer-open{overflow:hidden}
         drawerSub.textContent = trigger.getAttribute('data-door-meta') || 'Select a door to review hardware, notes, and install status.';
         syncDoorFormState(drawerBody);
         return true;
+      }
+      function getDrawerDoorId(){
+        if (!projectWorkspace) {
+          return '';
+        }
+        var drawerBody = projectWorkspace.querySelector('.ado-door-drawer-body');
+        if (!drawerBody) {
+          return '';
+        }
+        var doorInput = drawerBody.querySelector('input[name="door_id"]');
+        if (!doorInput) {
+          return '';
+        }
+        return String(doorInput.value || '');
       }
       function setDoorFormMessage(form, message, isOk){
         var flash = form.querySelector('.ado-door-flash');
@@ -1919,8 +2500,12 @@ body.ado-door-drawer-open{overflow:hidden}
         var commentInput = resolveUnconfirmField(form, key, 'textarea');
         var wrapHost = button.closest('.ado-door-unconfirm-item');
         var commentWrap = wrapHost ? wrapHost.querySelector('.ado-door-unconfirm-comment-wrap[data-unconfirm-comment-wrap=\"' + key + '\"]') : null;
-        var isUnconfirmed = stateInput ? String(stateInput.value || 'yes') === 'no' : button.classList.contains('is-active');
+        var isUnconfirmed = stateInput
+          ? String(stateInput.value || 'yes') === 'no'
+          : (button.classList.contains('is-unconfirmed') || button.classList.contains('is-active'));
         button.classList.toggle('is-active', isUnconfirmed);
+        button.classList.toggle('is-unconfirmed', isUnconfirmed);
+        button.classList.toggle('is-confirmed', !isUnconfirmed);
         button.setAttribute('aria-pressed', isUnconfirmed ? 'true' : 'false');
         var statusNode = button.querySelector('[data-unconfirm-status]');
         if (statusNode) {
@@ -1948,12 +2533,16 @@ body.ado-door-drawer-open{overflow:hidden}
         }
         var stateInput = resolveUnconfirmField(form, key, 'input');
         if (!stateInput) {
-          button.classList.toggle('is-active');
-          button.setAttribute('aria-pressed', button.classList.contains('is-active') ? 'true' : 'false');
+          var currentlyUnconfirmed = button.classList.contains('is-unconfirmed') || button.classList.contains('is-active');
+          var nextUnconfirmed = !currentlyUnconfirmed;
+          button.classList.toggle('is-active', nextUnconfirmed);
+          button.classList.toggle('is-unconfirmed', nextUnconfirmed);
+          button.classList.toggle('is-confirmed', !nextUnconfirmed);
+          button.setAttribute('aria-pressed', nextUnconfirmed ? 'true' : 'false');
           var wrapHost = button.closest('.ado-door-unconfirm-item');
           var commentWrap = wrapHost ? wrapHost.querySelector('.ado-door-unconfirm-comment-wrap[data-unconfirm-comment-wrap=\"' + key + '\"]') : null;
           if (commentWrap) {
-            commentWrap.hidden = !button.classList.contains('is-active');
+            commentWrap.hidden = !nextUnconfirmed;
           }
           return;
         }
@@ -2024,6 +2613,7 @@ body.ado-door-drawer-open{overflow:hidden}
         if (!form) {
           return;
         }
+        form.setAttribute('data-dirty', '1');
         var wait = typeof delay === 'number' ? delay : 260;
         var existingTimer = form.getAttribute('data-autosave-timer') || '';
         if (existingTimer !== '') {
@@ -2036,7 +2626,13 @@ body.ado-door-drawer-open{overflow:hidden}
         form.setAttribute('data-autosave-timer', String(timerId));
       }
       function openDoorDrawer(trigger){
-        if (!trigger || !loadDoorDrawer(trigger)) {
+        if (!trigger) {
+          return;
+        }
+        var requestedDoorId = String(trigger.dataset.doorId || '');
+        var currentDoorId = getDrawerDoorId();
+        var shouldReload = !requestedDoorId || requestedDoorId !== currentDoorId;
+        if (shouldReload && !loadDoorDrawer(trigger)) {
           return;
         }
         if (projectWorkspace) {
@@ -2046,13 +2642,76 @@ body.ado-door-drawer-open{overflow:hidden}
         setDoorUrl(trigger.dataset.doorId || '');
         showDoorDrawer();
       }
+      function flushDoorAutosave(form){
+        if (!form) {
+          return;
+        }
+        var timer = form.getAttribute('data-autosave-timer') || '';
+        if (timer !== '') {
+          window.clearTimeout(parseInt(timer, 10));
+          form.setAttribute('data-autosave-timer', '');
+        }
+        var dirty = form.getAttribute('data-dirty') === '1';
+        if (!dirty && form.getAttribute('data-pending-save') !== '1') {
+          return;
+        }
+        if (form.getAttribute('data-saving') === '1') {
+          form.setAttribute('data-pending-save', '1');
+          return;
+        }
+        submitDoorForm(form);
+      }
       function closeDoorDrawer(){
         if (!projectWorkspace) {
           return;
         }
+        var drawerBody = projectWorkspace.querySelector('.ado-door-drawer-body');
+        if (drawerBody) {
+          drawerBody.querySelectorAll('.ado-door-update-form').forEach(function(form){
+            flushDoorAutosave(form);
+          });
+        }
         projectWorkspace.querySelectorAll('.ado-door-trigger.active').forEach(function(node){ node.classList.remove('active'); });
         setDoorUrl('');
         hideDoorDrawer();
+      }
+      function syncDoorTemplateFromDrawer(doorId, sourceBody){
+        if (!projectWorkspace || !doorId) {
+          return;
+        }
+        var trigger = findDoorTrigger(doorId);
+        if (!trigger) {
+          return;
+        }
+        var templateId = trigger.getAttribute('data-door-template') || '';
+        if (!templateId) {
+          return;
+        }
+        var template = document.getElementById(templateId);
+        var drawerBody = projectWorkspace.querySelector('.ado-door-drawer-body');
+        var source = sourceBody && sourceBody.querySelector ? sourceBody : drawerBody;
+        if (!source) {
+          return;
+        }
+        var snapshot = buildDoorDrawerSnapshot(source);
+        if (!snapshot) {
+          return;
+        }
+        doorDrawerCache[String(doorId)] = snapshot;
+        if (template && template.content) {
+          while (template.content.firstChild) {
+            template.content.removeChild(template.content.firstChild);
+          }
+          template.content.appendChild(snapshot.cloneNode(true));
+        }
+        if (drawerBody && source !== drawerBody) {
+          var liveDoorId = getDrawerDoorId();
+          if (String(liveDoorId) === String(doorId)) {
+            drawerBody.innerHTML = '';
+            drawerBody.appendChild(snapshot.cloneNode(true));
+            syncDoorFormState(drawerBody);
+          }
+        }
       }
       async function submitDoorForm(form){
         if (!form) {
@@ -2079,6 +2738,20 @@ body.ado-door-drawer-open{overflow:hidden}
             form.setAttribute('data-final-video-count', String(json.data.final_video_count || 0));
           }
           syncVideoUploadShell(form);
+          var savedDoorId = '';
+          var doorInput = form.querySelector('input[name="door_id"]');
+          if (doorInput) {
+            savedDoorId = String(doorInput.value || '');
+          }
+          if (!savedDoorId && projectWorkspace) {
+            var activeDoorTrigger = projectWorkspace.querySelector('.ado-door-trigger.active');
+            if (activeDoorTrigger) {
+              savedDoorId = String(activeDoorTrigger.dataset.doorId || '');
+            }
+          }
+          var formDrawerBody = form.closest('.ado-door-drawer-body');
+          syncDoorTemplateFromDrawer(savedDoorId, formDrawerBody);
+          form.setAttribute('data-dirty', '0');
           setDoorFormMessage(form, (json.data && json.data.message) ? json.data.message : 'Door update saved.', true);
         } catch (err) {
           setDoorFormMessage(form, (err && err.message) ? err.message : 'Failed to save door update.', false);

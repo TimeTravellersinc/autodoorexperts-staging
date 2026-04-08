@@ -401,19 +401,92 @@ function ado_qm_override_lookup(string $decision_key): int {
     $entry = $overrides[$decision_key] ?? null;
     if (!is_array($entry)) { return 0; }
     $product_id = (int) ($entry['product_id'] ?? 0);
-    return $product_id > 0 ? $product_id : 0;
+    return $product_id;
 }
 
-function ado_qm_save_override_choice(string $decision_key, string $normalized_model, string $brand, int $product_id): void {
-    if ($decision_key === '' || $normalized_model === '' || $product_id <= 0) { return; }
+function ado_qm_normalize_override_key(string $decision_key): string {
+    $decision_key = trim($decision_key);
+    if ($decision_key === '') {
+        return '';
+    }
+    if (strpos($decision_key, '|') === false) {
+        $compact = ado_qm_compact($decision_key);
+        return $compact !== '' ? ('*|' . $compact) : '';
+    }
+    [$prefix, $suffix] = array_pad(explode('|', $decision_key, 2), 2, '');
+    $prefix = trim((string) $prefix);
+    $suffix_compact = ado_qm_compact((string) $suffix);
+    if ($suffix_compact === '') {
+        return '';
+    }
+    if ($prefix === '') {
+        $prefix = '*';
+    } elseif ($prefix !== '*') {
+        $prefix = ado_qm_normalize_text($prefix);
+    }
+    return $prefix . '|' . $suffix_compact;
+}
+
+function ado_qm_expand_override_keys(string $decision_key, string $normalized_model, string $brand, array $additional_keys = []): array {
+    $keys = [];
+    $brand = trim($brand);
+    $normalized_model = ado_qm_compact($normalized_model);
+
+    $base_key = ado_qm_normalize_override_key($decision_key);
+    if ($base_key !== '') {
+        $keys[] = $base_key;
+    }
+    if ($normalized_model !== '') {
+        $keys[] = '*|' . $normalized_model;
+        if ($brand !== '') {
+            $keys[] = $brand . '|' . $normalized_model;
+        }
+    }
+
+    foreach ($additional_keys as $candidate_key) {
+        if (!is_scalar($candidate_key)) {
+            continue;
+        }
+        $normalized_key = ado_qm_normalize_override_key((string) $candidate_key);
+        if ($normalized_key === '') {
+            continue;
+        }
+        $keys[] = $normalized_key;
+        if ($brand !== '' && str_starts_with($normalized_key, '*|')) {
+            $keys[] = $brand . '|' . substr($normalized_key, 2);
+        }
+    }
+
+    return array_values(array_unique(array_filter($keys, 'strlen')));
+}
+
+function ado_qm_save_override_choice(string $decision_key, string $normalized_model, string $brand, int $product_id, array $additional_keys = []): void {
+    if ($product_id <= 0) { return; }
     $overrides = ado_qm_get_overrides();
-    foreach (array_values(array_unique(array_filter([$decision_key, $brand !== '' ? ($brand . '|' . $normalized_model) : '', '*|' . $normalized_model]))) as $key) {
+    foreach (ado_qm_expand_override_keys($decision_key, $normalized_model, $brand, $additional_keys) as $key) {
+        $key_model = strpos($key, '|') !== false ? substr($key, strpos($key, '|') + 1) : ado_qm_compact($normalized_model);
         $current = $overrides[$key] ?? ['count' => 0];
         $overrides[$key] = [
             'product_id' => $product_id,
             'count' => (int) ($current['count'] ?? 0) + 1,
             'brand' => $brand,
-            'normalized_model' => $normalized_model,
+            'normalized_model' => $key_model,
+            'updated_at' => current_time('mysql'),
+        ];
+    }
+    update_option(ado_qm_override_option_key(), $overrides, false);
+}
+
+function ado_qm_save_override_deletion(string $decision_key, string $normalized_model, string $brand = '', array $additional_keys = []): void {
+    $overrides = ado_qm_get_overrides();
+    foreach (ado_qm_expand_override_keys($decision_key, $normalized_model, $brand, $additional_keys) as $key) {
+        $key_model = strpos($key, '|') !== false ? substr($key, strpos($key, '|') + 1) : ado_qm_compact($normalized_model);
+        $current = $overrides[$key] ?? ['count' => 0];
+        $overrides[$key] = [
+            'product_id' => -1,
+            'count' => (int) ($current['count'] ?? 0) + 1,
+            'brand' => $brand,
+            'normalized_model' => $key_model,
             'updated_at' => current_time('mysql'),
         ];
     }
@@ -751,6 +824,56 @@ function ado_qm_match_segment(array $item, string $segment, array $index): array
     $candidates = ado_qm_extract_candidates($item, $clean_segment, $index);
     $trace[] = 'candidates=' . implode(', ', array_map(static fn(array $row): string => (string) ($row['fragment'] ?? ''), $candidates));
     if (!$candidates) {
+        $fallback_fragment = trim((string) ($item['catalog'] ?? ($item['model'] ?? '')));
+        if ($fallback_fragment === '') {
+            $fallback_fragment = (string) (ado_qm_primary_model_from_field($clean_segment) ?: '');
+        }
+        $fallback_normalized = ado_qm_compact($fallback_fragment);
+        $fallback_decision_key = '';
+        if ($fallback_normalized !== '') {
+            $fallback_decision_key = '*|' . $fallback_normalized;
+            $trace[] = 'fallback_candidate=' . $fallback_normalized;
+            $fallback_keys = [$fallback_decision_key];
+            $fallback_anchor = ado_qm_alpha_prefix($fallback_fragment);
+            if ($fallback_anchor !== '' && isset($index['anchors'][$fallback_anchor])) {
+                $fallback_keys[] = (string) $index['anchors'][$fallback_anchor] . '|' . $fallback_normalized;
+            }
+            foreach (array_values(array_unique($fallback_keys)) as $decision_key) {
+                $override_id = ado_qm_override_lookup((string) $decision_key);
+                if ($override_id < 0) {
+                    return [
+                        'product_id' => 0,
+                        'qty' => $qty,
+                        'raw_line' => $clean_segment,
+                        'source_model' => (string) ($item['catalog'] ?? ''),
+                        'source_desc' => (string) ($item['desc'] ?? ''),
+                        'match_method' => 'user_deleted',
+                        'confidence' => 100,
+                        'reason_code' => 'USER_DELETED',
+                        'candidate_products' => [],
+                        'decision_key' => (string) $decision_key,
+                        'normalized_model' => $fallback_normalized,
+                        'trace' => array_merge($trace, ['override_delete=' . $decision_key]),
+                    ];
+                }
+                if ($override_id > 0 && ado_qm_override_is_safe($clean_segment, ['normalized' => $fallback_normalized], $override_id, $index)) {
+                    return [
+                        'product_id' => $override_id,
+                        'qty' => $qty,
+                        'raw_line' => $clean_segment,
+                        'source_model' => (string) ($item['catalog'] ?? ''),
+                        'source_desc' => (string) ($item['desc'] ?? ''),
+                        'match_method' => 'user_override',
+                        'confidence' => 100,
+                        'reason_code' => '',
+                        'candidate_products' => [],
+                        'decision_key' => (string) $decision_key,
+                        'normalized_model' => $fallback_normalized,
+                        'trace' => array_merge($trace, ['override=' . $decision_key . '->' . $override_id]),
+                    ];
+                }
+            }
+        }
         return [
             'product_id' => 0,
             'qty' => $qty,
@@ -761,10 +884,62 @@ function ado_qm_match_segment(array $item, string $segment, array $index): array
             'confidence' => 0,
             'reason_code' => 'NO_CANDIDATES',
             'candidate_products' => [],
-            'decision_key' => '',
-            'normalized_model' => '',
+            'decision_key' => $fallback_decision_key,
+            'normalized_model' => $fallback_normalized,
             'trace' => $trace,
         ];
+    }
+
+    $compound_override_keys = [];
+    $source_model_compact = ado_qm_compact((string) ($item['catalog'] ?? ($item['model'] ?? '')));
+    if ($source_model_compact !== '') {
+        $compound_override_keys[] = '*|' . $source_model_compact;
+    }
+    $candidate_compacts = [];
+    foreach ($candidates as $candidate_row) {
+        $part = (string) ($candidate_row['normalized'] ?? '');
+        if ($part === '' || in_array($part, $candidate_compacts, true)) {
+            continue;
+        }
+        $candidate_compacts[] = $part;
+    }
+    if (count($candidate_compacts) > 1) {
+        $compound_override_keys[] = '*|' . implode('', $candidate_compacts);
+    }
+    foreach (array_values(array_unique($compound_override_keys)) as $decision_key) {
+        $override_id = ado_qm_override_lookup((string) $decision_key);
+        if ($override_id < 0) {
+            return [
+                'product_id' => 0,
+                'qty' => $qty,
+                'raw_line' => $clean_segment,
+                'source_model' => (string) ($item['catalog'] ?? ''),
+                'source_desc' => (string) ($item['desc'] ?? ''),
+                'match_method' => 'user_deleted',
+                'confidence' => 100,
+                'reason_code' => 'USER_DELETED',
+                'candidate_products' => [],
+                'decision_key' => (string) $decision_key,
+                'normalized_model' => ltrim((string) $decision_key, '*|'),
+                'trace' => array_merge($trace, ['override_delete=' . $decision_key]),
+            ];
+        }
+        if ($override_id > 0 && ado_qm_override_is_safe($clean_segment, ['normalized' => ltrim((string) $decision_key, '*|')], $override_id, $index)) {
+            return [
+                'product_id' => $override_id,
+                'qty' => $qty,
+                'raw_line' => $clean_segment,
+                'source_model' => (string) ($item['catalog'] ?? ''),
+                'source_desc' => (string) ($item['desc'] ?? ''),
+                'match_method' => 'user_override',
+                'confidence' => 100,
+                'reason_code' => '',
+                'candidate_products' => [],
+                'decision_key' => (string) $decision_key,
+                'normalized_model' => ltrim((string) $decision_key, '*|'),
+                'trace' => array_merge($trace, ['override=' . $decision_key . '->' . $override_id]),
+            ];
+        }
     }
 
     $review_rows = [];
@@ -810,6 +985,22 @@ function ado_qm_match_segment(array $item, string $segment, array $index): array
         }
         foreach ((array) ($candidate['decision_keys'] ?? []) as $decision_key) {
             $override_id = ado_qm_override_lookup((string) $decision_key);
+            if ($override_id < 0) {
+                return [
+                    'product_id' => 0,
+                    'qty' => $qty,
+                    'raw_line' => $clean_segment,
+                    'source_model' => (string) ($item['catalog'] ?? ''),
+                    'source_desc' => (string) ($item['desc'] ?? ''),
+                    'match_method' => 'user_deleted',
+                    'confidence' => 100,
+                    'reason_code' => 'USER_DELETED',
+                    'candidate_products' => [],
+                    'decision_key' => (string) $decision_key,
+                    'normalized_model' => $normalized,
+                    'trace' => array_merge($trace, ['override_delete=' . $decision_key]),
+                ];
+            }
             if ($override_id > 0 && ado_qm_override_is_safe($clean_segment, $candidate, $override_id, $index)) {
                 return [
                     'product_id' => $override_id,

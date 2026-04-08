@@ -13,6 +13,7 @@ add_action('wp_enqueue_scripts', static function (): void {
 
 require_once get_stylesheet_directory() . '/inc/ado-portal/ado-core-access.php';
 require_once get_stylesheet_directory() . '/inc/ado-portal/ado-quote-matcher.php';
+require_once get_stylesheet_directory() . '/inc/ado-portal/brand-matchers/ado-brand-matchers.php';
 require_once get_stylesheet_directory() . '/inc/ado-portal/ado-quote-integration.php';
 require_once get_stylesheet_directory() . '/inc/ado-portal/ado-quote-carts.php';
 require_once get_stylesheet_directory() . '/inc/ado-portal/ado-project-dashboards.php';

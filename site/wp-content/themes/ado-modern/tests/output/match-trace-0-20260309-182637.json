@@ -1,0 +1,41 @@
+{
+    "generated_at": "2026-03-09T18:26:37+00:00",
+    "quote_id": 0,
+    "scope_path": "/var/www/html/wp-content/uploads/failure-scope.json",
+    "total_segments": 1,
+    "matched_count": 0,
+    "review_count": 0,
+    "unmatched_count": 0,
+    "excluded_count": 1,
+    "manual_count": 0,
+    "entries": [
+        {
+            "line_key": "1f4e268f355d75bce80f4fd639e63ded",
+            "door_id": "door_110a485adea0",
+            "door_number": "door_test",
+            "raw_line": "UNMATCHABLE MODEL 9999",
+            "model": "",
+            "description": "Unmatched description",
+            "qty": 1,
+            "matched_product_id": 0,
+            "matched_product_name": "",
+            "matched_by": "none",
+            "confidence": 0,
+            "reason_code": "NO_CANDIDATES",
+            "decision_key": "",
+            "normalized_model": "",
+            "line_type": "catalog",
+            "item_index": 0,
+            "segment_index": 0,
+            "manual_unit_price": null,
+            "manual_description": "",
+            "attempts": [
+                "segment=UNMATCHABLE MODEL 9999",
+                "candidates=9999"
+            ],
+            "candidate_scores": [],
+            "final_disposition": "excluded",
+            "excluded_reason": "fragment"
+        }
+    ]
+}

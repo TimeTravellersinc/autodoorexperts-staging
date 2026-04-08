@@ -31,28 +31,92 @@ function ado_quote_totals_html(array $totals): string
     return function_exists('wc_price') ? (string) wc_price($subtotal) : ('$' . number_format($subtotal, 2));
 }
 
+function ado_quote_meta_raw_value(int $post_id, string $meta_key): string
+{
+    static $cache = [];
+    if ($post_id <= 0 || $meta_key === '') {
+        return '';
+    }
+    $cache_key = $post_id . '|' . $meta_key;
+    if (array_key_exists($cache_key, $cache)) {
+        return (string) $cache[$cache_key];
+    }
+
+    global $wpdb;
+    if (!($wpdb instanceof wpdb)) {
+        $cache[$cache_key] = '';
+        return '';
+    }
+
+    $query = $wpdb->prepare(
+        "SELECT meta_value
+         FROM {$wpdb->postmeta}
+         WHERE post_id = %d
+           AND meta_key = %s
+         ORDER BY meta_id DESC
+         LIMIT 1",
+        $post_id,
+        $meta_key
+    );
+    $value = $wpdb->get_var($query);
+    $cache[$cache_key] = is_string($value) ? $value : '';
+    return (string) $cache[$cache_key];
+}
+
+function ado_quote_meta_array_count_fast(int $post_id, string $meta_key): int
+{
+    static $cache = [];
+    if ($post_id <= 0 || $meta_key === '') {
+        return 0;
+    }
+    $cache_key = $post_id . '|' . $meta_key;
+    if (isset($cache[$cache_key])) {
+        return (int) $cache[$cache_key];
+    }
+
+    global $wpdb;
+    if (!($wpdb instanceof wpdb)) {
+        $cache[$cache_key] = 0;
+        return 0;
+    }
+
+    // Avoid maybe_unserialize() on very large quote meta arrays by reading only the serialized array size prefix.
+    $query = $wpdb->prepare(
+        "SELECT CAST(SUBSTRING_INDEX(SUBSTRING(meta_value, 3), ':', 1) AS UNSIGNED)
+         FROM {$wpdb->postmeta}
+         WHERE post_id = %d
+           AND meta_key = %s
+           AND meta_value LIKE 'a:%:{%'
+         ORDER BY meta_id DESC
+         LIMIT 1",
+        $post_id,
+        $meta_key
+    );
+    $count = (int) $wpdb->get_var($query);
+    if ($count < 0) {
+        $count = 0;
+    }
+
+    $cache[$cache_key] = $count;
+    return $count;
+}
+
 function ado_quote_post_row(WP_Post $post): array
 {
     $id = (int) $post->ID;
-    $status = (string) get_post_meta($id, '_adq_status', true);
+    $status = ado_quote_meta_raw_value($id, '_adq_status');
     $status = $status !== '' ? $status : 'draft';
-    $totals = get_post_meta($id, '_adq_totals', true);
+    $totals = maybe_unserialize(ado_quote_meta_raw_value($id, '_adq_totals'));
     $totals = is_array($totals) ? $totals : [];
-    $snapshot = get_post_meta($id, '_adq_cart_snapshot', true);
-    $snapshot = is_array($snapshot) ? $snapshot : [];
-    $unmatched = get_post_meta($id, '_adq_unmatched_items', true);
-    $unmatched = is_array($unmatched) ? $unmatched : [];
-    $excluded = get_post_meta($id, '_adq_excluded_items', true);
-    $excluded = is_array($excluded) ? $excluded : [];
-    $created = (string) get_post_meta($id, '_adq_created_at', true);
+    $created = ado_quote_meta_raw_value($id, '_adq_created_at');
     if ($created === '') {
         $created = (string) $post->post_date;
     }
 
-    $items_total = 0;
-    foreach ($snapshot as $line) {
-        $items_total += max(0, (int) ($line['qty'] ?? 0));
-    }
+    $items_total = max(0, (int) ($totals['qty_total'] ?? 0));
+    $unmatched_count = ado_quote_meta_array_count_fast($id, '_adq_unmatched_items')
+        + ado_quote_meta_array_count_fast($id, '_adq_excluded_items');
+    $door_count = ado_quote_meta_array_count_fast($id, '_adq_doors');
 
     return [
         'id' => $id,
@@ -62,10 +126,10 @@ function ado_quote_post_row(WP_Post $post): array
         'subtotal' => (float) ($totals['subtotal'] ?? 0),
         'subtotal_html' => ado_quote_totals_html($totals),
         'total_items' => $items_total,
-        'unmatched_count' => count($unmatched) + count($excluded),
-        'door_count' => count((array) get_post_meta($id, '_adq_doors', true)),
-        'scope_url' => (string) get_post_meta($id, '_adq_scope_url', true),
-        'order_id' => (int) get_post_meta($id, '_adq_order_id', true),
+        'unmatched_count' => $unmatched_count,
+        'door_count' => $door_count,
+        'scope_url' => ado_quote_meta_raw_value($id, '_adq_scope_url'),
+        'order_id' => (int) ado_quote_meta_raw_value($id, '_adq_order_id'),
     ];
 }
 
@@ -206,6 +270,80 @@ function ado_quote_line_action_meta(array $row): array
         'normalized_model' => $normalized_model,
         'query' => $query,
     ];
+}
+
+function ado_quote_override_key_aliases(array $line_row, string $decision_key = '', string $normalized_model = ''): array
+{
+    $keys = [];
+    $max_keys = 24;
+    $add_key = static function (string $key) use (&$keys, $max_keys): void {
+        if (count($keys) >= $max_keys) {
+            return;
+        }
+        if (function_exists('ado_qm_normalize_override_key')) {
+            $key = ado_qm_normalize_override_key($key);
+        } else {
+            $key = trim($key);
+        }
+        if ($key === '') {
+            return;
+        }
+        $keys[$key] = true;
+    };
+
+    $add_key($decision_key);
+    if ($normalized_model !== '') {
+        $add_key('*|' . $normalized_model);
+    }
+
+    $source_values = array_values(array_filter([
+        (string) ($line_row['normalized_model'] ?? ''),
+        (string) ($line_row['source_model'] ?? ''),
+        (string) ($line_row['model'] ?? ''),
+        (string) ($line_row['display_model'] ?? ''),
+        (string) ($line_row['raw_line'] ?? ''),
+        (string) ($line_row['description'] ?? ''),
+    ], 'strlen'));
+
+    foreach ($source_values as $value) {
+        $value = trim((string) $value);
+        if ($value === '') {
+            continue;
+        }
+        $compact = ado_qm_compact($value);
+        if ($compact !== '') {
+            $add_key('*|' . $compact);
+        }
+        if (function_exists('ado_qm_model_variants')) {
+            foreach ((array) ado_qm_model_variants($value) as $variant) {
+                $variant = trim((string) $variant);
+                if ($variant !== '') {
+                    $add_key('*|' . $variant);
+                }
+            }
+        }
+        if (function_exists('ado_qm_extract_fragments_from_text')) {
+            foreach ((array) ado_qm_extract_fragments_from_text($value) as $fragment) {
+                $fragment_compact = ado_qm_compact((string) $fragment);
+                if ($fragment_compact !== '') {
+                    $add_key('*|' . $fragment_compact);
+                }
+                if (function_exists('ado_qm_model_variants')) {
+                    foreach ((array) ado_qm_model_variants((string) $fragment) as $variant) {
+                        $variant = trim((string) $variant);
+                        if ($variant !== '') {
+                            $add_key('*|' . $variant);
+                        }
+                    }
+                }
+            }
+        }
+        if (count($keys) >= $max_keys) {
+            break;
+        }
+    }
+
+    return array_values(array_keys($keys));
 }
 
 function ado_quote_render_line_actions(int $quote_id, array $meta): string
@@ -689,6 +827,76 @@ function ado_quote_excluded_by_door(int $quote_id): array
     return $map;
 }
 
+function ado_quote_is_operator_product_id(int $product_id): bool
+{
+    $product_id = max(0, $product_id);
+    if ($product_id <= 0) {
+        return false;
+    }
+    static $cache = [];
+    if (array_key_exists($product_id, $cache)) {
+        return (bool) $cache[$product_id];
+    }
+
+    $terms = wp_get_post_terms($product_id, 'product_cat');
+    if (is_wp_error($terms) || !$terms) {
+        $cache[$product_id] = false;
+        return false;
+    }
+
+    $is_target = static function ($term): bool {
+        if (!($term instanceof WP_Term)) {
+            return false;
+        }
+        $name = strtolower(ado_qm_compact((string) $term->name));
+        $slug_compact = strtolower(ado_qm_compact((string) $term->slug));
+        $slug_raw = strtolower(trim((string) $term->slug));
+        return $name === 'automaticdooroperators'
+            || $slug_compact === 'automaticdooroperators'
+            || $slug_raw === 'automatic-door-operators'
+            || str_replace('-', '', $slug_raw) === 'automaticdooroperators';
+    };
+
+    foreach ($terms as $term) {
+        if (!($term instanceof WP_Term)) {
+            continue;
+        }
+        if ($is_target($term)) {
+            $cache[$product_id] = true;
+            return true;
+        }
+        $ancestor_ids = get_ancestors((int) $term->term_id, 'product_cat', 'taxonomy');
+        foreach ((array) $ancestor_ids as $ancestor_id) {
+            $ancestor = get_term((int) $ancestor_id, 'product_cat');
+            if ($ancestor instanceof WP_Term && $is_target($ancestor)) {
+                $cache[$product_id] = true;
+                return true;
+            }
+        }
+    }
+
+    $cache[$product_id] = false;
+    return false;
+}
+
+function ado_quote_group_has_operator(array $group): bool
+{
+    $door = (array) ($group['door'] ?? []);
+    if (!empty($door['has_operator'])) {
+        return true;
+    }
+    foreach ((array) ($group['lines'] ?? []) as $line) {
+        if (!is_array($line)) {
+            continue;
+        }
+        $product_id = (int) ($line['product_id'] ?? 0);
+        if ($product_id > 0 && ado_quote_is_operator_product_id($product_id)) {
+            return true;
+        }
+    }
+    return false;
+}
+
 function ado_quote_group_match_state(array $group, array $unmatched_by_door): string
 {
     $door = (array) ($group['door'] ?? []);
@@ -697,7 +905,7 @@ function ado_quote_group_match_state(array $group, array $unmatched_by_door): st
     $unmatched = $unmatched_by_door[$door_id] ?? $unmatched_by_door['door-number:' . $door_number] ?? [];
     $lines = array_values((array) ($group['lines'] ?? []));
     $is_scoped = !empty($door['is_scoped']);
-    $has_operator = !empty($door['has_operator']);
+    $has_operator = ado_quote_group_has_operator($group);
 
     if (!$is_scoped || !$has_operator) {
         return 'out_of_scope';
@@ -1162,6 +1370,22 @@ function ado_render_quote_detail(int $user_id, int $quote_id): string
         var scopeList = root.find('.qr-scope-list');
         var scopeDoorLabel = root.find('.ado-scope-door-label');
         var scopeContext = null;
+        function ensureModalVisible(modal){
+          if (!modal || !modal.length) {
+            return;
+          }
+          window.requestAnimationFrame(function(){
+            var node = modal.get(0);
+            if (!node || typeof node.scrollIntoView !== 'function') {
+              return;
+            }
+            try {
+              node.scrollIntoView({behavior:'smooth', block:'center', inline:'nearest'});
+            } catch (err) {
+              node.scrollIntoView();
+            }
+          });
+        }
 
         function closeMatchModal(){
           matchContext = null;
@@ -1194,6 +1418,7 @@ function ado_render_quote_detail(int $user_id, int $quote_id): string
           matchInput.val(matchContext.query || matchContext.normalizedModel || '').focus();
           matchModal.prop('hidden', false).removeAttr('hidden');
           matchBackdrop.prop('hidden', false).removeAttr('hidden');
+          ensureModalVisible(matchModal);
           if ((matchContext.query || '').length >= 2) {
             runMatchSearch(matchContext.query);
           }
@@ -1396,6 +1621,7 @@ function ado_render_quote_detail(int $user_id, int $quote_id): string
           scopeDoorLabel.text(scopeContext.doorLabel ? ('Door: ' + scopeContext.doorLabel) : 'Review parser rows before scoping.');
           scopeModal.prop('hidden', false).removeAttr('hidden');
           scopeBackdrop.prop('hidden', false).removeAttr('hidden');
+          ensureModalVisible(scopeModal);
           loadScopeRows();
         }
         function applyScopeDecision(decision, signature){
@@ -2064,7 +2290,12 @@ function ado_quote_stage_scoped_payload(int $user_id, string $scope_url): array
     ];
 }
 
-function ado_quote_create_from_scope_token(int $user_id, string $token, string $quote_name = ''): array
+function ado_quote_create_from_scope_token(
+    int $user_id,
+    string $token,
+    string $quote_name = '',
+    string $project_address = ''
+): array
 {
     $token = preg_replace('/[^a-zA-Z0-9]/', '', (string) $token);
     $key = ado_quote_scope_token_key($token);
@@ -2079,6 +2310,7 @@ function ado_quote_create_from_scope_token(int $user_id, string $token, string $
 
     $created = ado_quote_integration()->create_quote_from_payload($user_id, $payload, [
         'name' => $quote_name,
+        'project_address' => $project_address,
         'scope_url' => (string) ($staged['scope_url'] ?? ''),
         'scope_path' => '',
         'debug' => false,
@@ -2131,11 +2363,15 @@ add_action('wp_ajax_ado_scope_token_to_quote_cart', static function (): void {
     $uid = ado_assert_client_ajax();
     $scope_token = sanitize_text_field((string) ($_POST['scope_token'] ?? ''));
     $quote_name = sanitize_text_field((string) ($_POST['quote_name'] ?? ''));
+    $project_address = sanitize_textarea_field((string) ($_POST['project_address'] ?? ''));
     if ($scope_token === '') {
         wp_send_json_error(['message' => 'Missing staged payload token.'], 400);
     }
+    if ($quote_name === '' || $project_address === '') {
+        wp_send_json_error(['message' => 'Project name and address are required before creating a quote.'], 400);
+    }
 
-    $created = ado_quote_create_from_scope_token($uid, $scope_token, $quote_name);
+    $created = ado_quote_create_from_scope_token($uid, $scope_token, $quote_name, $project_address);
     if (empty($created['ok'])) {
         wp_send_json_error([
             'message' => (string) ($created['message'] ?? 'Failed to create quote.'),
@@ -2268,6 +2504,7 @@ add_action('wp_ajax_ado_resolve_quote_match_review', static function (): void {
 
     $decision_key = (string) ($review_row['decision_key'] ?? '');
     $normalized_model = (string) ($review_row['normalized_model'] ?? '');
+    $override_aliases = ado_quote_override_key_aliases($review_row, $decision_key, $normalized_model);
     $candidates = array_values((array) ($review_row['candidate_products'] ?? []));
     if (!$candidates) {
         wp_send_json_error(['message' => 'This row has no review candidates.'], 400);
@@ -2284,7 +2521,7 @@ add_action('wp_ajax_ado_resolve_quote_match_review', static function (): void {
         if (!$selected) {
             wp_send_json_error(['message' => 'Selected product is not valid for this row.'], 400);
         }
-        ado_qm_save_override_choice($decision_key, $normalized_model, (string) ($selected['brand'] ?? ''), $product_id);
+        ado_qm_save_override_choice($decision_key, $normalized_model, (string) ($selected['brand'] ?? ''), $product_id, $override_aliases);
         $message = 'Match saved and quote rebuilt.';
     } else {
         ado_qm_save_rejection($decision_key, array_map(static fn(array $row): int => (int) ($row['product_id'] ?? 0), $candidates));
@@ -2384,7 +2621,8 @@ add_action('wp_ajax_ado_apply_quote_line_decision', static function (): void {
     if ($decision_key === '' && $normalized_model !== '') {
         $decision_key = '*|' . $normalized_model;
     }
-    if ($decision_key === '' && $normalized_model === '') {
+    $override_aliases = ado_quote_override_key_aliases($line_row, $decision_key, $normalized_model);
+    if ($decision_key === '' && $normalized_model === '' && !$override_aliases) {
         wp_send_json_error(['message' => 'Line context is missing key metadata for this decision.'], 400);
     }
 
@@ -2399,9 +2637,7 @@ add_action('wp_ajax_ado_apply_quote_line_decision', static function (): void {
         $brand = function_exists('ado_qm_infer_brand_from_title')
             ? ado_qm_infer_brand_from_title((string) $product->get_name())
             : '';
-        if ($decision_key !== '' && $normalized_model !== '') {
-            ado_qm_save_override_choice($decision_key, $normalized_model, $brand, $product_id);
-        }
+        ado_qm_save_override_choice($decision_key, $normalized_model, $brand, $product_id, $override_aliases);
         ado_quote_integration()->save_quote_line_adjustment($quote_id, $line_key, [
             'drop_line' => false,
             'corrected_model' => '',
@@ -2411,8 +2647,8 @@ add_action('wp_ajax_ado_apply_quote_line_decision', static function (): void {
         ]);
         $message = 'Match saved and propagated to matching lines.';
     } else {
-        if ($decision_key !== '' && $normalized_model !== '' && function_exists('ado_qm_save_override_deletion')) {
-            ado_qm_save_override_deletion($decision_key, $normalized_model);
+        if (function_exists('ado_qm_save_override_deletion')) {
+            ado_qm_save_override_deletion($decision_key, $normalized_model, '', $override_aliases);
         }
         ado_quote_integration()->save_quote_line_adjustment($quote_id, $line_key, [
             'drop_line' => true,
@@ -2871,6 +3107,19 @@ add_shortcode('ado_client_quote_dashboard', static function (): string {
           <button class="ado-link-btn" type="button" id="ado-client-enter-manual">Enter manually</button>
         </div>
         <p id="ado-client-upload-status" class="ado-muted" style="margin-top:10px;"></p>
+        <form class="ado-project-requirements" id="ado-client-project-requirements" hidden>
+          <h4 style="margin:4px 0 0;">Project Details</h4>
+          <p class="ado-muted" style="margin:0;">Before we create this quote, enter the project name and address.</p>
+          <label class="ado-project-field" for="ado-client-project-name">
+            <span>Project Name</span>
+            <input type="text" id="ado-client-project-name" maxlength="180" autocomplete="organization" required>
+          </label>
+          <label class="ado-project-field" for="ado-client-project-address">
+            <span>Project Address</span>
+            <textarea id="ado-client-project-address" rows="3" maxlength="500" autocomplete="street-address" required></textarea>
+          </label>
+          <button class="ado-btn primary" type="submit" id="ado-client-project-submit">Create Quote</button>
+        </form>
         <div class="ado-parser-hidden" aria-hidden="true">
           <?php echo do_shortcode('[contact-form]'); ?>
         </div>
@@ -2930,6 +3179,11 @@ add_shortcode('ado_client_quote_dashboard', static function (): string {
       .ado-upload-hint{font-size:12px;color:#475569;}
       .ado-upload-divider{display:flex;align-items:center;gap:12px;margin-top:14px;font-size:12px;color:#64748b;}
       .ado-upload-divider::before,.ado-upload-divider::after{content:'';flex:1;height:1px;background:#e2e8f0;}
+      .ado-project-requirements{display:flex;flex-direction:column;gap:10px;padding:12px;border:1px solid #dbeafe;border-radius:12px;background:#f8fbff}
+      .ado-project-field{display:flex;flex-direction:column;gap:6px}
+      .ado-project-field span{font-size:12px;font-weight:700;color:#334155}
+      .ado-project-field input,.ado-project-field textarea{width:100%;border:1px solid #cbd5e1;border-radius:8px;padding:9px 10px;font-size:13px;outline:none;background:#fff}
+      .ado-project-field input:focus,.ado-project-field textarea:focus{border-color:#1d4ed8;box-shadow:0 0 0 3px rgba(29,78,216,.14)}
       .ado-parser-hidden{position:absolute;left:-9999px;top:auto;width:1px;height:1px;overflow:hidden;}
       @media (max-width:1024px){.ado-client-quote-shell,.ado-list-cols{grid-template-columns:1fr}}
     </style>
@@ -2960,6 +3214,10 @@ add_shortcode('ado_client_quote_dashboard', static function (): string {
         var drawerBody = $('#ado-client-drawer-body');
         var uploadDrawer = $('#adoClientUploadDrawer');
         var uploadDrawerClose = $('#ado-client-upload-drawer-close');
+        var projectRequirements = $('#ado-client-project-requirements');
+        var projectNameInput = $('#ado-client-project-name');
+        var projectAddressInput = $('#ado-client-project-address');
+        var projectSubmitBtn = $('#ado-client-project-submit');
         var newQuoteTrigger = $('#ado-client-new-quote-trigger');
         var panelAnimationTimers = {};
         var panelRequestToken = 0;
@@ -2969,6 +3227,42 @@ add_shortcode('ado_client_quote_dashboard', static function (): string {
         var previewPreloadQueued = {};
         var previewPreloadScheduled = false;
         var previewPreloadRunning = false;
+        var pendingScopeToken = '';
+        var creatingQuoteFromScope = false;
+
+        function resetProjectRequirements(clearFields){
+          pendingScopeToken = '';
+          creatingQuoteFromScope = false;
+          if (projectSubmitBtn.length) {
+            projectSubmitBtn.prop('disabled', false);
+          }
+          if (projectRequirements.length) {
+            projectRequirements.prop('hidden', true).attr('hidden', 'hidden');
+          }
+          if (clearFields) {
+            if (projectNameInput.length) {
+              projectNameInput.val('');
+            }
+            if (projectAddressInput.length) {
+              projectAddressInput.val('');
+            }
+          }
+        }
+
+        function revealProjectRequirements(scopeToken){
+          pendingScopeToken = String(scopeToken || '');
+          if (!pendingScopeToken) {
+            setUploadStatus('Scoped payload token missing. Please retry upload.', true);
+            return;
+          }
+          if (projectRequirements.length) {
+            projectRequirements.prop('hidden', false).removeAttr('hidden');
+          }
+          setUploadStatus('PDF extracted. Enter project name and project address to continue.');
+          if (projectNameInput.length && !$.trim(String(projectNameInput.val() || ''))) {
+            projectNameInput.trigger('focus');
+          }
+        }
 
         function panelId(el){
           return el && el.length ? String(el.attr('id') || '') : '';
@@ -3124,6 +3418,7 @@ add_shortcode('ado_client_quote_dashboard', static function (): string {
           if (!uploadDrawer.length) {
             return;
           }
+          resetProjectRequirements(true);
           panelRequestToken += 1;
           hidePanel(uploadDrawer, uploadBackdrop);
         }
@@ -3194,7 +3489,6 @@ add_shortcode('ado_client_quote_dashboard', static function (): string {
         }
         function renderState(){
           renderQuotes();
-          preloadAllPreviews();
         }
         function refreshState(){
           post('ado_client_quotes_state', {}, function(res){
@@ -3306,6 +3600,7 @@ add_shortcode('ado_client_quote_dashboard', static function (): string {
         }
 
         function submitPDFFile(file){
+          resetProjectRequirements(true);
           if (!file) { return; }
           var isPdf = (file.type === 'application/pdf') || /\.pdf$/i.test((file.name || ''));
           if (!isPdf) {
@@ -3345,7 +3640,7 @@ add_shortcode('ado_client_quote_dashboard', static function (): string {
                   setUploadStatus((staged && staged.message) ? staged.message : 'Failed to stage scoped payload.', true);
                   return;
                 }
-                handleScopeCreate(staged.scope_token);
+                revealProjectRequirements(staged.scope_token);
               });
             },
             error: function(xhr){
@@ -3386,6 +3681,17 @@ add_shortcode('ado_client_quote_dashboard', static function (): string {
           this.value = '';
         });
 
+        projectRequirements.on('submit', function(event){
+          event.preventDefault();
+          var quoteName = $.trim(String(projectNameInput.val() || ''));
+          var projectAddress = $.trim(String(projectAddressInput.val() || ''));
+          if (!quoteName || !projectAddress) {
+            setUploadStatus('Project name and address are required before creating the quote.', true);
+            return;
+          }
+          handleScopeCreate(pendingScopeToken, quoteName, projectAddress);
+        });
+
         setUploadStatus('Drop your hardware schedule PDF here or click to browse to start extraction.');
 
         function stageScope(scopeUrl, cb){
@@ -3398,19 +3704,41 @@ add_shortcode('ado_client_quote_dashboard', static function (): string {
           });
         }
 
-        function handleScopeCreate(scopeToken){
+        function handleScopeCreate(scopeToken, quoteName, projectAddress){
           var scopeTokenValue = scopeToken || '';
+          var quoteNameValue = $.trim(String(quoteName || ''));
+          var projectAddressValue = $.trim(String(projectAddress || ''));
           if (!scopeTokenValue) {
             setUploadStatus('Scoped payload token missing. Please retry upload.', true);
             return;
           }
+          if (!quoteNameValue || !projectAddressValue) {
+            setUploadStatus('Project name and address are required before creating the quote.', true);
+            return;
+          }
+          if (creatingQuoteFromScope) {
+            return;
+          }
+          creatingQuoteFromScope = true;
+          if (projectSubmitBtn.length) {
+            projectSubmitBtn.prop('disabled', true);
+          }
           setUploadStatus('PDF extracted. Creating quote now...');
-          post('ado_scope_token_to_quote_cart', {scope_token: scopeTokenValue, quote_name: ''}, function(createRes){
+          post('ado_scope_token_to_quote_cart', {
+            scope_token: scopeTokenValue,
+            quote_name: quoteNameValue,
+            project_address: projectAddressValue
+          }, function(createRes){
+            creatingQuoteFromScope = false;
+            if (projectSubmitBtn.length) {
+              projectSubmitBtn.prop('disabled', false);
+            }
             if (!createRes || !createRes.success) {
               setUploadStatus((createRes && createRes.data && createRes.data.message) ? createRes.data.message + ' Click retry on the upload form.' : 'Failed to create quote. Please retry upload.', true);
               return;
             }
             setUploadStatus('Quote created successfully.');
+            resetProjectRequirements(true);
             // New quotes are created as drafts; switch to Drafts so the new quote is visible deterministically.
             setActiveFilter('drafts');
             refreshState();

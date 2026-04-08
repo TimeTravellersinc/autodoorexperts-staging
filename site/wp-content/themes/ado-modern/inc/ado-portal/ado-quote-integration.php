@@ -89,18 +89,26 @@ final class ADO_Quote_Integration
         if ($name === '') {
             $name = 'Quote ' . wp_date('Y-m-d H:i');
         }
+        $project_address = trim((string) ($args['project_address'] ?? ''));
 
-        $mapped = $this->map_payload($payload, !empty($args['debug']));
+        $debug = !empty($args['debug']);
+        $mapped = $this->map_payload($payload, $debug);
         $lines = (array) ($mapped['lines'] ?? []);
         $unmatched = array_values((array) ($mapped['unmatched'] ?? []));
         $excluded = array_values((array) ($mapped['excluded'] ?? []));
         if (!$lines) {
+            $debug_log = array_values((array) ($mapped['debug_log'] ?? []));
+            $trace_file = '';
+            if ($debug && $debug_log) {
+                $trace_file = $this->write_match_trace_file(0, (string) ($args['scope_path'] ?? ''), $debug_log);
+            }
             return [
                 'ok' => false,
                 'message' => 'No products matched scoped JSON.',
                 'unmatched' => $unmatched,
                 'excluded' => $excluded,
-                'debug_log' => array_values((array) ($mapped['debug_log'] ?? [])),
+                'debug_log' => $debug_log,
+                'match_trace_file' => $trace_file,
             ];
         }
 
@@ -117,23 +125,37 @@ final class ADO_Quote_Integration
 
         $snapshot_json = wp_json_encode($payload, JSON_UNESCAPED_SLASHES);
         $snapshot_json = is_string($snapshot_json) ? $snapshot_json : '';
+        $scope_url = (string) ($args['scope_url'] ?? '');
+        $scope_path = (string) ($args['scope_path'] ?? '');
+        if ($scope_path === '' && $scope_url !== '') {
+            $scope_path = $this->scope_url_to_path($scope_url);
+        }
         $created_at = current_time('mysql');
 
         update_post_meta($quote_id, '_adq_user_id', $user_id);
         update_post_meta($quote_id, '_adq_status', 'draft');
         update_post_meta($quote_id, '_adq_created_at', $created_at);
         update_post_meta($quote_id, '_adq_updated_at', $created_at);
-        update_post_meta($quote_id, '_adq_scope_url', (string) ($args['scope_url'] ?? ''));
-        update_post_meta($quote_id, '_adq_scope_path', (string) ($args['scope_path'] ?? ''));
-        update_post_meta($quote_id, '_adq_scoped_json_snapshot', $snapshot_json);
+        update_post_meta($quote_id, '_adq_project_name', $name);
+        update_post_meta($quote_id, '_adq_project_address', $project_address);
+        update_post_meta($quote_id, '_adq_scope_url', $scope_url);
+        update_post_meta($quote_id, '_adq_scope_path', $scope_path);
+        update_post_meta($quote_id, '_adq_scoped_json_snapshot', wp_slash($snapshot_json));
         update_post_meta($quote_id, '_adq_doors', array_values((array) ($mapped['doors'] ?? [])));
         update_post_meta($quote_id, '_adq_cart_snapshot', array_values($lines));
         update_post_meta($quote_id, '_adq_unmatched_items', array_values((array) ($mapped['unmatched'] ?? [])));
         update_post_meta($quote_id, '_adq_excluded_items', $excluded);
-        update_post_meta($quote_id, '_adq_match_log', array_values((array) ($mapped['debug_log'] ?? [])));
+        $debug_log = array_values((array) ($mapped['debug_log'] ?? []));
+        update_post_meta($quote_id, '_adq_match_log', $debug_log);
         update_post_meta($quote_id, '_adq_door_notes', []);
         update_post_meta($quote_id, '_adq_line_adjustments', []);
         update_post_meta($quote_id, '_adq_totals', $this->calculate_snapshot_totals($lines));
+
+        $trace_file = '';
+        if ($debug) {
+            $trace_file = $this->write_match_trace_file($quote_id, (string) ($args['scope_path'] ?? ''), $debug_log);
+            update_post_meta($quote_id, '_adq_match_trace_file', $trace_file);
+        }
 
         return [
             'ok' => true,
@@ -141,7 +163,8 @@ final class ADO_Quote_Integration
             'message' => $lines ? 'Quote created from scoped JSON.' : 'Quote created for match review.',
             'unmatched_count' => count($unmatched),
             'dropped_count' => count($unmatched) + count($excluded),
-            'debug_log' => array_values((array) ($mapped['debug_log'] ?? [])),
+            'debug_log' => $debug_log,
+            'match_trace_file' => $trace_file,
         ];
     }
 
@@ -151,11 +174,24 @@ final class ADO_Quote_Integration
         $payload = $snapshot_json !== '' ? json_decode($snapshot_json, true) : null;
         if (!is_array($payload)) {
             $scope_path = (string) get_post_meta($quote_id, '_adq_scope_path', true);
+            if ($scope_path === '') {
+                $scope_url = (string) get_post_meta($quote_id, '_adq_scope_url', true);
+                if ($scope_url !== '') {
+                    $scope_path = $this->scope_url_to_path($scope_url);
+                    if ($scope_path !== '') {
+                        update_post_meta($quote_id, '_adq_scope_path', $scope_path);
+                    }
+                }
+            }
             if ($scope_path !== '' && file_exists($scope_path)) {
                 $payload = json_decode((string) file_get_contents($scope_path), true);
                 if (is_array($payload)) {
                     $snapshot_json = wp_json_encode($payload, JSON_UNESCAPED_SLASHES);
-                    update_post_meta($quote_id, '_adq_scoped_json_snapshot', is_string($snapshot_json) ? $snapshot_json : '');
+                    update_post_meta(
+                        $quote_id,
+                        '_adq_scoped_json_snapshot',
+                        is_string($snapshot_json) ? wp_slash($snapshot_json) : ''
+                    );
                 }
             }
         }
@@ -198,21 +234,35 @@ final class ADO_Quote_Integration
 
     public function get_user_quotes(int $user_id, array $statuses = []): array
     {
+        $meta_query = [['key' => '_adq_user_id', 'value' => (string) $user_id, 'compare' => '=']];
+        if ($statuses) {
+            $allowed_statuses = array_values(array_filter(array_map(static function ($value): string {
+                return sanitize_key((string) $value);
+            }, $statuses), static function (string $value): bool {
+                return $value !== '';
+            }));
+            if ($allowed_statuses) {
+                $meta_query[] = ['key' => '_adq_status', 'value' => $allowed_statuses, 'compare' => 'IN'];
+            }
+        }
+
         $query = new WP_Query([
             'post_type' => self::CPT,
             'post_status' => 'publish',
             'posts_per_page' => 200,
             'orderby' => 'date',
             'order' => 'DESC',
-            'meta_query' => [['key' => '_adq_user_id', 'value' => (string) $user_id, 'compare' => '=']],
+            'fields' => 'ids',
+            'no_found_rows' => true,
+            'cache_results' => false,
+            'update_post_meta_cache' => false,
+            'update_post_term_cache' => false,
+            'meta_query' => $meta_query,
         ]);
         $rows = [];
-        foreach ((array) $query->posts as $post) {
+        foreach ((array) $query->posts as $post_id) {
+            $post = get_post((int) $post_id);
             if (!($post instanceof WP_Post)) {
-                continue;
-            }
-            $status = (string) get_post_meta((int) $post->ID, '_adq_status', true);
-            if ($statuses && !in_array($status, $statuses, true)) {
                 continue;
             }
             $rows[] = $post;
@@ -403,6 +453,7 @@ final class ADO_Quote_Integration
                 'manual_description' => trim((string) ($row['manual_description'] ?? '')),
                 'manual_unit_price' => $unit !== null && $unit >= 0 ? round($unit, 2) : null,
                 'manual_sku' => trim((string) ($row['manual_sku'] ?? '')),
+                'drop_line' => !empty($row['drop_line']),
                 'updated_at' => (string) ($row['updated_at'] ?? ''),
             ];
         }
@@ -421,6 +472,7 @@ final class ADO_Quote_Integration
             'manual_description' => '',
             'manual_unit_price' => null,
             'manual_sku' => '',
+            'drop_line' => false,
             'updated_at' => '',
         ];
 
@@ -442,11 +494,15 @@ final class ADO_Quote_Integration
                 $current['manual_unit_price'] = $price_f >= 0 ? round($price_f, 2) : null;
             }
         }
+        if (array_key_exists('drop_line', $payload)) {
+            $current['drop_line'] = !empty($payload['drop_line']);
+        }
 
         $is_empty = $current['corrected_model'] === ''
             && $current['manual_description'] === ''
             && $current['manual_sku'] === ''
-            && $current['manual_unit_price'] === null;
+            && $current['manual_unit_price'] === null
+            && empty($current['drop_line']);
 
         if ($is_empty) {
             unset($rows[$line_key]);
@@ -510,11 +566,22 @@ final class ADO_Quote_Integration
         $excluded = get_post_meta($quote_id, '_adq_excluded_items', true);
         $door_notes = $this->get_quote_door_notes($quote_id);
         $line_adjustments = $this->get_quote_line_adjustments($quote_id);
+        $project_name = trim((string) get_post_meta($quote_id, '_adq_project_name', true));
+        if ($project_name === '') {
+            $project_name = trim((string) get_the_title($quote_id));
+        }
+        $project_address = trim((string) get_post_meta($quote_id, '_adq_project_address', true));
         $scope_snapshot = (string) get_post_meta($quote_id, '_adq_scoped_json_snapshot', true);
         $scope_path = (string) get_post_meta($quote_id, '_adq_scope_path', true);
         $scope_url = (string) get_post_meta($quote_id, '_adq_scope_url', true);
 
         $order->update_meta_data('_ado_quote_id', $quote_id);
+        if ($project_name !== '') {
+            $order->update_meta_data('_ado_project_name', $project_name);
+        }
+        if ($project_address !== '') {
+            $order->update_meta_data('_ado_project_address', $project_address);
+        }
         $order->update_meta_data('_ado_project_doors', is_array($doors) ? $doors : []);
         $order->update_meta_data('_ado_unmatched_items', is_array($unmatched) ? $unmatched : []);
         $order->update_meta_data('_ado_excluded_items', is_array($excluded) ? $excluded : []);
@@ -720,20 +787,21 @@ final class ADO_Quote_Integration
                             'description' => $source_desc,
                             'qty' => $qty,
                             'matched_product_id' => $pid,
+                            'matched_product_name' => '',
                             'matched_by' => $match_method !== '' ? $match_method : 'none',
                             'confidence' => $match_confidence,
                             'reason_code' => $reason_code,
                             'decision_key' => $decision_key,
                             'normalized_model' => $normalized_model,
                             'line_type' => $line_type,
+                            'item_index' => (int) $item_index,
+                            'segment_index' => (int) $segment_index,
                             'manual_unit_price' => $manual_unit_price,
                             'manual_description' => $manual_description,
                             'attempts' => array_values((array) ($adjusted['trace'] ?? ($match['trace'] ?? []))),
                             'candidate_scores' => $candidate_products,
+                            'final_disposition' => '',
                         ];
-                        if ($debug) {
-                            $debug_log[] = $debug_entry;
-                        }
 
                         if ($pid <= 0 && $line_type !== 'manual') {
                             $unmatched_row = [
@@ -752,6 +820,29 @@ final class ADO_Quote_Integration
                             ];
                             $unmatched_row = $this->normalize_unmatched_row($unmatched_row);
                             $bucket = $this->classify_unmatched_row($door_meta, $unmatched_row, $match, $item);
+                            $final_reason = (string) ($unmatched_row['reason_code'] ?? '');
+                            if ($final_reason === '') {
+                                $final_reason = 'NO_CANDIDATES';
+                                $unmatched_row['reason_code'] = $final_reason;
+                            }
+                            $debug_entry['model'] = (string) ($unmatched_row['model'] ?? $debug_entry['model']);
+                            $debug_entry['description'] = (string) ($unmatched_row['description'] ?? $debug_entry['description']);
+                            $debug_entry['reason_code'] = $final_reason;
+                            $debug_entry['normalized_model'] = (string) ($unmatched_row['normalized_model'] ?? $debug_entry['normalized_model']);
+                            $debug_entry['decision_key'] = (string) ($unmatched_row['decision_key'] ?? $debug_entry['decision_key']);
+                            $reason_upper = strtoupper($final_reason);
+                            if ($bucket !== 'review') {
+                                $final_disposition = 'excluded';
+                            } else {
+                                $final_disposition = in_array($reason_upper, ['USER_REVIEW', 'MULTIPLE_CANDIDATES'], true) ? 'review' : 'unmatched';
+                            }
+                            $debug_entry['final_disposition'] = $final_disposition;
+                            if ($bucket !== 'review') {
+                                $debug_entry['excluded_reason'] = str_replace('excluded_', '', $bucket);
+                            }
+                            if ($debug) {
+                                $debug_log[] = $debug_entry;
+                            }
                             if ($bucket !== 'review') {
                                 $unmatched_row['excluded_reason'] = str_replace('excluded_', '', $bucket);
                                 $excluded[] = $unmatched_row;
@@ -759,6 +850,12 @@ final class ADO_Quote_Integration
                                 $unmatched[] = $unmatched_row;
                             }
                             continue;
+                        }
+
+                        $debug_entry['matched_product_name'] = $pid > 0 ? (string) ($index['products'][$pid]['title'] ?? '') : '';
+                        $debug_entry['final_disposition'] = $line_type === 'manual' ? 'manual' : 'matched';
+                        if ($debug) {
+                            $debug_log[] = $debug_entry;
                         }
 
                         $line = [
@@ -828,6 +925,25 @@ final class ADO_Quote_Integration
         $type = trim((string) ($door['door_type'] ?? ''));
         $desc = trim((string) ($door['desc'] ?? ''));
         $location = trim((string) ($door['heading'] ?? ''));
+        $normalized_items = [];
+        foreach ((array) ($door['items'] ?? []) as $item) {
+            if (!is_array($item)) {
+                continue;
+            }
+            $catalog = trim((string) ($item['catalog'] ?? ($item['model'] ?? '')));
+            $item_desc = trim((string) ($item['desc'] ?? ''));
+            $raw = trim((string) ($item['raw'] ?? ''));
+            $qty = max(1, (int) ($item['qty'] ?? 1));
+            if ($catalog === '' && $item_desc === '' && $raw === '') {
+                continue;
+            }
+            $normalized_items[] = [
+                'catalog' => $catalog,
+                'desc' => $item_desc,
+                'raw' => $raw,
+                'qty' => $qty,
+            ];
+        }
         $label = 'Door ' . ($number !== '' ? $number : 'Unknown');
         if ($type !== '') {
             $label .= ' - ' . $type;
@@ -843,6 +959,7 @@ final class ADO_Quote_Integration
             'location' => $location,
             'door_type' => $type,
             'is_scoped' => true,
+            'items' => $normalized_items,
             'has_operator' => $this->door_has_operator((array) ($door['items'] ?? [])),
         ];
     }
@@ -854,7 +971,7 @@ final class ADO_Quote_Integration
         }
 
         $reason = strtoupper((string) ($row['reason_code'] ?? ($match['reason_code'] ?? '')));
-        if ($reason === 'EXTERNAL_SCOPE') {
+        if (in_array($reason, ['EXTERNAL_SCOPE', 'USER_DELETED'], true)) {
             return 'excluded_external_scope';
         }
 
@@ -1091,6 +1208,22 @@ final class ADO_Quote_Integration
             return $match;
         }
 
+        if (!empty($adjustment['drop_line'])) {
+            $match['product_id'] = 0;
+            $match['line_type'] = 'catalog';
+            $match['manual_unit_price'] = null;
+            $match['manual_description'] = '';
+            $match['manual_sku'] = '';
+            $match['match_method'] = 'user_deleted';
+            $match['confidence'] = 100;
+            $match['reason_code'] = 'USER_DELETED';
+            $match['candidate_products'] = [];
+            $trace = array_values((array) ($match['trace'] ?? []));
+            $trace[] = 'quote_adjustment: drop_line';
+            $match['trace'] = $trace;
+            return $match;
+        }
+
         $corrected_model = trim((string) ($adjustment['corrected_model'] ?? ''));
         $manual_description = trim((string) ($adjustment['manual_description'] ?? ''));
         $manual_unit_price = $adjustment['manual_unit_price'] ?? null;
@@ -1130,7 +1263,9 @@ final class ADO_Quote_Integration
             $match['manual_sku'] = $manual_sku !== '' ? $manual_sku : $corrected_model;
             if ($corrected_model !== '') {
                 $match['source_model'] = $corrected_model;
-                $match['normalized_model'] = ado_qm_normalize_model($corrected_model);
+                $match['normalized_model'] = function_exists('ado_qm_compact')
+                    ? ado_qm_compact($corrected_model)
+                    : strtoupper(trim((string) $corrected_model));
             }
             if ($manual_description !== '') {
                 $match['source_desc'] = $manual_description;
@@ -1146,13 +1281,64 @@ final class ADO_Quote_Integration
 
         if ($corrected_model !== '') {
             $match['source_model'] = $corrected_model;
-            $match['normalized_model'] = ado_qm_normalize_model($corrected_model);
+            $match['normalized_model'] = function_exists('ado_qm_compact')
+                ? ado_qm_compact($corrected_model)
+                : strtoupper(trim((string) $corrected_model));
         }
         if ($manual_description !== '') {
             $match['source_desc'] = $manual_description;
         }
 
         return $match;
+    }
+
+    private function write_match_trace_file(int $quote_id, string $scope_path, array $debug_log): string
+    {
+        $entries = array_values($debug_log);
+        if (!$entries) {
+            return '';
+        }
+        $counts = [
+            'matched' => 0,
+            'review' => 0,
+            'unmatched' => 0,
+            'excluded' => 0,
+            'manual' => 0,
+        ];
+        foreach ($entries as $entry) {
+            $disp = strtolower(trim((string) ($entry['final_disposition'] ?? '')));
+            if ($disp === '') {
+                $disp = 'unmatched';
+            }
+            if (!isset($counts[$disp])) {
+                $counts[$disp] = 0;
+            }
+            $counts[$disp]++;
+        }
+        $metadata = [
+            'generated_at' => wp_date('c'),
+            'quote_id' => $quote_id,
+            'scope_path' => $scope_path,
+            'total_segments' => count($entries),
+            'matched_count' => $counts['matched'] ?? 0,
+            'review_count' => $counts['review'] ?? 0,
+            'unmatched_count' => $counts['unmatched'] ?? 0,
+            'excluded_count' => $counts['excluded'] ?? 0,
+            'manual_count' => $counts['manual'] ?? 0,
+            'entries' => $entries,
+        ];
+        $output_dir = '/var/www/html/wp-content/themes/ado-modern/tests/output';
+        if (!wp_mkdir_p($output_dir) && !file_exists($output_dir)) {
+            return '';
+        }
+        $filename = sprintf('match-trace-%s-%s.json', $quote_id, wp_date('Ymd-His'));
+        $path = trailingslashit($output_dir) . $filename;
+        $json = wp_json_encode($metadata, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
+        if (!is_string($json)) {
+            return '';
+        }
+        $bytes = @file_put_contents($path, $json, LOCK_EX);
+        return is_int($bytes) && $bytes > 0 ? $path : '';
     }
 
     private function match_item_to_product(array $item, array &$attempt_log): array
